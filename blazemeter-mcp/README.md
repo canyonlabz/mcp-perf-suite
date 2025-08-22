@@ -188,13 +188,13 @@ Avg: 340
 ```
 
 blazemeter_mcp_server/
-├── blazemeter.py          \# MCP server entrypoint with FastMCP
+├── blazemeter.py          # MCP server entrypoint with FastMCP
 ├── services/
-│   └── blazemeter_api.py  \# BlazeMeter API logic
-├── artifacts/             \# Runtime directory for results/JTL/log downloads
-├── requirements.txt       \# Python dependencies
-├── README.md              \# This file
-└── .env                   \# Environment variables (API keys)
+│   └── blazemeter_api.py  # BlazeMeter API logic
+├── artifacts/             # Runtime directory for results/JTL/log downloads
+├── requirements.txt       # Python dependencies
+├── README.md              # This file
+└── .env                   # Environment variables (API keys)
 
 ```
 
