@@ -1,10 +1,10 @@
-# MCP Perf Suite 🚀
+# MCP Perf Suite
 
 Welcome to the **MCP Perf Suite** — a modular collection of MCP servers designed to support and streamline performance testing workflows.
 
 ---
 
-## Overview 📖
+## 📖 Overview
 
 This repository hosts multiple MCP servers, each designed for a specific role in the performance testing lifecycle:
 
@@ -22,7 +22,7 @@ This repository hosts multiple MCP servers, each designed for a specific role in
 
 ---
 
-## Architecture & Structure 🏗️
+## 🏗️ Architecture & Structure
 
 Each MCP server lives in its **own subdirectory** within this repo, making it easy to develop, maintain, and deploy independently:
 
@@ -40,7 +40,7 @@ mcp-perf-suite/
 
 ---
 
-## Getting Started with BlazeMeter MCP Server ▶️
+## ▶️ Getting Started with BlazeMeter MCP Server
 
 Navigate to the `blazemeter-mcp/` folder for detailed setup and usage instructions specific to the BlazeMeter MCP server.
 
@@ -48,7 +48,7 @@ The BlazeMeter MCP server uses FastMCP, Python 3.12+, and exposes actions to man
 
 ---
 
-## Future Roadmap 🛣️
+## 🛣️ Future Roadmap 
 
 - Build and publish the **Datadog MCP Server** to enable metrics ingestion and correlation.  
 - Develop the **Test Analysis MCP Server** utilizing OpenAI GPT and other LLMs for automated test result analytics.  
@@ -57,17 +57,17 @@ The BlazeMeter MCP server uses FastMCP, Python 3.12+, and exposes actions to man
 
 ---
 
-## Contribution 🤝
+## 🤝 Contribution
 
 Contributions, ideas, and feature requests are welcome! Please open issues or create pull requests to collaborate.
 
 ---
 
-## License 📜
+## 📜 License 
 
 This project is licensed under the MIT License. See the LICENSE file for details.
 
 ---
 
 Created with ❤️ to enable next-gen performance testing and analysis powered by MCP and AI.
-```
+
