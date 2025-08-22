@@ -205,3 +205,12 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# =========================================================
+# Repo: mcp-perf-suite
+# Ignore the following files and directories
+# =========================================================
+
+# ignore environment variables
+.env
+blazemeter-mcp/.env

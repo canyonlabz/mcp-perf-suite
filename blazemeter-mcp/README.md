@@ -110,17 +110,17 @@ You can create an `mcp.json` file to configure how Cursor or other MCP hosts sta
 ```
 
 {
-"mcpServers": {
-"blazemeter": {
-"command": "uv",
-"args": [
-"--directory",
-"/path/to/your/blazemeter_mcp_server",
-"run",
-"blazemeter.py"
-]
-}
-}
+    "mcpServers": {
+        "blazemeter": {
+            "command": "uv",
+            "args": [
+                "--directory",
+                "/path/to/your/blazemeter_mcp_server",
+                "run",
+                "blazemeter.py"
+            ]
+        }
+    }
 }
 
 ```
