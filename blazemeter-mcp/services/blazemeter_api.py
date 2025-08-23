@@ -1,19 +1,25 @@
-import httpx
+# services/blazemeter_api.py
 import os
-from datetime import datetime
+import httpx
 import base64
+from datetime import datetime
+from typing import Dict, Any
 
 BLAZEMETER_API_KEY = os.getenv("BLAZEMETER_API_KEY")
 BLAZEMETER_API_SECRET = os.getenv("BLAZEMETER_API_SECRET")
+BLAZEMETER_ACCOUNT_ID = os.getenv("BLAZEMETER_ACCOUNT_ID")
+BLAZEMETER_WORKSPACE_ID = os.getenv("BLAZEMETER_WORKSPACE_ID")
 BLAZEMETER_API_BASE = "https://a.blazemeter.com/api/v4"
 
-def get_headers():
-    # Build the Basic Auth header in the correct format
-    auth_str = f"{BLAZEMETER_API_KEY}:{BLAZEMETER_API_SECRET}"
-    b64_auth = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
-    return {
-        "Authorization": f"Basic {b64_auth}"
+def get_headers(extra: dict = None):
+    # Basic Auth header BlazeMeter expects
+    auth = base64.b64encode(f"{BLAZEMETER_API_KEY}:{BLAZEMETER_API_SECRET}".encode()).decode()
+    h = {
+        "Authorization": f"Basic {auth}",
     }
+    if extra:
+        h.update(extra)
+    return h
 
 def format_timestamp(ts: str) -> str:
     """Convert BlazeMeter ISO timestamp to readable format."""
@@ -22,14 +28,15 @@ def format_timestamp(ts: str) -> str:
 
 async def list_workspaces() -> str:
     async with httpx.AsyncClient() as client:
-        resp = await client.get(f"{BLAZEMETER_API_BASE}/workspaces", headers=get_headers())
+        resp = await client.get(f"{BLAZEMETER_API_BASE}/workspaces?accountId={BLAZEMETER_ACCOUNT_ID}", headers=get_headers())
         resp.raise_for_status()
         workspaces = resp.json()["result"]
         return "\n".join(f"{ws['id']}: {ws['name']}" for ws in workspaces)
 
 async def list_projects(workspace_id: str) -> str:
+    workspace_id = BLAZEMETER_WORKSPACE_ID
     async with httpx.AsyncClient() as client:
-        url = f"{BLAZEMETER_API_BASE}/workspaces/{workspace_id}/projects"
+        url = f"{BLAZEMETER_API_BASE}/projects?workspaceId={workspace_id}"
         resp = await client.get(url, headers=get_headers())
         resp.raise_for_status()
         projects = resp.json()["result"]
@@ -37,60 +44,85 @@ async def list_projects(workspace_id: str) -> str:
 
 async def list_tests(project_id: str) -> str:
     async with httpx.AsyncClient() as client:
-        url = f"{BLAZEMETER_API_BASE}/projects/{project_id}/tests"
-        resp = await client.get(url, headers=get_headers())
+        url = f"{BLAZEMETER_API_BASE}/tests?projectId={project_id}&workspaceId={BLAZEMETER_WORKSPACE_ID}"
+        resp = await client.get(url, headers=get_headers({"Content-Type": "application/json"}))
         resp.raise_for_status()
         tests = resp.json()["result"]
         return "\n".join(f"{t['id']}: {t['name']}" for t in tests)
 
 async def run_test(test_id: str) -> str:
     async with httpx.AsyncClient() as client:
-        url = f"{BLAZEMETER_API_BASE}/tests/{test_id}/start"
-        resp = await client.post(url, headers=get_headers())
+        url = f"{BLAZEMETER_API_BASE}/tests/{test_id}/start?delayedStart=false"
+        resp = await client.post(url, headers=get_headers({"Content-Type": "application/json"}))
         resp.raise_for_status()
         result = resp.json()["result"]
         return f"Run started. Run ID: {result['id']}"
 
 async def get_results_summary(run_id: str) -> str:
-    """Fetch and format a summary report for the BlazeMeter test run."""
+    """
+    Fetch and format a summary report for the BlazeMeter test run, merging
+    fields from both 'master' details and 'summary statistics' endpoints.
 
-    async with httpx.AsyncClient() as client:
-        summary_url = f"{BLAZEMETER_API_BASE}/masters/{run_id}/summary"
-        resp = await client.get(summary_url, headers=get_headers(), timeout=30.0)
-        resp.raise_for_status()
-        summary = resp.json().get("result", {})
+    Args:
+        run_id: The BlazeMeter master/run ID.
 
-    if not summary:
-        return f"No summary available for run ID {run_id}."
+    Returns:
+        A pretty-printed, human-friendly test summary, or error details if retrieval fails.
+    """
 
-    # Extract fields safely with defaults
-    test_id = summary.get("testId", "Unknown")
-    test_name = summary.get("testName", "Unknown")
-    max_virtual_users = summary.get("maxVirtualUsers", "N/A")
-    start_time = format_timestamp(summary.get("startTime")) if summary.get("startTime") else "N/A"
-    end_time = format_timestamp(summary.get("endTime")) if summary.get("endTime") else "N/A"
+    # Prepare results for later combination
+    master = {}
+    summary = {}
 
-    duration_sec = None
-    if start_time != "N/A" and end_time != "N/A":
-        start_dt = datetime.fromisoformat(summary["startTime"].replace("Z", "+00:00"))
-        end_dt = datetime.fromisoformat(summary["endTime"].replace("Z", "+00:00"))
-        duration_sec = int((end_dt - start_dt).total_seconds())
-    duration_str = f"{duration_sec}s" if duration_sec is not None else "N/A"
+    try:
+        async with httpx.AsyncClient() as client:
+            # 1. Fetch main test run (master) info
+            master_url = f"{BLAZEMETER_API_BASE}/masters/{run_id}"
+            master_resp = await client.get(master_url, headers=get_headers(), timeout=30.0)
+            master_resp.raise_for_status()
+            master = master_resp.json().get("result", {})
 
-    samples_total = summary.get("samplesTotal", "N/A")
+            # 2. Fetch summary statistics (aggregated metrics per run)
+            summary_url = f"{BLAZEMETER_API_BASE}/masters/{run_id}/reports/default/summary"
+            summary_resp = await client.get(summary_url, headers=get_headers(), timeout=30.0)
+            summary_resp.raise_for_status()
+            summary_data = summary_resp.json().get("result", {})
 
-    error_count = summary.get("errorCount", summary.get("failCount", 0))
-    pass_count = samples_total - error_count if isinstance(samples_total, int) else "N/A"
-    fail_count = error_count
+            # There may be a "summary" array (per doc); pick the overall summary.
+            summary_list = summary_data.get("summary", [])
+            summary = summary_list[0] if summary_list else {}
 
-    # Aggregate response times
-    response_times = summary.get("aggregatedResponseTimes", {})
-    rt_min = response_times.get("min", "N/A")
-    rt_max = response_times.get("max", "N/A")
-    rt_avg = response_times.get("avg", "N/A")
-    rt_p90 = response_times.get("p90", "N/A")
+    except httpx.HTTPStatusError as he:
+        return f"❗ Error: BlazeMeter API request failed ({he.response.status_code})\nDetails: {he}"
+    except Exception as e:
+        return f"❗ Error: Could not fetch summary for run {run_id}.\nDetails: {e}"
 
-    # Build formatted report
+    if not master or not summary:
+        return f"⚠️ No results available for run ID {run_id} (master or summary empty)."
+
+    # Safely extract key fields
+    test_id = master.get("testId", "Unknown")
+    test_name = master.get("name", "Unknown")
+    max_virtual_users = summary.get("maxUsers", master.get("maxUsers", "N/A"))
+    start_time = format_timestamp(master.get("startTime")) if master.get("startTime") else "N/A"
+    end_time = format_timestamp(master.get("endTime")) if master.get("endTime") else "N/A"
+    duration_sec = summary.get("duration", "N/A")
+
+    samples_total = summary.get("hits", "N/A")
+    error_count = summary.get("failed", "N/A")
+    try:
+        # Only compute if both fields are int-able
+        pass_count = int(samples_total) - int(error_count)
+        fail_count = int(error_count)
+    except Exception:
+        pass_count = "N/A"
+        fail_count = error_count
+
+    rt_min = summary.get("min", "N/A")
+    rt_max = summary.get("max", "N/A")
+    rt_avg = summary.get("avg", "N/A")
+    rt_p90 = summary.get("tp90", "N/A")
+
     report = (
         f"BlazeMeter Test Run Summary\n"
         f"===========================\n"
@@ -99,7 +131,7 @@ async def get_results_summary(run_id: str) -> str:
         f"Run ID: {run_id}\n\n"
         f"Start Time: {start_time}\n"
         f"End Time: {end_time}\n"
-        f"Duration: {duration_str}\n"
+        f"Duration: {duration_sec}s\n"
         f"Max Virtual Users: {max_virtual_users}\n\n"
         f"Samples Total: {samples_total}\n"
         f"Pass Count: {pass_count}\n"
@@ -111,5 +143,4 @@ async def get_results_summary(run_id: str) -> str:
         f"  Avg: {rt_avg}\n"
         f"  90th Percentile: {rt_p90}\n"
     )
-
     return report

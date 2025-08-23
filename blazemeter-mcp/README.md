@@ -62,6 +62,8 @@ Create a `.env` file in the project root with your BlazeMeter API key:
 ```
 
 BLAZEMETER_API_KEY=your_blazemeter_api_key_here
+BLAZEMETER_API_SECRET=your_blazemeter_api_secret_here
+BLAZEMETER_ACCOUNT_ID=your_blazemeter_account_id_here
 
 ```
 

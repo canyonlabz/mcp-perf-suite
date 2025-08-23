@@ -1,5 +1,6 @@
-from typing import Any
-from mcp.server.fastmcp import FastMCP
+# blazemeter.py
+from fastmcp import FastMCP  # ✅ FastMCP 2.x import
+from typing import Optional
 
 from services.blazemeter_api import (
     list_workspaces,
@@ -7,39 +8,73 @@ from services.blazemeter_api import (
     list_tests,
     run_test,
     get_results_summary,
-    download_artifacts,
 )
 
-mcp = FastMCP("blazemeter")
+mcp = FastMCP(
+    name="blazemeter",
+)
 
-@mcp.tool()
+@mcp.tool
 async def get_workspaces() -> str:
-    """Return a list of available BlazeMeter workspaces."""
+    """
+    List BlazeMeter workspaces for the configured account.
+
+    Returns:
+        A human-readable string summary (or JSON string) of available workspaces.
+    """
     return await list_workspaces()
 
-@mcp.tool()
+@mcp.tool
 async def get_projects(workspace_id: str) -> str:
-    """Return a list of projects for a workspace."""
+    """
+    List projects inside a given BlazeMeter workspace.
+
+    Args:
+        workspace_id: The BlazeMeter workspace ID.
+    Returns:
+        String (JSON or formatted text) listing projects.
+    """
     return await list_projects(workspace_id)
 
-@mcp.tool()
+@mcp.tool
 async def get_tests(project_id: str) -> str:
-    """Return a list of tests for the given project."""
+    """
+    List tests for a given BlazeMeter project.
+
+    Args:
+        project_id: The BlazeMeter project ID.
+    Returns:
+        String (JSON or formatted text) listing tests.
+    """
     return await list_tests(project_id)
 
-@mcp.tool()
+@mcp.tool
 async def start_test(test_id: str) -> str:
-    """Start a BlazeMeter test and return run details."""
+    """
+    Start a BlazeMeter test run.
+
+    Args:
+        test_id: The BlazeMeter test ID.
+    Returns:
+        String (JSON or formatted text) with the created run ID and status.
+    """
     return await run_test(test_id)
 
-@mcp.tool()
-async def get_run_results(run_id: str) -> str:
+@mcp.tool
+async def get_run_results(run_id: str, include_artifacts: Optional[bool] = False) -> str:
     """
-    Get the summary, JTL, and logs for a test run.
-    Artifacts are available in the `artifacts/` directory.
+    Get the latest summary for a given run, optionally downloading artifacts.
+
+    Args:
+        run_id: The BlazeMeter test run ID.
+        include_artifacts: If True, also download JTL/logs to an ./artifacts folder.
+    Returns:
+        String (JSON or formatted text) summary of run status and KPIs.
     """
-    return await get_results_summary(run_id)  # You display summary, plus call download_artifacts internally
+    return await get_results_summary(run_id, include_artifacts=include_artifacts)
 
 if __name__ == "__main__":
-    mcp.run(transport='stdio')
-
+    try:
+        mcp.run("stdio")
+    except KeyboardInterrupt:
+        print("Shutting down BlazeMeter MCP…")

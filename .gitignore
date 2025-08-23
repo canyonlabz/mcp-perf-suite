@@ -211,6 +211,7 @@ __marimo__/
 # Ignore the following files and directories
 # =========================================================
 
-# ignore environment variables
+# ignore environment variables & uv.lock files
 .env
 blazemeter-mcp/.env
+blazemeter-mcp/uv.lock
