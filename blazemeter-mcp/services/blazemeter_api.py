@@ -62,13 +62,14 @@ async def run_test(test_id: str) -> str:
         result = resp.json()["result"]
         return f"Run started. Run ID: {result['id']}"
 
-async def get_results_summary(run_id: str) -> str:
+async def get_results_summary(run_id: str, include_artifacts: bool = False) -> str:
     """
     Fetch and format a summary report for the BlazeMeter test run, merging
     fields from both 'master' details and 'summary statistics' endpoints.
 
     Args:
         run_id: The BlazeMeter master/run ID.
+        include_artifacts: If True, also download JTL/logs to an ./artifacts folder.
 
     Returns:
         A pretty-printed, human-friendly test summary, or error details if retrieval fails.
