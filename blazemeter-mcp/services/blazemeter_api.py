@@ -4,6 +4,10 @@ import httpx
 import base64
 from datetime import datetime
 from typing import Dict, Any
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 BLAZEMETER_API_KEY = os.getenv("BLAZEMETER_API_KEY")
 BLAZEMETER_API_SECRET = os.getenv("BLAZEMETER_API_SECRET")
