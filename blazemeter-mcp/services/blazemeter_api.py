@@ -1,12 +1,19 @@
 import httpx
 import os
 from datetime import datetime
+import base64
 
 BLAZEMETER_API_KEY = os.getenv("BLAZEMETER_API_KEY")
+BLAZEMETER_API_SECRET = os.getenv("BLAZEMETER_API_SECRET")
 BLAZEMETER_API_BASE = "https://a.blazemeter.com/api/v4"
 
-def get_headers() -> dict:
-    return {"Authorization": f"Bearer {BLAZEMETER_API_KEY}"}
+def get_headers():
+    # Build the Basic Auth header in the correct format
+    auth_str = f"{BLAZEMETER_API_KEY}:{BLAZEMETER_API_SECRET}"
+    b64_auth = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
+    return {
+        "Authorization": f"Basic {b64_auth}"
+    }
 
 def format_timestamp(ts: str) -> str:
     """Convert BlazeMeter ISO timestamp to readable format."""
