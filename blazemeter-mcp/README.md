@@ -1,5 +1,7 @@
 # BlazeMeter MCP Server
 
+> **⚠️ This project is under active development. Features, modules, and documentation may change frequently. Use at your own risk and please report any issues or suggestions!**
+
 Welcome to the BlazeMeter MCP Server! 🎉 This is a Python-based MCP server built with **FastMCP** to interact easily with BlazeMeter’s API for performance testing lifecycle management.
 
 ---
