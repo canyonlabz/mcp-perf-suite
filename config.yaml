@@ -1,0 +1,19 @@
+general:
+  enable_debug: False   # Enable/disable debug mode
+  enable_logging: True  # Enable/disable logging
+
+llm:
+  llm_provider: "openai"    # Provider for the LLM
+  llm_model: "gpt-4o-mini"  # Model name
+  llm_temperature: 0        # Temperature for randomness in responses
+
+logging:
+  log_level: "INFO"     # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  verbose_mode: False   # Enable verbose logging for debugging
+  log_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\tmp\\logs"  # Update with the actual path
+
+blazemeter:
+  blazemeter_results_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\artifacts"  # Path for BlazeMeter results files
+
+datadog:
+  datadog_results_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\artifacts"     # Path for Datadog results files
