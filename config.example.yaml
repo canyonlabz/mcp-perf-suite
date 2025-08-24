@@ -12,8 +12,11 @@ logging:
   verbose_mode: False   # Enable verbose logging for debugging
   log_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\tmp\\logs"  # Update with the actual path
 
+artifacts:
+  artifacts_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\artifacts"  # Path for artifacts
+
 blazemeter:
-  blazemeter_results_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\artifacts"  # Path for BlazeMeter results files
+  blazemeter_results_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\artifacts"  # Placeholder
 
 datadog:
-  datadog_results_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\artifacts"     # Path for Datadog results files
+  datadog_results_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\artifacts"     # Placeholder
