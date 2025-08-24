@@ -20,4 +20,13 @@ include = ["blazemeter.py"]      # also include the top-level script
 
 # (optional, but tidy)
 [tool.hatch.build.targets.sdist]
-include = ["services", "blazemeter.py", "pyproject.toml", "README.md"]
+include = [
+  "services", 
+  "utils",
+  "blazemeter.py", 
+  "pyproject.toml", 
+  "README.md",
+  "config.yaml",
+  "config.mac.yaml",
+  "config.windows.yaml"
+]

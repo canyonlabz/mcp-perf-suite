@@ -48,7 +48,7 @@ async def list_projects(workspace_id: str) -> str:
 
 async def list_tests(project_id: str) -> str:
     async with httpx.AsyncClient() as client:
-        url = f"{BLAZEMETER_API_BASE}/tests?projectId={project_id}&workspaceId={BLAZEMETER_WORKSPACE_ID}"
+        url = f"{BLAZEMETER_API_BASE}/tests?projectId={project_id}"
         resp = await client.get(url, headers=get_headers({"Content-Type": "application/json"}))
         resp.raise_for_status()
         tests = resp.json()["result"]

@@ -3,10 +3,8 @@ import os
 import platform
 
 def load_config():
-    # Compute the repository root directory.
-    # Assuming this file is at 'repo/src/utils/config.py', we go up two levels.
-    # Compute the repository root directory.
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    # Assuming this file is at 'repo/<mcp-server>/utils/config.py', we go up one level.
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     
     # Platform-specific config mapping
     config_map = {
