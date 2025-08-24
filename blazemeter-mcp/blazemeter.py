@@ -9,6 +9,7 @@ from services.blazemeter_api import (
     list_tests,
     run_test,
     get_results_summary,
+    list_test_runs
 )
 
 mcp = FastMCP(
@@ -62,17 +63,16 @@ async def start_test(test_id: str) -> str:
     return await run_test(test_id)
 
 @mcp.tool
-async def get_run_results(run_id: str, include_artifacts: Optional[bool] = False) -> str:
+async def get_run_results(run_id: str) -> str:
     """
-    Get the latest summary for a given run, optionally downloading artifacts.
+    Get the latest summary for a given run.
 
     Args:
         run_id: The BlazeMeter test run ID.
-        include_artifacts: If True, also download JTL/logs to an ./artifacts folder.
     Returns:
         String (JSON or formatted text) summary of run status and KPIs.
     """
-    return await get_results_summary(run_id, include_artifacts=include_artifacts)
+    return await get_results_summary(run_id)
 
 @mcp.tool()
 def get_artifacts_path() -> str:
@@ -83,6 +83,17 @@ def get_artifacts_path() -> str:
     artifacts_path = config.get("artifacts", {}).get("artifacts_path", "")
     return artifacts_path or "No artifacts_path found in config."
 
+@mcp.tool()
+async def get_test_runs(test_id: str, start_time: str, end_time: str) -> list:
+    """
+    Lists past BlazeMeter test runs (masters) for the specified test within the given date range.
+    Dates should be supplied in human-readable format: 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD'
+    """
+    return await list_test_runs(test_id, start_time, end_time)
+
+# -----------------------------
+# BlazeMeter MCP entry point
+# -----------------------------
 if __name__ == "__main__":
     try:
         mcp.run("stdio")

@@ -2,6 +2,7 @@
 import os
 import httpx
 import base64
+import time
 from datetime import datetime
 from typing import Dict, Any
 from dotenv import load_dotenv
@@ -20,6 +21,10 @@ BLAZEMETER_ACCOUNT_ID = os.getenv("BLAZEMETER_ACCOUNT_ID")
 BLAZEMETER_WORKSPACE_ID = os.getenv("BLAZEMETER_WORKSPACE_ID")
 BLAZEMETER_API_BASE = "https://a.blazemeter.com/api/v4"
 
+# ===============================================
+# Helper Functions
+# ===============================================
+
 def get_headers(extra: dict = None):
     # Basic Auth header BlazeMeter expects
     auth = base64.b64encode(f"{BLAZEMETER_API_KEY}:{BLAZEMETER_API_SECRET}".encode()).decode()
@@ -34,6 +39,31 @@ def format_timestamp(ts: str) -> str:
     """Convert BlazeMeter ISO timestamp to readable format."""
     dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+def to_epoch(dt_str: str) -> int:
+    fmts = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
+    for fmt in fmts:
+        try:
+            dt = datetime.strptime(dt_str, fmt)
+            return int(time.mktime(dt.timetuple()))
+        except Exception:
+            continue
+    raise ValueError(f"Invalid date format: {dt_str}. Expected 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD'.")
+
+def epoch_to_timestamp(epoch: int) -> str:
+    if epoch is None:
+        return None
+    return datetime.utcfromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+def format_duration(seconds: int) -> str:
+    if seconds is None:
+        return "N/A"
+    minutes, sec = divmod(seconds, 60)
+    return f"{minutes}m {sec}s" if minutes else f"{sec}s"
+
+# ===============================================
+# Main API Functions for the BlazeMeter MCP
+# ===============================================
 
 async def list_workspaces() -> str:
     async with httpx.AsyncClient() as client:
@@ -67,14 +97,13 @@ async def run_test(test_id: str) -> str:
         result = resp.json()["result"]
         return f"Run started. Run ID: {result['id']}"
 
-async def get_results_summary(run_id: str, include_artifacts: bool = False) -> str:
+async def get_results_summary(run_id: str) -> str:
     """
     Fetch and format a summary report for the BlazeMeter test run, merging
     fields from both 'master' details and 'summary statistics' endpoints.
 
     Args:
         run_id: The BlazeMeter master/run ID.
-        include_artifacts: If True, also download JTL/logs to an ./artifacts folder.
 
     Returns:
         A pretty-printed, human-friendly test summary, or error details if retrieval fails.
@@ -114,9 +143,18 @@ async def get_results_summary(run_id: str, include_artifacts: bool = False) -> s
     test_id = master.get("testId", "Unknown")
     test_name = master.get("name", "Unknown")
     max_virtual_users = summary.get("maxUsers", master.get("maxUsers", "N/A"))
-    start_time = format_timestamp(master.get("startTime")) if master.get("startTime") else "N/A"
-    end_time = format_timestamp(master.get("endTime")) if master.get("endTime") else "N/A"
-    duration_sec = summary.get("duration", "N/A")
+    start_time = epoch_to_timestamp(master.get("created")) if master.get("created") else "N/A"
+    end_time = epoch_to_timestamp(master.get("ended")) if master.get("ended") else "N/A"
+
+    # Calculate duration in seconds if possible
+    duration_seconds = None
+    duration_str = "N/A"
+    if start_time and end_time:
+        try:
+            duration_seconds = int(master.get("ended")) - int(master.get("created"))
+            duration_str = format_duration(duration_seconds)
+        except Exception:
+            pass
 
     samples_total = summary.get("hits", "N/A")
     error_count = summary.get("failed", "N/A")
@@ -141,7 +179,7 @@ async def get_results_summary(run_id: str, include_artifacts: bool = False) -> s
         f"Run ID: {run_id}\n\n"
         f"Start Time: {start_time}\n"
         f"End Time: {end_time}\n"
-        f"Duration: {duration_sec}s\n"
+        f"Duration: {duration_str}s\n"
         f"Max Virtual Users: {max_virtual_users}\n\n"
         f"Samples Total: {samples_total}\n"
         f"Pass Count: {pass_count}\n"
@@ -154,3 +192,51 @@ async def get_results_summary(run_id: str, include_artifacts: bool = False) -> s
         f"  90th Percentile: {rt_p90}\n"
     )
     return report
+
+async def list_test_runs(test_id: str, start_time: str, end_time: str) -> list:
+    """
+    Lists BlazeMeter test runs (masters) for the specified test and time range.
+    Accepts dates as 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS'.
+
+    Returns:
+        List of dicts with run/master info and session IDs.
+        Fields: run_id, test_name, start_time, end_time, status, session_ids, duration_seconds (optional)
+    """
+    start_epoch = to_epoch(start_time)
+    end_epoch = to_epoch(end_time)
+    url = f"{BLAZEMETER_API_BASE}/masters?testId={test_id}&from={start_epoch}&to={end_epoch}"
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(url, headers=get_headers())
+            resp.raise_for_status()
+            results = resp.json().get("result", [])
+        except Exception as e:
+            return [{"error": f"Failed to retrieve test runs: {e}"}]
+
+        runs = []
+        for m in results:
+            created = m.get("created")
+            ended = m.get("ended")
+            # Calculate duration in seconds if possible
+            duration_seconds = None
+            duration_str = "N/A"
+            if created and ended:
+                try:
+                    duration_seconds = int(ended) - int(created)
+                    duration_str = format_duration(duration_seconds)
+                except Exception:
+                    pass
+            runs.append({
+                "run_id": m.get("id"),
+                "test_name": m.get("name"),
+                "start_time": epoch_to_timestamp(created),
+                "end_time": epoch_to_timestamp(ended),
+                "sessions_id": m.get("sessionsId", []),
+                "project_id": m.get("projectId"),
+                "max_users": m.get("maxUsers"),
+                "duration": duration_str,                   # Human-friendly e.g. "2m 8s"
+                "duration_seconds": duration_seconds,       # Raw seconds for downstream use
+                "locations": m.get("locations", []),
+            })
+        return runs if runs else [{"message": "No matching runs found."}]
