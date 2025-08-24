@@ -240,3 +240,27 @@ async def list_test_runs(test_id: str, start_time: str, end_time: str) -> list:
                 "locations": m.get("locations", []),
             })
         return runs if runs else [{"message": "No matching runs found."}]
+
+async def get_session_artifacts(session_id: str) -> dict:
+    """
+    Calls BlazeMeter API to get artifact and log file URLs for a given session.
+
+    Args:
+        session_id: BlazeMeter session ID
+
+    Returns:
+        Dict mapping each filename to its downloadable URL (dataUrl).
+    """
+    url = f"{BLAZEMETER_API_BASE}/sessions/{session_id}/reports/logs"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, headers=get_headers())
+        resp.raise_for_status()
+        result = resp.json().get("result", {})
+        files = {}
+        for item in result.get("data", []):
+            filename = item.get("filename")
+            data_url = item.get("dataUrl")
+            if filename and data_url:
+                files[filename] = data_url
+        return files if files else {"message": "No files found in this session's logs report."}
+

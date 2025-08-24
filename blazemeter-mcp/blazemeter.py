@@ -9,7 +9,8 @@ from services.blazemeter_api import (
     list_tests,
     run_test,
     get_results_summary,
-    list_test_runs
+    list_test_runs,
+    get_session_artifacts
 )
 
 mcp = FastMCP(
@@ -90,6 +91,14 @@ async def get_test_runs(test_id: str, start_time: str, end_time: str) -> list:
     Dates should be supplied in human-readable format: 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD'
     """
     return await list_test_runs(test_id, start_time, end_time)
+
+@mcp.tool()
+async def get_artifact_file_list(session_id: str) -> dict:
+    """
+    Returns a dict of downloadable artifact/log files for a given BlazeMeter session.
+    Keys are filenames, values are their URLs.
+    """
+    return await get_session_artifacts(session_id)
 
 # -----------------------------
 # BlazeMeter MCP entry point
