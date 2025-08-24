@@ -5,9 +5,14 @@ import base64
 from datetime import datetime
 from typing import Dict, Any
 from dotenv import load_dotenv
+from utils.config import load_config
 
-# Load environment variables from .env file
+# Load environment variables from .env file such as API keys and secrets
 load_dotenv()
+
+# Load the config.yaml which contains path folder settings. NOTE: OS specific yaml files will override default config.yaml
+config = load_config()
+artifacts_base = config['artifacts']['artifacts_path']
 
 BLAZEMETER_API_KEY = os.getenv("BLAZEMETER_API_KEY")
 BLAZEMETER_API_SECRET = os.getenv("BLAZEMETER_API_SECRET")

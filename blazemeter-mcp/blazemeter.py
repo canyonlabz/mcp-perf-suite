@@ -1,6 +1,7 @@
 # blazemeter.py
 from fastmcp import FastMCP  # ✅ FastMCP 2.x import
 from typing import Optional
+from utils.config import load_config
 
 from services.blazemeter_api import (
     list_workspaces,
@@ -72,6 +73,15 @@ async def get_run_results(run_id: str, include_artifacts: Optional[bool] = False
         String (JSON or formatted text) summary of run status and KPIs.
     """
     return await get_results_summary(run_id, include_artifacts=include_artifacts)
+
+@mcp.tool()
+def get_artifacts_path() -> str:
+    """
+    Returns the configured artifacts base path from config.yaml.
+    """
+    config = load_config()
+    artifacts_path = config.get("artifacts", {}).get("artifacts_path", "")
+    return artifacts_path or "No artifacts_path found in config."
 
 if __name__ == "__main__":
     try:
