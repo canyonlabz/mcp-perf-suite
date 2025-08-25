@@ -6,10 +6,13 @@ Welcome to the BlazeMeter MCP Server! 🎉 This is a Python-based MCP server bui
 
 ## ✨ Features
 
-- List BlazeMeter workspaces, projects, and tests  
-- Start BlazeMeter load tests  
-- Fetch detailed run summaries with key metrics and response time aggregates  
-- Modular and extensible design ready for future integrations like Datadog  
+- **List workspaces, projects, and tests**: Discover all available test suites organized by workspace and project.
+- **Start BlazeMeter load tests**: Trigger test runs for any configured test, directly via MCP actions.
+- **Fetch detailed run summaries**: Retrieve key metrics—including response time aggregates—after each test run.
+- **Download and manage test artifacts**: Fully automate retrieval, extraction, and processing of test result artifacts (`artifacts.zip`, JMeter logs, KPIs).
+- **Flexible configuration loading**: Centralized `config.yaml` management for all paths and parameters.
+- **Extensible utilities**: Modular codebase supporting new MCP server integrations (e.g. Datadog, test analysis/reporting).
+- **Defensive error handling**: Robust input validation and artifact management for reliable automation.
 
 ---
 
@@ -133,15 +136,22 @@ Replace `/path/to/your/blazemeter_mcp_server` with your local path.
 
 ## 🛠️ Usage
 
-Your MCP server exposes these primary actions which Cursor or other MCP clients can call:
+Your MCP server exposes these primary tools for Cursor, agents, or other MCP clients (with a short description of each):
 
-| Action             | Description                         |
-|--------------------|-----------------------------------|
-| `get_workspaces`   | List all BlazeMeter workspaces     |
-| `get_projects`     | List projects for a workspace      |
-| `get_tests`        | List tests for a project           |
-| `start_test`       | Start a load test run              |
-| `get_run_results`  | Fetch summary metrics of a test run|
+
+| Tool | Description |
+| :-- | :-- |
+| `get_workspaces` | List all workspaces in your BlazeMeter account |
+| `get_projects` | List projects for a specified workspace |
+| `get_tests` | List all tests in a given project |
+| `start_test` | Initiate a new BlazeMeter test run |
+| `get_run_results` | Fetch summary metrics and key performance indicators for a test run |
+| `list_test_runs` | List past runs (masters) for a test within a time range, with session IDs |
+| `get_artifact_file_list` | Get downloadable artifact/log files for a specific session |
+| `download_artifacts_zip` | Download `artifacts.zip` for a run and store in correct folder |
+| `extract_artifact_zip` | Unpack the ZIP file and list all extracted files for analysis |
+| `process_extracted_files` | Move/rename key files (especially `kpi.jtl` to `test-results.csv`) |
+| `get_artifacts_path` | Return the configured local path for storing all test artifacts |
 
 ---
 
@@ -188,26 +198,30 @@ Avg: 340
 ## 📁 Project Structure
 
 ```
-
-blazemeter_mcp_server/
-├── blazemeter.py          # MCP server entrypoint with FastMCP
+blazemeter-mcp/
+├── blazemeter.py                  # MCP server entrypoint (FastMCP)
 ├── services/
-│   └── blazemeter_api.py  # BlazeMeter API logic
-├── artifacts/             # Runtime directory for results/JTL/log downloads
-├── requirements.txt       # Python dependencies
-├── README.md              # This file
-└── .env                   # Environment variables (API keys)
-
+│   └── blazemeter_api.py          # BlazeMeter API logic & artifact helpers
+├── utils/
+│   └── config.py                  # Utility for loading config.yaml
+├── config.yaml                    # Centralized, environment-agnostic config
+├── pyproject.toml                 # Modern Python project metadata & dependencies
+├── artifacts/                     # Directory for all downloaded/extracted results
+├── requirements.txt*              # (if present) for legacy dependency management
+├── README.md                      # This file
+└── .env                           # Local environment variables (API keys, secrets)
 ```
+
+\*If you're exclusively using modern tools like `uv` with `pyproject.toml`, you may omit `requirements.txt`.
 
 ---
 
 ## 🚧 Future Enhancements
 
-- Support JTL/log artifact downloads and local serving  
-- Integration with Datadog MCP Server for correlated analytics  
-- Advanced filtering and query options in summaries  
-- More robust error handling and logging  
+- Expanded artifact processing \& analytics workflows
+- Integration with Datadog and other monitoring MCP servers
+- Automated test result analysis via LLMs
+- Enhanced error reporting and system diagnostics
 
 ---
 
