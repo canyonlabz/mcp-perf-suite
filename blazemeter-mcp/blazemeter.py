@@ -11,7 +11,8 @@ from services.blazemeter_api import (
     get_results_summary,
     list_test_runs,
     get_session_artifacts,
-    download_artifact_zip_file
+    download_artifact_zip_file,
+    extract_artifact_zip_file
 )
 
 mcp = FastMCP(
@@ -108,6 +109,16 @@ async def download_artifacts_zip(artifact_zip_url: str, run_id: str) -> str:
     Returns the local file path.
     """
     return await download_artifact_zip_file(artifact_zip_url, run_id)
+
+@mcp.tool()
+def extract_artifact_zip(local_zip_path: str, run_id: str) -> list:
+    """
+    Extracts a downloaded artifacts.zip file for a BlazeMeter run.
+    - local_zip_path: The full local filesystem path to artifacts.zip.
+    - run_id: The run ID (used to determine artifact destination folder).
+    Returns list of extracted file paths.
+    """
+    return extract_artifact_zip_file(local_zip_path, run_id)
 
 # -----------------------------
 # BlazeMeter MCP entry point

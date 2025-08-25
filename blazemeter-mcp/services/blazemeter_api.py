@@ -3,6 +3,7 @@ import os
 import httpx
 import base64
 import time
+import zipfile
 from datetime import datetime
 from typing import Dict, Any
 from dotenv import load_dotenv
@@ -287,3 +288,24 @@ async def download_artifact_zip_file(artifact_zip_url: str, run_id: str) -> str:
         return local_zip_path
     except Exception as e:
         return f"❗ Error downloading artifacts.zip: {e}"
+
+def extract_artifact_zip_file(local_zip_path: str, run_id: str) -> list:
+    """
+    Extracts the specified artifacts.zip file to the appropriate folder for a run.
+
+    Args:
+        local_zip_path: Full path to the downloaded artifacts.zip file.
+        run_id: BlazeMeter run ID.
+
+    Returns:
+        List of full paths to the extracted files (within the run's 'artifacts' directory).
+    """
+    dest_folder = os.path.join(artifacts_base, str(run_id), "blazemeter", "artifacts")
+    os.makedirs(dest_folder, exist_ok=True)
+    try:
+        with zipfile.ZipFile(local_zip_path, "r") as zip_ref:
+            zip_ref.extractall(dest_folder)
+            extracted_files = [os.path.join(dest_folder, name) for name in zip_ref.namelist()]
+        return extracted_files
+    except Exception as e:
+        return [f"❗ Error extracting ZIP: {e}"]
