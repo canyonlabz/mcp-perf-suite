@@ -4,6 +4,7 @@ import httpx
 import base64
 import time
 import zipfile
+import shutil
 from datetime import datetime
 from typing import Dict, Any
 from dotenv import load_dotenv
@@ -309,3 +310,37 @@ def extract_artifact_zip_file(local_zip_path: str, run_id: str) -> list:
         return extracted_files
     except Exception as e:
         return [f"❗ Error extracting ZIP: {e}"]
+
+def process_extracted_artifact_files(run_id: str, extracted_files: list) -> dict:
+    """
+    Processes BlazeMeter artifact files for a run:
+    - Moves/renames kpi.jtl as test-results.csv to <run_id>/blazemeter/
+    - Moves jmeter.log to <run_id>/blazemeter/
+    - Ignores error.jtl and any other .jtl files
+    - Returns paths to processed files, plus errors if files are missing
+    """
+    result = {"errors": []}
+    dest_folder = os.path.join(artifacts_base, str(run_id), "blazemeter")
+    os.makedirs(dest_folder, exist_ok=True)
+
+    # Only use kpi.jtl for CSV conversion
+    kpi_file = next((f for f in extracted_files if os.path.basename(f).lower() == 'kpi.jtl'), None)
+    log_file = next((f for f in extracted_files if os.path.basename(f).lower() == 'jmeter.log'), None)
+
+    # Rename and move kpi.jtl
+    if kpi_file and os.path.exists(kpi_file):
+        csv_path = os.path.join(dest_folder, "test-results.csv")
+        shutil.move(kpi_file, csv_path)
+        result["csv_path"] = csv_path
+    else:
+        result["errors"].append("kpi.jtl (metrics) not found.")
+
+    # Move jmeter.log
+    if log_file and os.path.exists(log_file):
+        log_dest = os.path.join(dest_folder, "jmeter.log")
+        shutil.move(log_file, log_dest)
+        result["log_path"] = log_dest
+    else:
+        result["errors"].append("jmeter.log not found.")
+
+    return result

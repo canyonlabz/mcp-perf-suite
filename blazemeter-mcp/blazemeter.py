@@ -12,7 +12,8 @@ from services.blazemeter_api import (
     list_test_runs,
     get_session_artifacts,
     download_artifact_zip_file,
-    extract_artifact_zip_file
+    extract_artifact_zip_file,
+    process_extracted_artifact_files
 )
 
 mcp = FastMCP(
@@ -119,6 +120,18 @@ def extract_artifact_zip(local_zip_path: str, run_id: str) -> list:
     Returns list of extracted file paths.
     """
     return extract_artifact_zip_file(local_zip_path, run_id)
+
+@mcp.tool()
+def process_extracted_files(run_id: str, extracted_files: list) -> dict:
+    """
+    Processes BlazeMeter run artifacts:
+    - Uses only kpi.jtl for metrics, renames to test-results.csv in destination folder
+    - Moves jmeter.log for diagnostics
+    - Ignores other .jtl files and extraneous files
+    Returns processed file paths and any errors encountered.
+    Use for final step before test result analysis.
+    """
+    return process_extracted_artifact_files(run_id, extracted_files)
 
 # -----------------------------
 # BlazeMeter MCP entry point
