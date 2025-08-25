@@ -264,3 +264,26 @@ async def get_session_artifacts(session_id: str) -> dict:
                 files[filename] = data_url
         return files if files else {"message": "No files found in this session's logs report."}
 
+async def download_artifact_zip_file(artifact_zip_url: str, run_id: str) -> str:
+    """
+    Downloads the artifact ZIP file for a test run to the correct artifacts folder.
+
+    Args:
+        artifact_zip_url: Signed S3 URL for artifacts.zip.
+        run_id: The BlazeMeter run ID (master ID).
+
+    Returns:
+        Full local path to the downloaded ZIP file, or error message.
+    """
+    dest_folder = os.path.join(artifacts_base, str(run_id), "blazemeter")
+    os.makedirs(dest_folder, exist_ok=True)
+    local_zip_path = os.path.join(dest_folder, "artifacts.zip")
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(artifact_zip_url, headers=get_headers({"Accept": "*/*"}))
+            response.raise_for_status()
+            with open(local_zip_path, "wb") as f:
+                f.write(response.content)
+        return local_zip_path
+    except Exception as e:
+        return f"❗ Error downloading artifacts.zip: {e}"
