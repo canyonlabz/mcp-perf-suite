@@ -31,16 +31,17 @@ async def get_workspaces() -> str:
     return await list_workspaces()
 
 @mcp.tool
-async def get_projects(workspace_id: str) -> str:
+async def get_projects(workspace_id: str, project_name: Optional[str] = None) -> str:
     """
     List projects inside a given BlazeMeter workspace.
 
     Args:
         workspace_id: The BlazeMeter workspace ID.
+        project_name: Optional project name to filter results. If provided, only projects matching this name will be returned.
     Returns:
         String (JSON or formatted text) listing projects.
     """
-    return await list_projects(workspace_id)
+    return await list_projects(workspace_id, project_name)
 
 @mcp.tool
 async def get_tests(project_id: str) -> str:

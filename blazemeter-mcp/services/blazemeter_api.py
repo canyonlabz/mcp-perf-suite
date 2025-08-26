@@ -74,13 +74,19 @@ async def list_workspaces() -> str:
         workspaces = resp.json()["result"]
         return "\n".join(f"{ws['id']}: {ws['name']}" for ws in workspaces)
 
-async def list_projects(workspace_id: str) -> str:
+async def list_projects(workspace_id: str, project_name: str = None) -> str:
     workspace_id = BLAZEMETER_WORKSPACE_ID
     async with httpx.AsyncClient() as client:
         url = f"{BLAZEMETER_API_BASE}/projects?workspaceId={workspace_id}"
+        if project_name:
+            url += f"&name={project_name}"
         resp = await client.get(url, headers=get_headers())
         resp.raise_for_status()
         projects = resp.json()["result"]
+        
+        if not projects and project_name:
+            return f"No projects found matching '{project_name}'"
+        
         return "\n".join(f"{p['id']}: {p['name']}" for p in projects)
 
 async def list_tests(project_id: str) -> str:
