@@ -150,6 +150,7 @@ async def get_results_summary(run_id: str) -> str:
     # Safely extract key fields
     test_id = master.get("testId", "Unknown")
     test_name = master.get("name", "Unknown")
+    sessions_id = master.get("sessionsId", [])
     max_virtual_users = summary.get("maxUsers", master.get("maxUsers", "N/A"))
     start_time = epoch_to_timestamp(master.get("created")) if master.get("created") else "N/A"
     end_time = epoch_to_timestamp(master.get("ended")) if master.get("ended") else "N/A"
@@ -194,6 +195,7 @@ async def get_results_summary(run_id: str) -> str:
         f"Fail Count: {fail_count}\n"
         f"Error Count: {error_count}\n\n"
         f"Response Time (ms):\n"
+        f"Session ID: {sessions_id}\n"
         f"  Min: {rt_min}\n"
         f"  Max: {rt_max}\n"
         f"  Avg: {rt_avg}\n"

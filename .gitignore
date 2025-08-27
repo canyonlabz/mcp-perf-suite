@@ -206,6 +206,23 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+##
+## Framework, Platform, and Language Specific
+##
+
+# ignore the .vscode directory
+.vscode/
+# ignore the .idea directory
+.idea/
+# ignore the .node_modules directory
+.node_modules/
+# ignore the .DS_Store file
+.DS_Store
+# ignore the .pytest_cache directory
+.pytest_cache/
+# ignore .sqlite3 database file
+*.sqlite3
+
 # =========================================================
 # Repo: mcp-perf-suite
 # Ignore the following files and directories
