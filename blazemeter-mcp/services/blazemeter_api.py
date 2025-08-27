@@ -290,8 +290,19 @@ async def download_artifact_zip_file(artifact_zip_url: str, run_id: str) -> str:
     local_zip_path = os.path.join(dest_folder, "artifacts.zip")
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(artifact_zip_url, headers=get_headers({"Accept": "*/*"}))
-            response.raise_for_status()
+            # Try with minimal headers first (like Postman might send)
+            minimal_headers = {"Accept": "*/*", "User-Agent": "Mozilla/5.0 (compatible; BlazeMeter-MCP/1.0)"}
+            try:
+                response = await client.get(artifact_zip_url, headers=minimal_headers)
+                response.raise_for_status()
+            except Exception as e1:
+                # If minimal headers fail, try with BlazeMeter auth headers
+                try:
+                    response = await client.get(artifact_zip_url, headers=get_headers({"Accept": "*/*"}))
+                    response.raise_for_status()
+                except Exception as e2:
+                    return f"❗ Error downloading artifacts.zip: Minimal headers failed: {e1}, Auth headers failed: {e2}"
+            
             with open(local_zip_path, "wb") as f:
                 f.write(response.content)
         return local_zip_path
