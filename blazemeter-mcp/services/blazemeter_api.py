@@ -105,6 +105,48 @@ async def run_test(test_id: str) -> str:
         result = resp.json()["result"]
         return f"Run started. Run ID: {result['id']}"
 
+async def get_test_status(run_id: str) -> dict:
+    """
+    Retrieves the current status and status breakdown for the given BlazeMeter run.
+
+    Args:
+        run_id: The BlazeMeter master/run ID.
+
+    Returns:
+        Dictionary with keys:
+            - run_id: Run/master ID
+            - status: Main status string (e.g. 'ENDED', 'RUNNING', etc.)
+            - statuses: Breakdown of session states (pending, booting, ready, ended)
+            - error: Error object/string/null (if present in API response)
+            - has_error: True if error or failed/aborted state detected, else False
+    """
+    url = f"{BLAZEMETER_API_BASE}/masters/{run_id}/status"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=get_headers())
+            resp.raise_for_status()
+            data = resp.json()
+            result = data.get("result", {})
+            status = result.get("status", "UNKNOWN")
+            statuses = result.get("statuses", {})
+            error = data.get("error")
+            has_error = bool(error) or (status.upper() in {"FAILED", "ERROR", "ABORTED"})
+            return {
+                "run_id": run_id,
+                "status": status,
+                "statuses": statuses,
+                "error": error,
+                "has_error": has_error
+            }
+    except Exception as e:
+        return {
+            "run_id": run_id,
+            "status": "ERROR",
+            "statuses": {},
+            "error": str(e),
+            "has_error": True
+        }
+
 async def get_results_summary(run_id: str) -> str:
     """
     Fetch and format a summary report for the BlazeMeter test run, merging

@@ -8,6 +8,7 @@ from services.blazemeter_api import (
     list_projects,
     list_tests,
     run_test,
+    get_test_status,
     get_results_summary,
     list_test_runs,
     get_session_artifacts,
@@ -66,6 +67,27 @@ async def start_test(test_id: str) -> str:
         String (JSON or formatted text) with the created run ID and status.
     """
     return await run_test(test_id)
+
+@mcp.tool()
+async def check_test_status(run_id: str) -> dict:
+    """
+    Checks the status of a BlazeMeter test run by run_id.
+
+    Args:
+        run_id (str): BlazeMeter master/run ID.
+
+    Returns:
+        A dictionary containing:
+            - run_id: The provided run ID.
+            - status: Main BlazeMeter run status (examples: 'STARTING', 'RUNNING', 'ENDED').
+            - statuses: Percentage breakdown of sub-statuses (pending, booting, ready, ended, etc.).
+            - error: Null, string, or object if an error is present in BlazeMeter response.
+            - has_error: True if an error was detected or test failed, otherwise False.
+
+    Usage:
+        Use to monitor if a test started, is running, or has finished. Useful for polling during test execution.
+    """
+    return await get_test_status(run_id)
 
 @mcp.tool
 async def get_run_results(run_id: str) -> str:
