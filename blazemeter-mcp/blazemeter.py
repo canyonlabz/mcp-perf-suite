@@ -14,7 +14,8 @@ from services.blazemeter_api import (
     get_session_artifacts,
     download_artifact_zip_file,
     extract_artifact_zip_file,
-    process_extracted_artifact_files
+    process_extracted_artifact_files,
+    get_public_report_url
 )
 
 mcp = FastMCP(
@@ -155,6 +156,27 @@ def process_extracted_files(run_id: str, extracted_files: list) -> dict:
     Use for final step before test result analysis.
     """
     return process_extracted_artifact_files(run_id, extracted_files)
+
+@mcp.tool()
+async def get_public_report(run_id: str) -> dict:
+    """
+    Generates or retrieves a public BlazeMeter report URL for the given test run.
+
+    Args:
+        run_id (str): The BlazeMeter run/master ID.
+
+    Returns:
+        Dictionary including:
+            - run_id: Test run ID associated with the URL.
+            - public_url: Public, shareable BlazeMeter report link.
+            - public_token: The underlying token (for debugging or manual URL re-creation).
+            - is_new: True if the token was just created; False if it existed already.
+            - error: An error message if something went wrong.
+
+    Usage:
+        Use to quickly generate a shareable report URL for stakeholders after a test completes.
+    """
+    return await get_public_report_url(run_id)
 
 # -----------------------------
 # BlazeMeter MCP entry point

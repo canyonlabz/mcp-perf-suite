@@ -405,3 +405,53 @@ def process_extracted_artifact_files(run_id: str, extracted_files: list) -> dict
         result["errors"].append("jmeter.log not found.")
 
     return result
+
+async def get_public_report_url(run_id: str) -> dict:
+    """
+    Requests a public token for the provided run_id and returns a shareable BlazeMeter report URL.
+
+    Args:
+        run_id: The BlazeMeter master/run ID.
+
+    Returns:
+        Dictionary with:
+            - run_id: The provided run ID.
+            - public_url: The public report URL for sharing.
+            - public_token: The raw public token.
+            - is_new: True if the token was newly created, False if already existed.
+            - error: Error message or None.
+    """
+    url = f"{BLAZEMETER_API_BASE}/masters/{run_id}/public-token"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, headers=get_headers({"Content-Type": "application/json"}))
+            resp.raise_for_status()
+            data = resp.json()
+            result = data.get("result", {})
+            token = result.get("publicToken")
+            is_new = result.get("new", False)
+            if token:
+                public_url = f"https://a.blazemeter.com/app/?public-token={token}#/masters/{run_id}/summary"
+                return {
+                    "run_id": run_id,
+                    "public_url": public_url,
+                    "public_token": token,
+                    "is_new": is_new,
+                    "error": None
+                }
+            else:
+                return {
+                    "run_id": run_id,
+                    "public_url": None,
+                    "public_token": None,
+                    "is_new": False,
+                    "error": "Public token not returned by API."
+                }
+    except Exception as e:
+        return {
+            "run_id": run_id,
+            "public_url": None,
+            "public_token": None,
+            "is_new": False,
+            "error": str(e)
+        }
