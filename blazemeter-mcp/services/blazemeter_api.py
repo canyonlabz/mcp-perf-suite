@@ -5,6 +5,7 @@ import base64
 import time
 import zipfile
 import shutil
+import json
 from datetime import datetime
 from typing import Dict, Any
 from dotenv import load_dotenv
@@ -62,6 +63,21 @@ def format_duration(seconds: int) -> str:
         return "N/A"
     minutes, sec = divmod(seconds, 60)
     return f"{minutes}m {sec}s" if minutes else f"{sec}s"
+
+def write_test_config_json(run_id: str, summary_fields: dict) -> str:
+    """
+    Writes test_config.json to the proper artifacts path for the given run.
+    Returns the path to the JSON file or an error message.
+    """
+    dest_folder = os.path.join(artifacts_base, str(run_id), "blazemeter")
+    os.makedirs(dest_folder, exist_ok=True)
+    config_path = os.path.join(dest_folder, "test_config.json")
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(summary_fields, f, indent=2)
+        return config_path
+    except Exception as e:
+        return f"❗ Error writing test_config.json: {e}"
 
 # ===============================================
 # Main API Functions for the BlazeMeter MCP
@@ -151,6 +167,7 @@ async def get_results_summary(run_id: str) -> str:
     """
     Fetch and format a summary report for the BlazeMeter test run, merging
     fields from both 'master' details and 'summary statistics' endpoints.
+    Also writes test_config.json with key run and test config metadata.
 
     Args:
         run_id: The BlazeMeter master/run ID.
@@ -162,6 +179,8 @@ async def get_results_summary(run_id: str) -> str:
     # Prepare results for later combination
     master = {}
     summary = {}
+    summary_fields = {}
+    config_fields = {}
 
     try:
         async with httpx.AsyncClient() as client:
@@ -192,6 +211,8 @@ async def get_results_summary(run_id: str) -> str:
     # Safely extract key fields
     test_id = master.get("testId", "Unknown")
     test_name = master.get("name", "Unknown")
+    workspace_id = master.get("workspaceId") or master.get("workspace_id")
+    project_id = master.get("projectId", None)
     sessions_id = master.get("sessionsId", [])
     max_virtual_users = summary.get("maxUsers", master.get("maxUsers", "N/A"))
     start_time = epoch_to_timestamp(master.get("created")) if master.get("created") else "N/A"
@@ -222,6 +243,43 @@ async def get_results_summary(run_id: str) -> str:
     rt_avg = summary.get("avg", "N/A")
     rt_p90 = summary.get("tp90", "N/A")
 
+    # Extract relevant config from first executions[] entry, if present
+    executions = master.get("executions", [])
+    if executions:
+        exec0 = executions[0]
+        config_fields = {
+            "concurrency": exec0.get("concurrency"),
+            "rampUp": exec0.get("rampUp"),
+            "steps": exec0.get("steps"),
+            "iterations": exec0.get("iterations"),
+        }
+
+    # Fill out the test_config.json schema
+    summary_fields = {
+        "run_id": run_id,
+        "workspace_id": workspace_id,
+        "project_id": project_id,
+        "test_id": test_id,
+        "test_name": test_name,
+        "start_time": start_time,
+        "end_time": end_time,
+        "duration_seconds": duration_seconds,
+        "max_virtual_users": max_virtual_users,
+        "samples_total": samples_total,
+        "pass_count": pass_count,
+        "fail_count": fail_count,
+        "error_count": error_count,
+        "response_time_min_ms": rt_min,
+        "response_time_max_ms": rt_max,
+        "response_time_avg_ms": rt_avg,
+        "response_time_p90_ms": rt_p90,
+        "config": config_fields,
+        "labels": [lbl.get("name") for lbl in master.get("jetpackLabels", [])] if master.get("jetpackLabels") else None,
+        "notes": ""
+    }
+
+    test_config_json = write_test_config_json(run_id, summary_fields)
+
     report = (
         f"BlazeMeter Test Run Summary\n"
         f"===========================\n"
@@ -242,6 +300,12 @@ async def get_results_summary(run_id: str) -> str:
         f"  Max: {rt_max}\n"
         f"  Avg: {rt_avg}\n"
         f"  90th Percentile: {rt_p90}\n"
+        f"Test Config: \n"
+        f"  concurrency={config_fields.get('concurrency')}\n"
+        f"  rampUp={config_fields.get('rampUp')}\n"
+        f"  steps={config_fields.get('steps')}\n"
+        f"  iterations={config_fields.get('iterations')}\n"
+        f"Test Configuration JSON: {test_config_json}\n"
     )
     return report
 

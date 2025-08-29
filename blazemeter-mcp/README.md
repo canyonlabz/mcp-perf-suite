@@ -67,6 +67,7 @@ Create a `.env` file in the project root with your BlazeMeter API key:
 BLAZEMETER_API_KEY=your_blazemeter_api_key_here
 BLAZEMETER_API_SECRET=your_blazemeter_api_secret_here
 BLAZEMETER_ACCOUNT_ID=your_blazemeter_account_id_here
+BLAZEMETER_WORKSPACE_ID=your_blazemeter_workspace_id_here
 
 ```
 
@@ -138,20 +139,43 @@ Replace `/path/to/your/blazemeter_mcp_server` with your local path.
 
 Your MCP server exposes these primary tools for Cursor, agents, or other MCP clients (with a short description of each):
 
-
 | Tool | Description |
 | :-- | :-- |
 | `get_workspaces` | List all workspaces in your BlazeMeter account |
 | `get_projects` | List projects for a specified workspace |
 | `get_tests` | List all tests in a given project |
 | `start_test` | Initiate a new BlazeMeter test run |
-| `get_run_results` | Fetch summary metrics and key performance indicators for a test run |
+| `check_test_status` | Check the status breakdown of a BlazeMeter test run (running, completed, or error states) |
+| `get_public_report_url` | Generate a shareable public BlazeMeter report URL for a completed test run |
 | `list_test_runs` | List past runs (masters) for a test within a time range, with session IDs |
+| `get_artifacts_path` | Return the configured local path for storing all test artifacts |
 | `get_artifact_file_list` | Get downloadable artifact/log files for a specific session |
 | `download_artifacts_zip` | Download `artifacts.zip` for a run and store in correct folder |
 | `extract_artifact_zip` | Unpack the ZIP file and list all extracted files for analysis |
 | `process_extracted_files` | Move/rename key files (especially `kpi.jtl` to `test-results.csv`) |
-| `get_artifacts_path` | Return the configured local path for storing all test artifacts |
+| `get_run_results` | Fetch summary metrics and key performance indicators for a test run |
+
+---
+
+## 🔁 Typical Workflow
+
+A standard BlazeMeter MCP workflow uses these tools in sequence for automated, robust performance testing:
+
+1. **Start a Test**
+    - `start_test`: Initiate a new BlazeMeter load test run.
+2. **Poll for Status**
+    - `check_test_status`: Monitor the test status until it completes or ends.
+3. **Get Public Report URL (optional)**
+    - `get_public_report_url`: Generate a shareable report link for stakeholders once the test finishes.
+4. **List Past Runs (optional for analytics/history)**
+    - `list_test_runs`: View previous completed runs for a given test within a time range.
+5. **Retrieve and Process Test Artifacts**
+    - `get_artifact_file_list`: Get artifact and log download URLs for the completed test session.
+    - `download_artifacts_zip`: Download the results archive for the run.
+    - `extract_artifact_zip`: Unpack and list extracted files (CSV, logs, config, etc.).
+    - `process_extracted_files`: Move/rename essential files (e.g. convert `kpi.jtl` to `test-results.csv`).
+6. **Analyze Results**
+    - `get_run_results`: Return key performance metrics, errors, response time statistics, and summary fields for the run.
 
 ---
 
