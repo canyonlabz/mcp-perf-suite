@@ -211,7 +211,7 @@ async def get_results_summary(run_id: str) -> str:
     # Safely extract key fields
     test_id = master.get("testId", "Unknown")
     test_name = master.get("name", "Unknown")
-    workspace_id = master.get("workspaceId") or master.get("workspace_id")
+    workspace_id = BLAZEMETER_WORKSPACE_ID if BLAZEMETER_WORKSPACE_ID else "Workspace ID not found"
     project_id = master.get("projectId", None)
     sessions_id = master.get("sessionsId", [])
     max_virtual_users = summary.get("maxUsers", master.get("maxUsers", "N/A"))
