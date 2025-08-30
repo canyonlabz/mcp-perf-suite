@@ -6,7 +6,7 @@ Welcome to the `artifacts/` folder! This is the central hub for storing and orga
 
 This directory holds test run artifacts from:
 - 🧪 **BlazeMeter MCP** – Load test configurations, results, and logs
-- 📊 **Datadog MCP** – KPI metrics like CPU and memory usage
+- 📊 **APM MCP** – KPI metrics like CPU and memory usage (define in YAML or JSON)
 - 🔍 **Future Analysis MCP** – Will consume these artifacts for deeper insights
 
 Each test run is stored in its own subfolder for modularity and traceability.

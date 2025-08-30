@@ -13,7 +13,7 @@ This repository hosts multiple MCP servers, each designed for a specific role in
 - **BlazeMeter MCP Server:**  
   Interact with BlazeMeter’s API to manage workspaces, projects, tests, and fetch run results. (Available now)
 
-- **Datadog MCP Server (planned):**  
+- **APM (Application Performance Monitoring) MCP Server (planned):**  
   Pull and correlate monitoring and metrics data from Datadog to complement load test results.
 
 - **Test Analysis MCP Server (planned):**  
@@ -32,7 +32,7 @@ Each MCP server lives in its **own subdirectory** within this repo, making it ea
 
 mcp-perf-suite/
 ├── blazemeter-mcp/          # BlazeMeter MCP server (current)
-├── datadog-mcp/             # Datadog MCP server (planned)
+├── apm-mcp/                 # apm MCP server (planned, TODO: identify the APM agnostic schema)
 ├── analysis-mcp/            # LLM-powered test analysis MCP (planned)
 ├── reporting-mcp/           # Reporting and formatting MCP (planned)
 ├── README.md                # This file: repo overview and guidance
