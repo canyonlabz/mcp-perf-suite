@@ -9,6 +9,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any
 from dotenv import load_dotenv
+from fastmcp import FastMCP, Context  # ✅ FastMCP 2.x import
 from utils.config import load_config
 
 # Load environment variables from .env file such as API keys and secrets
@@ -113,20 +114,33 @@ async def list_tests(project_id: str) -> str:
         tests = resp.json()["result"]
         return "\n".join(f"{t['id']}: {t['name']}" for t in tests)
 
-async def run_test(test_id: str) -> str:
+async def run_test(test_id: str, ctx: Context) -> str:
+    """
+    Starts a BlazeMeter test run and stores the run_id in context for workflow chaining.
+    Args:
+        test_id: The BlazeMeter test ID.
+        ctx (Context, optional): FastMCP context object for state management.
+    Returns:
+        String with created run ID and status.
+    """
     async with httpx.AsyncClient() as client:
         url = f"{BLAZEMETER_API_BASE}/tests/{test_id}/start?delayedStart=false"
         resp = await client.post(url, headers=get_headers({"Content-Type": "application/json"}))
         resp.raise_for_status()
         result = resp.json()["result"]
-        return f"Run started. Run ID: {result['id']}"
+        run_id = result['id']
+        # Optionally store run_id in context for downstream tools
+        if ctx is not None:
+            ctx.set_state("run_id", run_id)
+        return f"Run started. Run ID: {run_id}"
 
-async def get_test_status(run_id: str) -> dict:
+async def get_test_status(run_id: str, ctx: Context) -> dict:
     """
     Retrieves the current status and status breakdown for the given BlazeMeter run.
 
     Args:
         run_id: The BlazeMeter master/run ID.
+        ctx (Context, optional): FastMCP workflow context for state passing.
 
     Returns:
         Dictionary with keys:
@@ -135,6 +149,7 @@ async def get_test_status(run_id: str) -> dict:
             - statuses: Breakdown of session states (pending, booting, ready, ended)
             - error: Error object/string/null (if present in API response)
             - has_error: True if error or failed/aborted state detected, else False
+            - context: Updated workflow context (if used)
     """
     url = f"{BLAZEMETER_API_BASE}/masters/{run_id}/status"
     try:
@@ -147,6 +162,11 @@ async def get_test_status(run_id: str) -> dict:
             statuses = result.get("statuses", {})
             error = data.get("error")
             has_error = bool(error) or (status.upper() in {"FAILED", "ERROR", "ABORTED"})
+            # Save to context for workflow chaining
+            if ctx is not None:
+                ctx.set_state("last_status", status)
+                ctx.set_state("statuses", statuses)
+                ctx.set_state("has_error", has_error)
             return {
                 "run_id": run_id,
                 "status": status,
@@ -155,6 +175,10 @@ async def get_test_status(run_id: str) -> dict:
                 "has_error": has_error
             }
     except Exception as e:
+        if ctx is not None:
+            ctx.set_state("last_status", "ERROR")
+            ctx.set_state("error", str(e))
+            ctx.set_state("has_error", True)
         return {
             "run_id": run_id,
             "status": "ERROR",
@@ -163,7 +187,7 @@ async def get_test_status(run_id: str) -> dict:
             "has_error": True
         }
 
-async def get_results_summary(run_id: str) -> str:
+async def get_results_summary(run_id: str, ctx: Context) -> str:
     """
     Fetch and format a summary report for the BlazeMeter test run, merging
     fields from both 'master' details and 'summary statistics' endpoints.
@@ -171,9 +195,11 @@ async def get_results_summary(run_id: str) -> str:
 
     Args:
         run_id: The BlazeMeter master/run ID.
+        ctx (Context, optional): FastMCP workflow context for caching or chaining summary.
 
     Returns:
         A pretty-printed, human-friendly test summary, or error details if retrieval fails.
+        Writes test_config.json for downstream analysis. Updates context with summary if present.
     """
 
     # Prepare results for later combination
@@ -280,6 +306,11 @@ async def get_results_summary(run_id: str) -> str:
 
     test_config_json = write_test_config_json(run_id, summary_fields)
 
+    # Update context with summary for downstream tools
+    if ctx is not None:
+        ctx.set_state("summary", summary_fields)
+        ctx.set_state("test_config_json_path", test_config_json)
+
     report = (
         f"BlazeMeter Test Run Summary\n"
         f"===========================\n"
@@ -357,15 +388,16 @@ async def list_test_runs(test_id: str, start_time: str, end_time: str) -> list:
             })
         return runs if runs else [{"message": "No matching runs found."}]
 
-async def get_session_artifacts(session_id: str) -> dict:
+async def get_session_artifacts(session_id: str, ctx: Context) -> dict:
     """
     Calls BlazeMeter API to get artifact and log file URLs for a given session.
 
     Args:
         session_id: BlazeMeter session ID
+        ctx (Context, optional): FastMCP workflow context for passing file URLs downstream.
 
     Returns:
-        Dict mapping each filename to its downloadable URL (dataUrl).
+        Dict mapping each filename to its downloadable URL (dataUrl). Updates context with file list if present.
     """
     url = f"{BLAZEMETER_API_BASE}/sessions/{session_id}/reports/logs"
     async with httpx.AsyncClient() as client:
@@ -378,18 +410,23 @@ async def get_session_artifacts(session_id: str) -> dict:
             data_url = item.get("dataUrl")
             if filename and data_url:
                 files[filename] = data_url
+        if ctx is not None:
+            ctx.set_state("artifact_file_list", files)
+            ctx.set_state("artifact_file_session_id", session_id)
         return files if files else {"message": "No files found in this session's logs report."}
 
-async def download_artifact_zip_file(artifact_zip_url: str, run_id: str) -> str:
+async def download_artifact_zip_file(artifact_zip_url: str, run_id: str, ctx: Context) -> str:
     """
     Downloads the artifact ZIP file for a test run to the correct artifacts folder.
 
     Args:
         artifact_zip_url: Signed S3 URL for artifacts.zip.
         run_id: The BlazeMeter run ID (master ID).
+        ctx (Context, optional): FastMCP workflow context to save downloaded file path.
 
     Returns:
         Full local path to the downloaded ZIP file, or error message.
+        Updates context with file path.
     """
     dest_folder = os.path.join(artifacts_base, str(run_id), "blazemeter")
     os.makedirs(dest_folder, exist_ok=True)
@@ -407,24 +444,31 @@ async def download_artifact_zip_file(artifact_zip_url: str, run_id: str) -> str:
                     response = await client.get(artifact_zip_url, headers=get_headers({"Accept": "*/*"}))
                     response.raise_for_status()
                 except Exception as e2:
+                    if ctx is not None:
+                        ctx.set_state("download_error", str(e2))
                     return f"❗ Error downloading artifacts.zip: Minimal headers failed: {e1}, Auth headers failed: {e2}"
             
             with open(local_zip_path, "wb") as f:
                 f.write(response.content)
+        if ctx is not None:
+            ctx.set_state("local_zip_path", local_zip_path)
         return local_zip_path
     except Exception as e:
+        if ctx is not None:
+            ctx.set_state("download_error", str(e))
         return f"❗ Error downloading artifacts.zip: {e}"
 
-def extract_artifact_zip_file(local_zip_path: str, run_id: str) -> list:
+def extract_artifact_zip_file(local_zip_path: str, run_id: str, ctx: Context) -> list:
     """
     Extracts the specified artifacts.zip file to the appropriate folder for a run.
 
     Args:
         local_zip_path: Full path to the downloaded artifacts.zip file.
         run_id: BlazeMeter run ID.
+        ctx (Context, optional): Workflow context to store extracted file list.
 
     Returns:
-        List of full paths to the extracted files (within the run's 'artifacts' directory).
+        List of full paths to the extracted files (within the run's 'artifacts' directory). Updates context for downstream use.
     """
     dest_folder = os.path.join(artifacts_base, str(run_id), "blazemeter", "artifacts")
     os.makedirs(dest_folder, exist_ok=True)
@@ -432,17 +476,28 @@ def extract_artifact_zip_file(local_zip_path: str, run_id: str) -> list:
         with zipfile.ZipFile(local_zip_path, "r") as zip_ref:
             zip_ref.extractall(dest_folder)
             extracted_files = [os.path.join(dest_folder, name) for name in zip_ref.namelist()]
+        if ctx is not None:
+            ctx.set_state("extracted_files", extracted_files)
         return extracted_files
     except Exception as e:
+        if ctx is not None:
+            ctx.set_state("extraction_error", str(e))
         return [f"❗ Error extracting ZIP: {e}"]
 
-def process_extracted_artifact_files(run_id: str, extracted_files: list) -> dict:
+def process_extracted_artifact_files(run_id: str, extracted_files: list, ctx: Context) -> dict:
     """
     Processes BlazeMeter artifact files for a run:
-    - Moves/renames kpi.jtl as test-results.csv to <run_id>/blazemeter/
-    - Moves jmeter.log to <run_id>/blazemeter/
-    - Ignores error.jtl and any other .jtl files
-    - Returns paths to processed files, plus errors if files are missing
+      - Moves/renames kpi.jtl to test-results.csv
+      - Moves jmeter.log
+      - Ignores error.jtl and other .jtl files
+
+    Args:
+        run_id: BlazeMeter run ID.
+        extracted_files: List of full paths to extracted files.
+        ctx (Context, optional): Workflow context to store result file paths and errors.
+
+    Returns:
+        Dict with processed file paths, errors. Updates context for downstream steps.
     """
     result = {"errors": []}
     dest_folder = os.path.join(artifacts_base, str(run_id), "blazemeter")
@@ -468,14 +523,20 @@ def process_extracted_artifact_files(run_id: str, extracted_files: list) -> dict
     else:
         result["errors"].append("jmeter.log not found.")
 
+    if ctx is not None:
+        ctx.set_state("processed_csv_path", result.get("csv_path"))
+        ctx.set_state("processed_log_path", result.get("log_path"))
+        ctx.set_state("process_errors", result.get("errors"))
+
     return result
 
-async def get_public_report_url(run_id: str) -> dict:
+async def get_public_report_url(run_id: str, ctx: Context) -> dict:
     """
     Requests a public token for the provided run_id and returns a shareable BlazeMeter report URL.
 
     Args:
         run_id: The BlazeMeter master/run ID.
+        ctx (Context, optional): FastMCP context to pass/share report URL and token.
 
     Returns:
         Dictionary with:
@@ -484,6 +545,7 @@ async def get_public_report_url(run_id: str) -> dict:
             - public_token: The raw public token.
             - is_new: True if the token was newly created, False if already existed.
             - error: Error message or None.
+        Updates context with public_url and public_token for workflow chaining.
     """
     url = f"{BLAZEMETER_API_BASE}/masters/{run_id}/public-token"
     try:
@@ -496,6 +558,10 @@ async def get_public_report_url(run_id: str) -> dict:
             is_new = result.get("new", False)
             if token:
                 public_url = f"https://a.blazemeter.com/app/?public-token={token}#/masters/{run_id}/summary"
+                if ctx is not None:
+                    ctx.set_state("public_url", public_url)
+                    ctx.set_state("public_token", token)
+                    ctx.set_state("is_new_token", is_new)
                 return {
                     "run_id": run_id,
                     "public_url": public_url,
@@ -504,6 +570,11 @@ async def get_public_report_url(run_id: str) -> dict:
                     "error": None
                 }
             else:
+                if ctx is not None:
+                    ctx.set_state("public_url", None)
+                    ctx.set_state("public_token", None)
+                    ctx.set_state("is_new_token", False)
+                    ctx.set_state("public_report_error", "Public token not returned by API.")
                 return {
                     "run_id": run_id,
                     "public_url": None,
@@ -512,6 +583,9 @@ async def get_public_report_url(run_id: str) -> dict:
                     "error": "Public token not returned by API."
                 }
     except Exception as e:
+        if ctx is not None:
+            ctx.set_state("public_url", None)
+            ctx.set_state("public_report_error", str(e))
         return {
             "run_id": run_id,
             "public_url": None,

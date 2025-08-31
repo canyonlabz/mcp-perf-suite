@@ -1,5 +1,5 @@
 # blazemeter.py
-from fastmcp import FastMCP  # ✅ FastMCP 2.x import
+from fastmcp import FastMCP, Context  # ✅ FastMCP 2.x import
 from typing import Optional
 from utils.config import load_config
 
@@ -58,24 +58,26 @@ async def get_tests(project_id: str) -> str:
     return await list_tests(project_id)
 
 @mcp.tool
-async def start_test(test_id: str) -> str:
+async def start_test(test_id: str, ctx: Context) -> str:
     """
-    Start a BlazeMeter test run.
+    Starts a BlazeMeter test run.
 
     Args:
         test_id: The BlazeMeter test ID.
+        ctx (Context, optional): FastMCP workflow context to store run_id for chaining.
     Returns:
         String (JSON or formatted text) with the created run ID and status.
     """
-    return await run_test(test_id)
+    return await run_test(test_id, ctx)
 
 @mcp.tool()
-async def check_test_status(run_id: str) -> dict:
+async def check_test_status(run_id: str, ctx: Context) -> dict:
     """
     Checks the status of a BlazeMeter test run by run_id.
 
     Args:
         run_id (str): BlazeMeter master/run ID.
+        ctx (Context, optional): Workflow context for chaining state/status/errors.
 
     Returns:
         A dictionary containing:
@@ -84,23 +86,25 @@ async def check_test_status(run_id: str) -> dict:
             - statuses: Percentage breakdown of sub-statuses (pending, booting, ready, ended, etc.).
             - error: Null, string, or object if an error is present in BlazeMeter response.
             - has_error: True if an error was detected or test failed, otherwise False.
+            - ctx: Also updates context with latest status info for advanced workflows.
 
     Usage:
         Use to monitor if a test started, is running, or has finished. Useful for polling during test execution.
     """
-    return await get_test_status(run_id)
+    return await get_test_status(run_id, ctx)
 
 @mcp.tool
-async def get_run_results(run_id: str) -> str:
+async def get_run_results(run_id: str, ctx: Context) -> str:
     """
     Get the latest summary for a given run.
 
     Args:
         run_id: The BlazeMeter test run ID.
+        ctx (Context, optional): FastMCP context to record, reuse, or cache summary info.
     Returns:
-        String (JSON or formatted text) summary of run status and KPIs.
+        String (JSON or formatted text) summary of run status and KPIs; context updated with summary fields for workflow chaining.
     """
-    return await get_results_summary(run_id)
+    return await get_results_summary(run_id, ctx)
 
 @mcp.tool()
 def get_artifacts_path() -> str:
@@ -120,50 +124,73 @@ async def get_test_runs(test_id: str, start_time: str, end_time: str) -> list:
     return await list_test_runs(test_id, start_time, end_time)
 
 @mcp.tool()
-async def get_artifact_file_list(session_id: str) -> dict:
+async def get_artifact_file_list(session_id: str, ctx: Context) -> dict:
     """
     Returns a dict of downloadable artifact/log files for a given BlazeMeter session.
     Keys are filenames, values are their URLs.
+
+    Args:
+        session_id (str): BlazeMeter session ID.
+        ctx (Context, optional): FastMCP context for chaining file URLs.
+
+    Returns:
+        Dict of filename -> URL. Context updated with file list.
     """
-    return await get_session_artifacts(session_id)
+    return await get_session_artifacts(session_id, ctx)
 
 @mcp.tool()
-async def download_artifacts_zip(artifact_zip_url: str, run_id: str) -> str:
+async def download_artifacts_zip(artifact_zip_url: str, run_id: str, ctx: Context) -> str:
     """
     Downloads the artifacts.zip for a given BlazeMeter run to the proper artifacts path.
-    Returns the local file path.
+
+    Args:
+        artifact_zip_url (str): S3 URL to artifacts.zip.
+        run_id (str): BlazeMeter run/master ID.
+        ctx (Context, optional): Workflow context to save file path.
+
+    Returns:
+        Local file path (string). Updates context with path for downstream workflow steps.
     """
-    return await download_artifact_zip_file(artifact_zip_url, run_id)
+    return await download_artifact_zip_file(artifact_zip_url, run_id, ctx)
 
 @mcp.tool()
-def extract_artifact_zip(local_zip_path: str, run_id: str) -> list:
+def extract_artifact_zip(local_zip_path: str, run_id: str, ctx: Context) -> list:
     """
     Extracts a downloaded artifacts.zip file for a BlazeMeter run.
-    - local_zip_path: The full local filesystem path to artifacts.zip.
-    - run_id: The run ID (used to determine artifact destination folder).
-    Returns list of extracted file paths.
+
+    Args:
+        local_zip_path (str): Path to artifacts.zip.
+        run_id (str): BlazeMeter run ID.
+        ctx (Context, optional): Workflow context to add list of extracted files.
+
+    Returns:
+        List of extracted file paths. Updates context for downstream tools.
     """
-    return extract_artifact_zip_file(local_zip_path, run_id)
+    return extract_artifact_zip_file(local_zip_path, run_id, ctx)
 
 @mcp.tool()
-def process_extracted_files(run_id: str, extracted_files: list) -> dict:
+def process_extracted_files(run_id: str, extracted_files: list, ctx: Context) -> dict:
     """
-    Processes BlazeMeter run artifacts:
-    - Uses only kpi.jtl for metrics, renames to test-results.csv in destination folder
-    - Moves jmeter.log for diagnostics
-    - Ignores other .jtl files and extraneous files
-    Returns processed file paths and any errors encountered.
-    Use for final step before test result analysis.
+    Processes BlazeMeter run artifacts (kpi.jtl, jmeter.log).
+
+    Args:
+        run_id (str): BlazeMeter run ID.
+        extracted_files (list): Paths to files from ZIP extraction.
+        ctx (Context, optional): Workflow context for chaining file paths and errors.
+
+    Returns:
+        Dict of output file paths and errors. Updates context for downstream steps and error handling.
     """
-    return process_extracted_artifact_files(run_id, extracted_files)
+    return process_extracted_artifact_files(run_id, extracted_files, ctx)
 
 @mcp.tool()
-async def get_public_report(run_id: str) -> dict:
+async def get_public_report(run_id: str, ctx: Context) -> dict:
     """
     Generates or retrieves a public BlazeMeter report URL for the given test run.
 
     Args:
         run_id (str): The BlazeMeter run/master ID.
+        ctx (Context, optional): Workflow context to chain report URL/token for downstream analysis/sharing.
 
     Returns:
         Dictionary including:
@@ -172,11 +199,12 @@ async def get_public_report(run_id: str) -> dict:
             - public_token: The underlying token (for debugging or manual URL re-creation).
             - is_new: True if the token was just created; False if it existed already.
             - error: An error message if something went wrong.
+        Updates context for workflow orchestration.
 
     Usage:
         Use to quickly generate a shareable report URL for stakeholders after a test completes.
     """
-    return await get_public_report_url(run_id)
+    return await get_public_report_url(run_id, ctx)
 
 # -----------------------------
 # BlazeMeter MCP entry point
