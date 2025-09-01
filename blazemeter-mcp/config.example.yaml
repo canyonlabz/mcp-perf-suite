@@ -11,4 +11,6 @@ artifacts:
   artifacts_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\artifacts"  # Path for artifacts
 
 blazemeter:
-  blazemeter_results_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\artifacts"  # Placeholder
+  polling_interval_seconds: 30
+  polling_max_retries: 3
+  polling_timeout_seconds: 600

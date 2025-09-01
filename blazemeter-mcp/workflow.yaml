@@ -1,0 +1,90 @@
+workflow:
+  # Optional step: Start a test
+  - tool: start_test
+    params:
+      test_id: "${test_id}"          # From config.yaml
+    output: run_id
+    optional: true                # Allows skipping this step if not needed
+    on_error:
+      retry: 1                    # Only try once; do NOT attempt to restart
+      notify_user: true           # Always inform the user if the test start fails
+      exit_on_error: true         # Abort workflow if this fails
+
+  # Poll the test status until completion
+  - tool: check_test_status
+    params:
+      run_id: ${run_id}
+    output: status
+    repeat_until:
+      equals:
+        status: "ENDED"
+      polling_interval_seconds: ${polling_interval_seconds}   # From config.yaml
+      max_retries: ${polling_max_retries}                     # From config.yaml
+      timeout_seconds: ${polling_timeout_seconds}             # From config.yaml
+    on_error:
+      retry: 3
+      notify_user: true
+      exit_on_error: true
+    pause_for_user:
+      enabled: true
+      trigger_if_long_running: true   # Ask user if status polling exceeds set duration
+
+  # Retrieve summary/results
+  - tool: get_run_results
+    params:
+      run_id: ${run_id}
+    output: final_results
+    on_error:
+      retry: 3
+      notify_user: true
+
+  # Get public BlazeMeter report URL
+  - tool: get_public_report
+    params:
+      run_id: ${run_id}
+    output: public_url
+    on_error:
+      retry: 3
+      notify_user: true
+
+  # List artifacts for download
+  - tool: get_artifact_file_list
+    params:
+      session_id: ${session_id}
+    output: artifact_list
+    on_error:
+      retry: 3
+      notify_user: true
+
+  # Download the artifacts ZIP file
+  - tool: download_artifacts_zip
+    params:
+      artifact_zip_url: ${artifact_zip_url}
+      run_id: ${run_id}
+    output: local_zip_path
+    on_error:
+      retry: 3
+      notify_user: true
+    pause_for_user:
+      enabled: true
+      trigger_if_artifacts_exist: true   # Prompt user if files/folders already exist
+
+  # Extract the ZIP file
+  - tool: extract_artifact_zip
+    params:
+      local_zip_path: ${local_zip_path}
+      run_id: ${run_id}
+    output: extracted_files
+    on_error:
+      retry: 3
+      notify_user: true
+
+  # Process extracted files (CSV, logs)
+  - tool: process_extracted_files
+    params:
+      run_id: ${run_id}
+      extracted_files: ${extracted_files}
+    output: processed_data
+    on_error:
+      retry: 3
+      notify_user: true
