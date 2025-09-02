@@ -116,12 +116,20 @@ def get_artifacts_path() -> str:
     return artifacts_path or "No artifacts_path found in config."
 
 @mcp.tool()
-async def get_test_runs(test_id: str, start_time: str, end_time: str) -> list:
+async def get_test_runs(test_id: str, start_time: str, end_time: str, ctx: Context) -> list:
     """
     Lists past BlazeMeter test runs (masters) for the specified test within the given date range.
     Dates should be supplied in human-readable format: 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD'
+
+    Args:
+        test_id (str): The BlazeMeter test ID.
+        start_time (str): The start time for the date range.
+        end_time (str): The end time for the date range.
+        ctx (Context, optional): FastMCP context for chaining or caching results.
+    Returns:
+        List of test run summaries.
     """
-    return await list_test_runs(test_id, start_time, end_time)
+    return await list_test_runs(test_id, start_time, end_time, ctx)
 
 @mcp.tool()
 async def get_artifact_file_list(session_id: str, ctx: Context) -> dict:
@@ -154,7 +162,7 @@ async def download_artifacts_zip(artifact_zip_url: str, run_id: str, ctx: Contex
     return await download_artifact_zip_file(artifact_zip_url, run_id, ctx)
 
 @mcp.tool()
-def extract_artifact_zip(local_zip_path: str, run_id: str, ctx: Context) -> list:
+async def extract_artifact_zip(local_zip_path: str, run_id: str, ctx: Context) -> list:
     """
     Extracts a downloaded artifacts.zip file for a BlazeMeter run.
 
@@ -166,7 +174,7 @@ def extract_artifact_zip(local_zip_path: str, run_id: str, ctx: Context) -> list
     Returns:
         List of extracted file paths. Updates context for downstream tools.
     """
-    return extract_artifact_zip_file(local_zip_path, run_id, ctx)
+    return await extract_artifact_zip_file(local_zip_path, run_id, ctx)
 
 @mcp.tool()
 def process_extracted_files(run_id: str, extracted_files: list, ctx: Context) -> dict:

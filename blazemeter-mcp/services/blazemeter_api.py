@@ -167,6 +167,7 @@ async def get_test_status(run_id: str, ctx: Context) -> dict:
                 ctx.set_state("last_status", status)
                 ctx.set_state("statuses", statuses)
                 ctx.set_state("has_error", has_error)
+                await ctx.info("Current Status", status)
             return {
                 "run_id": run_id,
                 "status": status,
@@ -179,6 +180,7 @@ async def get_test_status(run_id: str, ctx: Context) -> dict:
             ctx.set_state("last_status", "ERROR")
             ctx.set_state("error", str(e))
             ctx.set_state("has_error", True)
+            await ctx.error("Error retrieving test status", str(e))
         return {
             "run_id": run_id,
             "status": "ERROR",
@@ -308,6 +310,7 @@ async def get_results_summary(run_id: str, ctx: Context) -> str:
 
     # Update context with summary for downstream tools
     if ctx is not None:
+        await ctx.info("Test Configuration JSON Path", test_config_json)
         ctx.set_state("summary", summary_fields)
         ctx.set_state("test_config_json_path", test_config_json)
 
@@ -340,7 +343,7 @@ async def get_results_summary(run_id: str, ctx: Context) -> str:
     )
     return report
 
-async def list_test_runs(test_id: str, start_time: str, end_time: str) -> list:
+async def list_test_runs(test_id: str, start_time: str, end_time: str, ctx: Context) -> list:
     """
     Lists BlazeMeter test runs (masters) for the specified test and time range.
     Accepts dates as 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS'.
@@ -386,6 +389,16 @@ async def list_test_runs(test_id: str, start_time: str, end_time: str) -> list:
                 "duration_seconds": duration_seconds,       # Raw seconds for downstream use
                 "locations": m.get("locations", []),
             })
+            await ctx.info(f"Found run ID {m.get('id')} with test name {m.get('name')}.",
+                           extra={
+                                 "start_time": epoch_to_timestamp(created),
+                                 "end_time": epoch_to_timestamp(ended),
+                                 "duration": duration_str,
+                                 "sessions_id": m.get("sessionsId", []),
+                                 "project_id": m.get("projectId"),
+                                 "max_users": m.get("maxUsers"),
+                                 "locations": m.get("locations", []),
+                           })
         return runs if runs else [{"message": "No matching runs found."}]
 
 async def get_session_artifacts(session_id: str, ctx: Context) -> dict:
@@ -410,6 +423,11 @@ async def get_session_artifacts(session_id: str, ctx: Context) -> dict:
             data_url = item.get("dataUrl")
             if filename and data_url:
                 files[filename] = data_url
+            if filename and filename.lower() == "artifacts.zip":
+                ctx.set_state("artifact_zip_url", data_url)
+                ctx.set_state("artifact_zip_filename", filename)
+                await ctx.info("Artifact ZIP URL", data_url)
+                await ctx.info("Artifact ZIP Filename", filename)
         if ctx is not None:
             ctx.set_state("artifact_file_list", files)
             ctx.set_state("artifact_file_session_id", session_id)
@@ -452,13 +470,15 @@ async def download_artifact_zip_file(artifact_zip_url: str, run_id: str, ctx: Co
                 f.write(response.content)
         if ctx is not None:
             ctx.set_state("local_zip_path", local_zip_path)
+            await ctx.info("Downloaded artifacts.zip to", local_zip_path)
         return local_zip_path
     except Exception as e:
         if ctx is not None:
             ctx.set_state("download_error", str(e))
+            await ctx.error("Error downloading artifacts.zip", str(e))
         return f"❗ Error downloading artifacts.zip: {e}"
 
-def extract_artifact_zip_file(local_zip_path: str, run_id: str, ctx: Context) -> list:
+async def extract_artifact_zip_file(local_zip_path: str, run_id: str, ctx: Context) -> list:
     """
     Extracts the specified artifacts.zip file to the appropriate folder for a run.
 
@@ -478,10 +498,12 @@ def extract_artifact_zip_file(local_zip_path: str, run_id: str, ctx: Context) ->
             extracted_files = [os.path.join(dest_folder, name) for name in zip_ref.namelist()]
         if ctx is not None:
             ctx.set_state("extracted_files", extracted_files)
+            await ctx.info(f"Extracted {len(extracted_files)} artifact files.")
         return extracted_files
     except Exception as e:
         if ctx is not None:
             ctx.set_state("extraction_error", str(e))
+            await ctx.error("Error extracting artifacts.zip", str(e))
         return [f"❗ Error extracting ZIP: {e}"]
 
 def process_extracted_artifact_files(run_id: str, extracted_files: list, ctx: Context) -> dict:
