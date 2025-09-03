@@ -1,14 +1,47 @@
 {
+  "schema_version": "1.0",
   "environments": {
-    "DEV": [
-      {"hostname": "dev-web-01", "env": "dev"},
-      {"hostname": "dev-app-01", "env": "dev"},
-      {"hostname": "dev-db-01", "env": "dev"}
-    ],
-    "QA": [
-      {"hostname": "qa-web-01", "env": "qa"},
-      {"hostname": "qa-app-01", "env": "qa"},
-      {"hostname": "qa-db-01", "env": "qa"}
-    ]
+    "QA": {
+      "metadata": {
+        "platform": "Linux",
+        "cpus": 4,
+        "memory": "16GB",
+        "description": "QA environment for web/app/db tier"
+      },
+      "tags": [
+        "env:qa",
+        "team:qa"
+      ],
+      "services": [
+        {"service_name": "serviceA", "type": "web"},
+        {"service_name": "serviceB", "type": "app"},
+        {"service_name": "serviceC", "type": "db"}
+      ],
+      "hosts": [
+        {"hostname": "qa-web-01", "env": "qa"},
+        {"hostname": "qa-app-01", "env": "qa"},
+        {"hostname": "qa-db-01", "env": "qa"}
+      ]
+    },
+    "UAT": {
+      "metadata": {
+        "platform": "Windows",
+        "cpus": 8,
+        "memory": "32GB"
+      },
+      "tags": [
+        "env:uat"
+      ],
+      "services": [
+        {"service_name": "serviceD", "type": "web"},
+        {"service_name": "serviceE", "type": "app"},
+        {"service_name": "serviceF", "type": "db"}
+      ],
+      "hosts": [
+        {"hostname": "uat-web-01", "env": "uat"},
+        {"hostname": "uat-app-01", "env": "uat"},
+        {"hostname": "uat-db-01", "env": "uat"}
+      ]
+    }
   }
 }
