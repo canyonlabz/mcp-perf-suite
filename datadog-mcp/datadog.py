@@ -1,3 +1,4 @@
+import json
 from fastmcp import FastMCP, Context
 from services.datadog_api import (
     load_environment_json, 
@@ -12,15 +13,16 @@ async def load_environment(env_name: str, ctx: Context) -> dict:
     Loads the given environment's hosts from environments.json and puts them into context.
 
     Args:
-        env_name: The environment to load (e.g., 'QA', 'DEV').
+        env_name: The environment to load (e.g., 'QA', 'DEV', 'UAT', etc.).
         ctx: The FastMCP workflow context.
 
     Returns:
         dict: Host info for the selected environment.
     """
     env_hosts = await load_environment_json(env_name)
-    ctx.set_state("env_hosts", env_hosts)
-    await ctx.info("Environment hosts loaded", env_hosts)
+    serialized_hosts = json.dumps(env_hosts)
+    ctx.set_state("env_hosts", serialized_hosts)
+    await ctx.info(f"Environment hosts loaded for {env_name}", serialized_hosts)
     return env_hosts
 
 @mcp.tool
@@ -38,7 +40,8 @@ async def get_kpi_metrics(run_id: str, start_time: str, end_time: str, ctx: Cont
     Returns:
         str: The output path to the CSV file.
     """
-    env_hosts = ctx.get_state("env_hosts")
+    raw_hosts = ctx.get_state("env_hosts")
+    env_hosts = json.loads(raw_hosts) if raw_hosts else []
     csv_file = await get_kpi_metrics_for_hosts(
         run_id=run_id,
         hosts=env_hosts,
