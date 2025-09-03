@@ -232,6 +232,8 @@ __marimo__/
 .env
 blazemeter-mcp/.env
 blazemeter-mcp/uv.lock
+datadog-mcp/.env
+datadog-mcp/uv.lock
 
 # ignore performance test results and logs
 artifacts/*

@@ -225,12 +225,11 @@ Avg: 340
 blazemeter-mcp/
 ├── blazemeter.py                  # MCP server entrypoint (FastMCP)
 ├── services/
-│   └── blazemeter_api.py          # BlazeMeter API logic & artifact helpers
+│   └── blazemeter_api.py          # BlazeMeter API & helper functions
 ├── utils/
 │   └── config.py                  # Utility for loading config.yaml
 ├── config.yaml                    # Centralized, environment-agnostic config
 ├── pyproject.toml                 # Modern Python project metadata & dependencies
-├── artifacts/                     # Directory for all downloaded/extracted results
 ├── requirements.txt*              # (if present) for legacy dependency management
 ├── README.md                      # This file
 └── .env                           # Local environment variables (API keys, secrets)

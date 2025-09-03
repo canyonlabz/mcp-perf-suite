@@ -1,0 +1,14 @@
+{
+  "environments": {
+    "DEV": [
+      {"hostname": "dev-web-01", "env": "dev"},
+      {"hostname": "dev-app-01", "env": "dev"},
+      {"hostname": "dev-db-01", "env": "dev"}
+    ],
+    "QA": [
+      {"hostname": "qa-web-01", "env": "qa"},
+      {"hostname": "qa-app-01", "env": "qa"},
+      {"hostname": "qa-db-01", "env": "qa"}
+    ]
+  }
+}
