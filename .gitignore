@@ -243,3 +243,6 @@ artifacts/*
 # ignore config.yaml files for Windows or Mac systems (NOTE: These files are specific to OS, but can be re-enabled by commenting out the following lines)
 **/config.mac.yaml
 **/config.windows.yaml
+
+# ignore Datadog environments
+datadog-mcp/environments.json
