@@ -2,46 +2,36 @@
   "schema_version": "1.0",
   "environments": {
     "QA": {
+      "env_tag": "qa",
       "metadata": {
         "platform": "Linux",
         "cpus": 4,
         "memory": "16GB",
         "description": "QA environment for web/app/db tier"
       },
-      "tags": [
-        "env:qa",
-        "team:qa"
-      ],
+      "tags": ["team:qa"],
       "services": [
         {"service_name": "serviceA", "type": "web"},
         {"service_name": "serviceB", "type": "app"},
         {"service_name": "serviceC", "type": "db"}
       ],
       "hosts": [
-        {"hostname": "qa-web-01", "env": "qa"},
-        {"hostname": "qa-app-01", "env": "qa"},
-        {"hostname": "qa-db-01", "env": "qa"}
-      ]
-    },
-    "UAT": {
-      "metadata": {
-        "platform": "Windows",
-        "cpus": 8,
-        "memory": "32GB"
-      },
-      "tags": [
-        "env:uat"
+        {"hostname": "qa-web-01"},
+        {"hostname": "qa-app-01"},
+        {"hostname": "qa-db-01"}
       ],
-      "services": [
-        {"service_name": "serviceD", "type": "web"},
-        {"service_name": "serviceE", "type": "app"},
-        {"service_name": "serviceF", "type": "db"}
-      ],
-      "hosts": [
-        {"hostname": "uat-web-01", "env": "uat"},
-        {"hostname": "uat-app-01", "env": "uat"},
-        {"hostname": "uat-db-01", "env": "uat"}
-      ]
+      "kubernetes": {
+        "services": [
+          {
+            "service_filter": "*products*",
+            "description": "Products microservices"
+          },
+          {
+            "service_filter": "*auth*", 
+            "description": "Authentication services"
+          }
+        ]
+      }
     }
   }
 }
