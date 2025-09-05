@@ -4,7 +4,12 @@ import json
 import httpx
 import csv
 from datetime import datetime
+from dotenv import load_dotenv
+from fastmcp import FastMCP, Context    # ✅ FastMCP 2.x import
 from utils.config import load_config
+
+# Load environment variables from .env file such as API keys and secrets
+load_dotenv()
 
 # Load config at the top as in BlazeMeter
 config = load_config()
@@ -13,14 +18,16 @@ environments_json_path = config["datadog"]["environments_json_path"]
 
 DD_API_KEY = os.getenv("DD_API_KEY")
 DD_APP_KEY = os.getenv("DD_APP_KEY")
-DATADOG_API_URL = "https://api.us3.datadoghq.com/api/v1/query"
-DATADOG_V2_TIMESERIES_URL = "https://api.us3.datadoghq.com/api/v2/query/timeseries"
+DD_API_BASE_URL = os.getenv("DD_API_BASE_URL", "https://api.datadoghq.com")
+DATADOG_API_URL = f"{DD_API_BASE_URL}/api/v1/query"
+DATADOG_V2_TIMESERIES_URL = f"{DD_API_BASE_URL}/api/v2/query/timeseries"
 
-async def load_environment_json(env_name: str) -> dict:
+async def load_environment_json(env_name: str, ctx: Context) -> dict:
     """
     Loads the complete environment configuration for a given environment from environments.json.
     Args:
         env_name (str): The environment name ("QA", "UAT", etc.)
+        ctx: FastMCP context (for info/error reporting)
     Returns:
         dict: Complete environment configuration including env_tag, metadata, tags, services, hosts, and kubernetes sections.
     """
@@ -29,14 +36,26 @@ async def load_environment_json(env_name: str) -> dict:
     
     env_config = envdata["environments"].get(env_name)
     if not env_config:
+        await ctx.error(f"Environment '{env_name}' not found in environments.json")
         raise ValueError(f"Environment '{env_name}' not found in environments.json")
     
     # Add the environment name to the config for reference
     env_config["environment_name"] = env_name
     
+    # Store in context for later steps
+    if ctx is not None:
+        ctx.set_state("env_config", env_config)  # Store as dict directly
+        ctx.set_state("env_name", env_name)
+
+    # Extract key info for the log message
+    env_tag = env_config.get("env_tag", "unknown")
+    host_count = len(env_config.get("hosts", []))
+    k8s_services = len(env_config.get("kubernetes", {}).get("services", []))
+    await ctx.info(f"Environment '{env_name}' loaded with env_tag: {env_tag}, {host_count} hosts, {k8s_services} k8s services")
+
     return env_config
 
-async def get_metrics_for_hosts(run_id: str, env_config: dict, start_time: str, end_time: str, ctx):
+async def get_metrics_for_hosts(run_id: str, env_config: dict, start_time: str, end_time: str, ctx: Context):
     """
     Pulls CPU and memory metrics for each host in the environment and writes them to a CSV.
     Args:
@@ -122,7 +141,7 @@ async def get_metrics_for_hosts(run_id: str, env_config: dict, start_time: str, 
     
     return outcsv
 
-async def get_kubernetes_metrics_for_services(run_id: str, env_config: dict, start_time: str, end_time: str, ctx):
+async def get_kubernetes_metrics_for_services(run_id: str, env_config: dict, start_time: str, end_time: str, ctx: Context):
     """
     Pulls Kubernetes CPU metrics for services defined in environment config using Datadog v2 timeseries API.
     
@@ -145,7 +164,11 @@ async def get_kubernetes_metrics_for_services(run_id: str, env_config: dict, sta
         if isinstance(ts, (float, int)):
             return int(ts)
         try:
-            return int(datetime.fromisoformat(ts).timestamp())
+            # Handle both ISO format (2024-08-04T11:00:00) and space format (2024-08-04 11:00:00)
+            if 'T' in str(ts):
+                return int(datetime.fromisoformat(ts).timestamp())
+            else:
+                return int(datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp())
         except Exception:
             return int(ts)
 
@@ -157,10 +180,15 @@ async def get_kubernetes_metrics_for_services(run_id: str, env_config: dict, sta
     env_name = env_config.get("environment_name", "unknown")
     k8s_config = env_config.get("kubernetes", {})
     services = k8s_config.get("services", [])
+    
+    # Debug: Log what we found
+    await ctx.info(f"Environment: {env_name}, Tag: {env_tag}")
+    await ctx.info(f"K8s config: {k8s_config}")
+    await ctx.info(f"Services found: {len(services)} - {services}")
 
     if not services:
         await ctx.error("No Kubernetes services found in environment configuration")
-        return ""
+        return f"ERROR: No Kubernetes services found in environment configuration: {k8s_config}"
 
     # Build queries for each service
     queries = []
@@ -193,18 +221,25 @@ async def get_kubernetes_metrics_for_services(run_id: str, env_config: dict, sta
         "Content-Type": "application/json"
     }
 
+    # Debug: Log the request details
+    await ctx.info(f"Making Datadog API request with start_epoch: {start_epoch}, end_epoch: {end_epoch}")
+    await ctx.info(f"Query: {queries[0]['query'] if queries else 'No queries'}")
+    
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(DATADOG_V2_TIMESERIES_URL, json=post_data, headers=headers)
+            await ctx.info(f"API response status: {resp.status_code}")
             resp.raise_for_status()
             resp_json = resp.json()
+            await ctx.info(f"API response received, series count: {len(resp_json.get('data', {}).get('attributes', {}).get('series', []))}")
             
         except httpx.HTTPStatusError as e:
             await ctx.error(f"Datadog v2 API error: HTTP {e.response.status_code}")
-            return ""
+            await ctx.error(f"Response body: {e.response.text}")
+            return f"ERROR: Datadog v2 API error: HTTP {e.response.status_code} with response body: {e.response.text}"
         except Exception as e:
             await ctx.error(f"Error fetching Kubernetes metrics: {str(e)}")
-            return ""
+            return f"ERROR: Error fetching Kubernetes metrics: {str(e)}"
 
     # Process response and write to CSV
     with open(outcsv, "w", newline="") as fcsv:
