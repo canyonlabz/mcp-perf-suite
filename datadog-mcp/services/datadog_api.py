@@ -143,7 +143,7 @@ async def get_metrics_for_hosts(run_id: str, env_config: dict, start_time: str, 
 
 async def get_kubernetes_metrics_for_services(run_id: str, env_config: dict, start_time: str, end_time: str, ctx: Context):
     """
-    Pulls Kubernetes CPU metrics for services defined in environment config using Datadog v2 timeseries API.
+    Pulls Kubernetes CPU and Memory metrics for services defined in environment config using Datadog v2 timeseries API.
     
     Args:
         run_id (str): Unique run identifier (BlazeMeter run_id)

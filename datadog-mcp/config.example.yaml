@@ -1,0 +1,15 @@
+general:
+  enable_debug: False   # Enable/disable debug mode
+  enable_logging: True  # Enable/disable logging
+
+logging:
+  log_level: "INFO"     # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  verbose_mode: False   # Enable verbose logging for debugging
+  log_path: "/path_to_log/tmp/logs"  # Update with the actual path
+
+artifacts:
+  artifacts_path: "/path_to_root/mcp-perf-suite/artifacts"  # Path for artifacts
+
+datadog:
+  time_zone: "America/New_York"  # Set the time zone
+  environments_json_path: "/path_to_root/mcp-perf-suite/datadog-mcp/environments.json"

@@ -68,7 +68,7 @@ async def get_host_metrics(run_id: str, start_time: str, end_time: str, ctx: Con
 @mcp.tool()
 async def get_kubernetes_metrics(run_id: str, start_time: str, end_time: str, env_config: dict, ctx: Context) -> str:
     """
-    Retrieves Kubernetes CPU metrics for all services in the specified environment.
+    Retrieves Kubernetes CPU and Memory metrics for all services in the specified environment.
     Outputs a CSV artifact in the artifacts directory for the given run_id.
 
     Args:
