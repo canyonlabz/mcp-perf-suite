@@ -223,8 +223,8 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
                     # each point is [ms, value]
                     series_map[metric] = [(int(ts), val if val is not None else float("nan")) for ts, val in pts]
             except Exception as e:
-                warnings.append(f"Host '{hostname}': API error — {e}")
-                await ctx.error(f"Host '{hostname}': API error — {e}")
+                warnings.append(f"Host '{hostname}': API error — {e}; Request params: {params}; Response: {json.dumps(data, indent=2) if 'data' in locals() else 'N/A'}")
+                await ctx.error(f"Host '{hostname}': API error — {e}; Request params: {params}; Response: {json.dumps(data, indent=2) if 'data' in locals() else 'N/A'}")
                 continue
 
             # If no datapoints at all, skip file
@@ -248,8 +248,8 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
 
                 write_series("system.cpu.user", "%")
                 write_series("system.cpu.system", "%")
-                write_series("system.mem.used", "B")
-                write_series("system.mem.total", "B")
+                write_series("system.mem.used", "bytes")
+                write_series("system.mem.total", "bytes")
 
                 # Derived memory percent per timestamp (if both available)
                 mem_used = dict(series_map.get("system.mem.used", []))
