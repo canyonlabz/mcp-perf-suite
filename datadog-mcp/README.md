@@ -77,7 +77,7 @@ Create an `environments.json` file defining your environments, hosts, and Kubern
     "QA": {
       "env_tag": "qa",
       "metadata": {
-        "platform": "Linux",
+        "platform": "Windows Server 2019",
         "cpus": 4,
         "memory": "16GB",
         "description": "QA environment for web/app/db tier"
@@ -88,8 +88,9 @@ Create an `environments.json` file defining your environments, hosts, and Kubern
         {"service_name": "serviceB", "type": "app"}
       ],
       "hosts": [
-        {"hostname": "qa-web-01"},
-        {"hostname": "qa-app-01"}
+        {"hostname": "qa-web-01", "description": "webserver"},
+        {"hostname": "qa-app-01", "description": "application server"},
+        {"hostname": "qa-db-01", "description": "database"}
       ],
       "kubernetes": {
         "services": [
