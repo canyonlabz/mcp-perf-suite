@@ -209,10 +209,32 @@ QA,qa,qa-web-01,2025-09-03T15:30:00,system.mem.used,8589934592
 ### Kubernetes Metrics CSV
 
 ```csv
-env_name,env_tag,service_filter,container_name,timestamp,metric,value
-QA,qa,*products*,product-api,2025-09-03T15:30:00,kubernetes.cpu.usage.total,1500000000
+env_name,env_tag,scope,hostname,service_filter,container_or_pod,timestamp_utc,metric,value,unit,derived_pct
+QA,qa,k8s,<empty>,*products*,product-api,2025-09-05T22:00:00,kubernetes.cpu.usage.total,2711498.777,nanocores,
 ```
 
+### 📌 Important Note on Kubernetes Service Filtering
+
+When using **wildcard filters** (e.g., `*products*`, `*auth*`) in your `environments.json` configuration, all containers matching that pattern will be output to the same CSV file under the same `service_filter` value. This provides a consolidated view of all related services.
+
+If you need **more granular breakdown** with separate CSV entries for each service, the recommendation is to avoid wildcards and define each service explicitly on its own line in the `kubernetes.services` array:
+
+```json
+"kubernetes": {
+  "services": [
+    {
+      "service_filter": "product-api",
+      "description": "Product API service"
+    },
+    {
+      "service_filter": "product-worker", 
+      "description": "Product background worker"
+    }
+  ]
+}
+```
+
+This approach gives you individual service-level metrics that are easier to analyze and correlate with specific performance test components.
 
 ***
 
