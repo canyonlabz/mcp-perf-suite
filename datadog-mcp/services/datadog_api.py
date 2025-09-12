@@ -356,11 +356,11 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
 
     # Metric queries (by container)
     def cpu_query(env_tag: str, svc_filter: str) -> str:
-        return f"avg:kubernetes.cpu.usage.total{{env:{env_tag},service:{svc_filter}}} by {{kube_container_name}}"
+        return f"avg:kubernetes.cpu.usage.total{{env:{env_tag},service:{svc_filter}}}.rollup(avg,20) by {{kube_container_name}}"
 
     def mem_query(env_tag: str, svc_filter: str) -> str:
         # Choose a common memory usage metric; adjust if your Datadog tenant uses a different one
-        return f"avg:kubernetes.memory.usage{{env:{env_tag},service:{svc_filter}}} by {{kube_container_name}}"
+        return f"avg:kubernetes.memory.usage{{env:{env_tag},service:{svc_filter}}}.rollup(avg,20) by {{kube_container_name}}"
 
     async with httpx.AsyncClient() as client:
         for svc in services:
@@ -372,7 +372,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
             body_cpu = {
                 "data": {
                     "type": "timeseries_request",
-                    "interval": 15000,
+                    "interval": 20000,
                     "attributes": {
                         "from": v2_from_ms,
                         "to": v2_to_ms,
@@ -418,7 +418,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
             body_mem = {
                 "data": {
                     "type": "timeseries_request",
-                    "interval": 15000,
+                    "interval": 20000,
                     "attributes": {
                         "from": v2_from_ms,
                         "to": v2_to_ms,

@@ -13,7 +13,7 @@ This repository hosts multiple MCP servers, each designed for a specific role in
 - **BlazeMeter MCP Server:**  
   Interact with BlazeMeter’s API to manage workspaces, projects, tests, and fetch run results. (Available now)
 
-- **APM (Application Performance Monitoring) MCP Server (planned):**  
+- **Datadog (Application Performance Monitoring) MCP Server:**  
   Pull and correlate monitoring and metrics data from Datadog to complement load test results.
 
 - **Test Analysis MCP Server (planned):**  
@@ -32,7 +32,7 @@ Each MCP server lives in its **own subdirectory** within this repo, making it ea
 
 mcp-perf-suite/
 ├── blazemeter-mcp/          # BlazeMeter MCP server (current)
-├── apm-mcp/                 # apm MCP server (planned, TODO: identify the APM agnostic schema)
+├── datadog-mcp/             # Datadog MCP server (current)
 ├── analysis-mcp/            # LLM-powered test analysis MCP (planned)
 ├── reporting-mcp/           # Reporting and formatting MCP (planned)
 ├── README.md                # This file: repo overview and guidance
@@ -50,9 +50,17 @@ The BlazeMeter MCP server uses FastMCP, Python 3.12+, and exposes actions to man
 
 ---
 
+## ▶️ Getting Started with Datadog MCP Server
+
+Navigate to the `datadog-mcp/` folder for detailed setup and usage instructions specific to the Datadog MCP server.
+
+The Datadog MCP server uses FastMCP, Python 3.12+, and exposes actions to pull KPI metrics for a given environment and query logs.
+
+---
+
 ## 🛣️ Future Roadmap 
 
-- Build and publish the **Datadog MCP Server** to enable metrics ingestion and correlation.  
+- Refine the **Datadog MCP Server** to enable log ingestion and correlation.  
 - Develop the **Test Analysis MCP Server** utilizing OpenAI GPT and other LLMs for automated test result analytics.  
 - Create the **Reporting MCP Server** to produce executive-friendly reports and dashboards from test and analysis data.  
 - Enable seamless orchestration across MCP servers for comprehensive performance testing workflows.
