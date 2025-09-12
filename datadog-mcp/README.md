@@ -270,7 +270,9 @@ artifacts:
   artifacts_path: "artifacts"
 
 datadog:
-  environments_json_path: "environments.json"
+  environments_json_path: "/path-to-root/mcp-perf-suite/datadog-mcp/environments.json"
+  time_zone: "America/New_York"
+  log_page_limit: 1000    # Number of log entries to fetch per page
 ```
 
 
