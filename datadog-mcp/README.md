@@ -63,6 +63,7 @@ Create a `.env` file in the project root with your Datadog API credentials:
 ```env
 DD_API_KEY=your_datadog_api_key_here
 DD_APP_KEY=your_datadog_application_key_here
+DD_API_BASE_URL=your_datadog_base_url_here
 ```
 
 
@@ -176,6 +177,7 @@ Your MCP server exposes these primary tools for Cursor, agents, or other MCP cli
 | `load_environment` | Load environment configuration from environments.json and store in context |
 | `get_host_metrics` | Retrieve CPU and memory metrics for all hosts in the current environment |
 | `get_kubernetes_metrics` | Fetch CPU metrics for Kubernetes containers/services in the current environment |
+| `get_datadog_logs` | Search the Datadog logs using custom queries or predefined query templates |
 
 
 ***
@@ -244,7 +246,8 @@ This approach gives you individual service-level metrics that are easier to anal
 datadog-mcp/
 ├── datadog.py                     # MCP server entrypoint (FastMCP)
 ├── services/
-│   └── datadog_api.py             # Datadog API & helper functions  
+│   ├── datadog_api.py             # Datadog API & helper functions
+│   └── datadog_logs.py            # Datadog Search logs & helper functions
 ├── utils/
 │   └── config.py                  # Utility for loading config.yaml
 ├── environments.json              # Environment/infrastructure definitions
