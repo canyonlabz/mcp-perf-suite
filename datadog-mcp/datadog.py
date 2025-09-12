@@ -7,6 +7,7 @@ from services.datadog_api import (
     collect_host_metrics,
     collect_kubernetes_metrics
 )
+from services.datadog_logs import collect_logs
 
 mcp = FastMCP(name="datadog")
 
@@ -57,6 +58,25 @@ async def get_kubernetes_metrics(env_name: str, start_time: str, end_time: str, 
         dict: A dictionary containing list of CSV output files and high-level summary statistics.
     """
     return await collect_kubernetes_metrics(env_name, start_time, end_time, run_id, ctx)
+
+@mcp.tool()
+async def get_datadog_logs(env_name: str, start_time: str, end_time: str, query_type: str, run_id: Optional[str], ctx: Context, custom_query: Optional[str] = None) -> dict:
+    """
+    Retrieve logs from Datadog for a specific environment and time range.
+    
+    Args:
+        env_name: Environment name from environments.json
+        start_time: Start time (ISO 8601 format or epoch timestamp)
+        end_time: End time (ISO 8601 format or epoch timestamp)
+        query_type: Template types ("all_errors", "warnings", "http_errors", "api_errors", "service_errors", "host_errors", "kubernetes_errors", "custom")
+        run_id: Optional run ID for organizing artifacts
+        ctx: Workflow context for chaining state/status/errors
+        custom_query: Custom Datadog query (required if query_type="custom")
+        
+    Returns:
+        dict: Dictionary with keys 'files' (list of CSV file paths) and 'summary' (summary statistics)
+    """
+    return await collect_logs(env_name, start_time, end_time, query_type, run_id, ctx, custom_query)
 
 if __name__ == "__main__":
     try:
