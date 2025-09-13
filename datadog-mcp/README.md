@@ -177,7 +177,7 @@ Your MCP server exposes these primary tools for Cursor, agents, or other MCP cli
 | `load_environment` | Load environment configuration from environments.json and store in context |
 | `get_host_metrics` | Retrieve CPU and memory metrics for all hosts in the current environment |
 | `get_kubernetes_metrics` | Fetch CPU metrics for Kubernetes containers/services in the current environment |
-| `get_datadog_logs` | Search the Datadog logs using custom queries or predefined query templates |
+| `get_logs` | Search the Datadog logs using custom queries or predefined query templates |
 
 
 ***

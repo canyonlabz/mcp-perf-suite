@@ -60,7 +60,7 @@ async def get_kubernetes_metrics(env_name: str, start_time: str, end_time: str, 
     return await collect_kubernetes_metrics(env_name, start_time, end_time, run_id, ctx)
 
 @mcp.tool()
-async def get_datadog_logs(env_name: str, start_time: str, end_time: str, query_type: str, run_id: Optional[str], ctx: Context, custom_query: Optional[str] = None) -> dict:
+async def get_logs(env_name: str, start_time: str, end_time: str, query_type: str, run_id: Optional[str], ctx: Context, custom_query: Optional[str] = None) -> dict:
     """
     Retrieve logs from Datadog for a specific environment and time range.
     
