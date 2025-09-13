@@ -1,0 +1,47 @@
+general:
+  enable_debug: False   # Enable/disable debug mode
+  enable_logging: True  # Enable/disable logging
+
+logging:
+  log_level: "INFO"     # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  verbose_mode: False   # Enable verbose logging for debugging
+  log_path: "/path_to_log/tmp/logs"  # Update with the actual path
+
+artifacts:
+  artifacts_path: "/path_to_root/mcp-perf-suite/artifacts"  # Path for artifacts
+
+server:
+  name: "perfanalysis-mcp"
+  version: "1.0.0"
+  description: "Performance Analysis MCP Server for BlazeMeter and Datadog correlation"
+
+# Performance Analysis Settings  
+perf_analysis:
+  response_time_sla: 5000  # milliseconds
+  statistical_confidence: 0.95
+  anomaly_sensitivity:
+    low: 3.0      # Standard deviations
+    medium: 2.5
+    high: 2.0
+  correlation_threshold: 0.3
+  min_samples_required: 100
+
+# OpenAI Integration
+openai:
+  model: "gpt-4o-mini"  # Cost-effective option
+  max_tokens: 2000
+  temperature: 0.3
+  
+# Output Settings
+output:
+  default_format: "json"
+  include_charts: false
+  precision: 4
+  create_markdown: true
+  create_csv: true
+
+# Data Processing
+data_processing:
+  jmeter_required_columns: ["timeStamp", "elapsed", "label", "responseCode", "success"]
+  datadog_metrics: ["cpu", "memory"]
+  time_window_alignment: "1min"
