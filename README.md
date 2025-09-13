@@ -31,7 +31,7 @@ Each MCP server lives in its **own subdirectory** within this repo, making it ea
 ```
 
 mcp-perf-suite/
-├── artifacts/               # Folder that contains the performance test results from BlazeMeter, Datadog, and Analysis MCP Servers.
+├── artifacts/               # Folder that contains the performance test results
 ├── blazemeter-mcp/          # BlazeMeter MCP server (current)
 ├── datadog-mcp/             # Datadog MCP server (current)
 ├── perfanalysis-mcp/        # LLM-powered test analysis MCP (current)
