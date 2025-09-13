@@ -266,7 +266,7 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
         env_tag = env_config.get('env_tag')
         
         # Build query
-        query = _build_query(env_tag, query_type, ctx, env_config, custom_query)
+        query = await _build_query(env_tag, query_type, ctx, env_config, custom_query)
         
         await ctx.info(f"Fetching logs for {env_name} from {start_iso} to {end_iso}")
         await ctx.info(f"Query: {query}")
