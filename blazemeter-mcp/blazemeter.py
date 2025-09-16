@@ -1,6 +1,6 @@
 # blazemeter.py
 from fastmcp import FastMCP, Context  # ✅ FastMCP 2.x import
-from typing import Optional
+from typing import Optional, Dict, Any
 from utils.config import load_config
 
 from services.blazemeter_api import (
@@ -15,7 +15,8 @@ from services.blazemeter_api import (
     download_artifact_zip_file,
     extract_artifact_zip_file,
     process_extracted_artifact_files,
-    get_public_report_url
+    get_public_report_url,
+    fetch_aggregate_report,
 )
 
 mcp = FastMCP(
@@ -213,6 +214,20 @@ async def get_public_report(run_id: str, ctx: Context) -> dict:
         Use to quickly generate a shareable report URL for stakeholders after a test completes.
     """
     return await get_public_report_url(run_id, ctx)
+
+@mcp.tool()
+async def get_aggregate_report(run_id: str, ctx: Context) -> Dict[str, Any]:
+    """
+    Get BlazeMeter aggregate performance report for a test run
+    
+    Args:
+        run_id: The BlazeMeter run/master ID
+        ctx: FastMCP workflow context for chaining
+        
+    Returns:
+        Dictionary containing aggregate performance statistics and CSV file path
+    """
+    return await fetch_aggregate_report(run_id, ctx)
 
 # -----------------------------
 # BlazeMeter MCP entry point

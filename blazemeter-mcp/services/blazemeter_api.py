@@ -6,8 +6,9 @@ import time
 import zipfile
 import shutil
 import json
+import csv
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, List
 from dotenv import load_dotenv
 from fastmcp import FastMCP, Context  # ✅ FastMCP 2.x import
 from utils.config import load_config
@@ -632,3 +633,72 @@ async def get_public_report_url(run_id: str, ctx: Context) -> dict:
             "is_new": False,
             "error": str(e)
         }
+
+async def fetch_aggregate_report(run_id: str, ctx: Context) -> Dict[str, Any]:
+    """
+    Fetch aggregate performance report from BlazeMeter API and save to CSV
+    """
+    try:
+        url = f"{BLAZEMETER_API_BASE}/masters/{run_id}/reports/aggregatereport/data"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=get_headers(), timeout=30.0)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            if data.get("error"):
+                return {"error": f"BlazeMeter API error: {data['error']}", "status": "failed"}
+            
+            results = data.get("result", [])
+            if not results:
+                return {"error": "No aggregate data available", "status": "failed"}
+            
+            # Save to CSV for PerfAnalysis consumption
+            csv_file = write_aggregate_report_csv(run_id, results)
+            
+            # Update context
+            ctx.set_state("aggregate_report_data", json.dumps(results))
+            ctx.set_state("aggregate_report_csv", csv_file)
+            
+            await ctx.info(f"Aggregate report retrieved", f"Saved to {csv_file}")
+            
+            return {
+                "status": "success",
+                "run_id": run_id,
+                "total_labels": len(results),
+                "aggregate_data": results,
+                "csv_file": csv_file
+            }
+            
+    except Exception as e:
+        error_msg = f"Failed to fetch aggregate report: {str(e)}"
+        await ctx.error("Aggregate Report Error", error_msg)
+        return {"error": error_msg, "status": "failed"}
+
+def write_aggregate_report_csv(run_id: str, results: List[Dict]) -> str:
+    """Write aggregate report data to CSV file"""
+    
+    dest_folder = os.path.join(artifacts_base, str(run_id), "blazemeter")
+    os.makedirs(dest_folder, exist_ok=True)
+    
+    csv_file = os.path.join(dest_folder, "aggregate_performance_report.csv")
+    
+    # Define CSV headers matching the JSON structure
+    headers = [
+        "labelName", "samples", "avgResponseTime", "minResponseTime", "maxResponseTime",
+        "medianResponseTime", "90line", "95line", "99line", "stDev",
+        "avgLatency", "errorsCount", "errorsRate", "avgThroughput",
+        "avgBytes", "duration", "concurrency", "hasLabelPassedThresholds"
+    ]
+    
+    with open(csv_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        writer.writeheader()
+        
+        for item in results:
+            # Clean the data and write row
+            row = {header: item.get(header, '') for header in headers}
+            writer.writerow(row)
+    
+    return csv_file
