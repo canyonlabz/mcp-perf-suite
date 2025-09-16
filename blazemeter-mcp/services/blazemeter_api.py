@@ -17,6 +17,7 @@ load_dotenv()
 
 # Load the config.yaml which contains path folder settings. NOTE: OS specific yaml files will override default config.yaml
 config = load_config()
+bz_config = config.get('blazemeter', {})
 artifacts_base = config['artifacts']['artifacts_path']
 
 BLAZEMETER_API_KEY = os.getenv("BLAZEMETER_API_KEY")
@@ -91,10 +92,26 @@ async def list_workspaces() -> str:
         workspaces = resp.json()["result"]
         return "\n".join(f"{ws['id']}: {ws['name']}" for ws in workspaces)
 
-async def list_projects(workspace_id: str, project_name: str = None) -> str:
-    workspace_id = BLAZEMETER_WORKSPACE_ID
+async def list_projects(workspace_id: str | None = None, project_name: str | None = None) -> str:
+    """List BlazeMeter projects for a workspace.
+
+    Args:
+        workspace_id: Optional explicit workspace ID. If omitted/None/empty, falls back to env `BLAZEMETER_WORKSPACE_ID`.
+        project_name: Optional filter to match a specific project name.
+
+    Returns:
+        Newline separated string of `id: name` entries, or an informative message if none found / error.
+    """
+    # Fallback to globally configured workspace id if not provided explicitly
+    workspace_id = workspace_id or BLAZEMETER_WORKSPACE_ID
+    if not workspace_id:
+        return "❗ workspace_id not provided and BLAZEMETER_WORKSPACE_ID is not set in the environment."
+    
+    # Get pagination limit from config or default to 100
+    pagination_limit = bz_config.get('pagination_limit', 100)
+
     async with httpx.AsyncClient() as client:
-        url = f"{BLAZEMETER_API_BASE}/projects?workspaceId={workspace_id}"
+        url = f"{BLAZEMETER_API_BASE}/projects?workspaceId={workspace_id}&limit={pagination_limit}"
         if project_name:
             url += f"&name={project_name}"
         resp = await client.get(url, headers=get_headers())

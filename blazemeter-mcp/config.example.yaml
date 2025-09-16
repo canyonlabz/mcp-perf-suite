@@ -14,3 +14,4 @@ blazemeter:
   polling_interval_seconds: 30
   polling_max_retries: 3
   polling_timeout_seconds: 600
+  pagination_limit: 150
