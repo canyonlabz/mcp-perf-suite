@@ -636,7 +636,8 @@ async def get_public_report_url(run_id: str, ctx: Context) -> dict:
 
 async def fetch_aggregate_report(run_id: str, ctx: Context) -> Dict[str, Any]:
     """
-    Fetch aggregate performance report from BlazeMeter API and save to CSV
+    Fetch aggregate performance report from BlazeMeter API and save to CSV.
+    Returns only the 'ALL' aggregate summary to keep response lightweight.
     """
     try:
         url = f"{BLAZEMETER_API_BASE}/masters/{run_id}/reports/aggregatereport/data"
@@ -657,17 +658,29 @@ async def fetch_aggregate_report(run_id: str, ctx: Context) -> Dict[str, Any]:
             # Save to CSV for PerfAnalysis consumption
             csv_file = write_aggregate_report_csv(run_id, results)
             
-            # Update context
-            ctx.set_state("aggregate_report_data", json.dumps(results))
+            # Extract only the 'ALL' aggregate for response
+            all_aggregate = None
+            for item in results:
+                if item.get("labelName") == "ALL":
+                    all_aggregate = clean_aggregate_data(item)
+                    break
+            
+            if not all_aggregate:
+                return {"error": "No 'ALL' aggregate found in BlazeMeter response", "status": "failed"}
+
+            # Update context with aggregate data and CSV path
+            ctx.set_state("aggregate_report_data", json.dumps(all_aggregate))
             ctx.set_state("aggregate_report_csv", csv_file)
             
-            await ctx.info(f"Aggregate report retrieved", f"Saved to {csv_file}")
+            await ctx.info(f"Aggregate report retrieved", 
+                          f"ALL stats: {all_aggregate['samples']} samples, "
+                          f"{all_aggregate['avgResponseTime']:.1f}ms avg")
             
             return {
                 "status": "success",
                 "run_id": run_id,
                 "total_labels": len(results),
-                "aggregate_data": results,
+                "aggregate_summary": all_aggregate,
                 "csv_file": csv_file
             }
             
@@ -702,3 +715,24 @@ def write_aggregate_report_csv(run_id: str, results: List[Dict]) -> str:
             writer.writerow(row)
     
     return csv_file
+
+def clean_aggregate_data(item: Dict) -> Dict:
+    """Clean aggregate data for JSON serialization"""
+    import math
+    
+    cleaned = {}
+    for key, value in item.items():
+        # Skip labelId as it's not needed
+        if key == "labelId":
+            continue
+            
+        # Handle NaN values
+        if isinstance(value, float) and math.isnan(value):
+            cleaned[key] = None
+        # Ensure proper types for JSON serialization
+        elif isinstance(value, (int, float)):
+            cleaned[key] = float(value) if isinstance(value, float) else int(value)
+        else:
+            cleaned[key] = value
+    
+    return cleaned
