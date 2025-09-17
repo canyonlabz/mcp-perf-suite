@@ -1,5 +1,5 @@
 # perfanalysis.py
-from fastmcp import FastMCP, Context
+from fastmcp import FastMCP, Context    # ✅ FastMCP 2.x import
 from typing import Optional, List, Dict, Any
 import json
 

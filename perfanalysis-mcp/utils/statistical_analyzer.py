@@ -2,9 +2,176 @@
 import pandas as pd
 import numpy as np
 import json
+import datetime
+import math
+from fastmcp import Context     # ✅ FastMCP 2.x import
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from scipy.stats import pearsonr, spearmanr
+
+# -----------------------------------------------
+# BlazeMeter/JMeter statistical analysis functions
+# -----------------------------------------------
+async def perform_aggregate_analysis(df: pd.DataFrame, test_run_id: str, config: Dict, ctx: Context) -> Dict[str, Any]:
+    """Perform comprehensive analysis on aggregate report data"""
+    
+    # Convert numpy types to Python native types for JSON serialization
+    def to_native_type(value):
+        if pd.isna(value) or (isinstance(value, float) and math.isnan(value)):
+            return None
+        elif isinstance(value, np.integer):
+            return int(value)
+        elif isinstance(value, np.floating):
+            return float(value)
+        else:
+            return value
+    
+    # Get overall summary from "ALL" row
+    all_summary = df[df['labelName'] == 'ALL']
+    if all_summary.empty:
+        overall_stats = {"error": "No 'ALL' summary found in aggregate data"}
+    else:
+        all_row = all_summary.iloc[0]
+        overall_stats = {
+            "total_samples": to_native_type(all_row['samples']),
+            "avg_response_time": to_native_type(all_row['avgResponseTime']),
+            "min_response_time": to_native_type(all_row['minResponseTime']),
+            "max_response_time": to_native_type(all_row['maxResponseTime']),
+            "median_response_time": to_native_type(all_row['medianResponseTime']),
+            "p90_response_time": to_native_type(all_row['90line']),
+            "p95_response_time": to_native_type(all_row['95line']),
+            "p99_response_time": to_native_type(all_row['99line']),
+            "std_deviation": to_native_type(all_row['stDev']),
+            "avg_latency": to_native_type(all_row['avgLatency']),
+            "error_count": to_native_type(all_row['errorsCount']),
+            "error_rate": to_native_type(all_row['errorsRate']),
+            "avg_throughput": to_native_type(all_row['avgThroughput']),
+            "test_duration": to_native_type(all_row['duration']),
+            "success_rate": to_native_type(100.0 - all_row['errorsRate']) if pd.notna(all_row['errorsRate']) else 100.0
+        }
+    
+    # Analyze individual APIs (exclude "ALL" row)
+    individual_apis = df[df['labelName'] != 'ALL']
+    api_analysis = {}
+    
+    # Get SLA threshold from config
+    sla_threshold = config.get('perf_analysis', {}).get('response_time_sla', 5000)
+    
+    for _, row in individual_apis.iterrows():
+        api_name = row['labelName']
+        avg_rt = to_native_type(row['avgResponseTime'])
+        
+        api_analysis[api_name] = {
+            "samples": to_native_type(row['samples']),
+            "avg_response_time": avg_rt,
+            "min_response_time": to_native_type(row['minResponseTime']),
+            "max_response_time": to_native_type(row['maxResponseTime']),
+            "median_response_time": to_native_type(row['medianResponseTime']),
+            "p90_response_time": to_native_type(row['90line']),
+            "p95_response_time": to_native_type(row['95line']),
+            "p99_response_time": to_native_type(row['99line']),
+            "std_deviation": to_native_type(row['stDev']),
+            "error_count": to_native_type(row['errorsCount']),
+            "error_rate": to_native_type(row['errorsRate']),
+            "success_rate": to_native_type(100.0 - row['errorsRate']) if pd.notna(row['errorsRate']) else 100.0,
+            "throughput": to_native_type(row['avgThroughput']),
+            "sla_compliant": bool(avg_rt <= sla_threshold) if avg_rt is not None else None,
+            "sla_threshold_ms": sla_threshold
+        }
+    
+    # SLA Analysis
+    sla_analysis = analyze_sla_compliance(individual_apis, sla_threshold)
+    
+    # Statistical Analysis
+    statistical_summary = {
+        "total_apis_analyzed": len(individual_apis),
+        "apis_with_errors": int(len(individual_apis[individual_apis['errorsCount'] > 0])),
+        "slowest_api": get_slowest_api(individual_apis),
+        "fastest_api": get_fastest_api(individual_apis),
+        "high_variability_apis": get_high_variability_apis(individual_apis)
+    }
+    
+    return {
+        "overall_stats": overall_stats,
+        "api_analysis": api_analysis,
+        "sla_analysis": sla_analysis,
+        "statistical_summary": statistical_summary,
+        "analysis_timestamp": datetime.now().isoformat(),
+        "data_quality": {
+            "total_labels": len(df),
+            "individual_apis": len(individual_apis),
+            "has_overall_summary": not all_summary.empty
+        }
+    }
+
+def analyze_sla_compliance(df: pd.DataFrame, sla_threshold: float) -> Dict[str, Any]:
+    """Analyze SLA compliance across APIs"""
+    
+    if df.empty:
+        return {"error": "No API data to analyze"}
+    
+    compliant_apis = df[df['avgResponseTime'] <= sla_threshold]
+    violating_apis = df[df['avgResponseTime'] > sla_threshold]
+    
+    violations = []
+    for _, row in violating_apis.iterrows():
+        violations.append({
+            "api_name": row['labelName'],
+            "avg_response_time": float(row['avgResponseTime']),
+            "sla_threshold": sla_threshold,
+            "violation_amount": float(row['avgResponseTime'] - sla_threshold),
+            "violation_percentage": float((row['avgResponseTime'] - sla_threshold) / sla_threshold * 100)
+        })
+    
+    return {
+        "sla_threshold_ms": sla_threshold,
+        "total_apis": len(df),
+        "compliant_apis": len(compliant_apis),
+        "violating_apis": len(violating_apis),
+        "compliance_rate": float(len(compliant_apis) / len(df) * 100),
+        "violations": violations
+    }
+
+def get_slowest_api(df: pd.DataFrame) -> Optional[Dict]:
+    """Get the slowest API by average response time"""
+    if df.empty:
+        return None
+    
+    slowest = df.loc[df['avgResponseTime'].idxmax()]
+    return {
+        "api_name": slowest['labelName'],
+        "avg_response_time": float(slowest['avgResponseTime']),
+        "samples": int(slowest['samples'])
+    }
+
+def get_fastest_api(df: pd.DataFrame) -> Optional[Dict]:
+    """Get the fastest API by average response time"""
+    if df.empty:
+        return None
+    
+    fastest = df.loc[df['avgResponseTime'].idxmin()]
+    return {
+        "api_name": fastest['labelName'],
+        "avg_response_time": float(fastest['avgResponseTime']),
+        "samples": int(fastest['samples'])
+    }
+
+def get_high_variability_apis(df: pd.DataFrame, threshold: float = 50.0) -> List[Dict]:
+    """Get APIs with high response time variability (high std deviation)"""
+    if df.empty:
+        return []
+    
+    high_var_apis = df[df['stDev'] > threshold]
+    
+    return [
+        {
+            "api_name": row['labelName'],
+            "std_deviation": float(row['stDev']),
+            "avg_response_time": float(row['avgResponseTime']),
+            "coefficient_of_variation": float(row['stDev'] / row['avgResponseTime']) if row['avgResponseTime'] > 0 else 0
+        }
+        for _, row in high_var_apis.iterrows()
+    ]
 
 # -----------------------------------------------
 # Statistical analysis functions

@@ -11,7 +11,7 @@ from scipy import stats
 from scipy.stats import pearsonr, spearmanr
 import httpx
 from dotenv import load_dotenv
-from fastmcp import Context
+from fastmcp import Context     # ✅ FastMCP 2.x import
 
 from utils.config import load_config
 from utils.file_processor import (
@@ -33,6 +33,7 @@ from utils.file_processor import (
     format_executive_markdown
 )
 from utils.statistical_analyzer import (
+    perform_aggregate_analysis,
     calculate_response_time_stats,
     calculate_correlation_matrix,
     detect_statistical_anomalies,
@@ -56,57 +57,60 @@ artifacts_base = config['artifacts']['artifacts_path']
 # -----------------------------------------------
 async def analyze_blazemeter_results(test_run_id: str, ctx: Context) -> Dict[str, Any]:
     """
-    Analyze BlazeMeter JMeter test results focusing on response time aggregates
+    Analyze BlazeMeter test results using aggregate report data
+    
+    Args:
+        test_run_id: The unique test run identifier
+        ctx: FastMCP workflow context for chaining
+        
+    Returns:
+        Dictionary containing comprehensive performance analysis
     """
     try:
-        # Locate BlazeMeter results
+        await ctx.info("BlazeMeter Analysis", f"Starting analysis for run {test_run_id}")
+        
+        # Check for aggregate report CSV (primary data source)
         blazemeter_path = Path(artifacts_base) / test_run_id / 'blazemeter'
-        results_file = blazemeter_path / 'test-results.csv'
+        aggregate_csv = blazemeter_path / 'aggregate_performance_report.csv'
         
-        if not results_file.exists():
-            error_msg = f"BlazeMeter results file not found: {results_file}"
-            await ctx.error("Missing BlazeMeter Results", error_msg)
-            return {"error": error_msg, "status": "failed"}
+        if not aggregate_csv.exists():
+            error_msg = "BlazeMeter aggregate report not found. Please run 'get_aggregate_report' first."
+            await ctx.error("Missing Prerequisite", error_msg)
+            return {
+                "error": error_msg,
+                "status": "prerequisite_missing",
+                "required_step": "get_aggregate_report",
+                "expected_file": str(aggregate_csv)
+            }
         
-        # Load and process JMeter results
-        df = load_jmeter_results(results_file)
-        if df is None:
-            error_msg = "Failed to load JMeter results CSV"
-            await ctx.error("CSV Load Error", error_msg)
-            return {"error": error_msg, "status": "failed"}
+        # Load aggregate performance data
+        df = pd.read_csv(aggregate_csv)
         
-        # Calculate performance statistics
-        analysis = calculate_response_time_stats(df)
+        if df.empty:
+            return {"error": "Aggregate report CSV is empty", "status": "failed"}
         
-        # Add SLA validation
-        sla_threshold = config.get('perf_analysis', {}).get('response_time_sla', 5000)
-        analysis['sla_analysis'] = validate_sla_compliance(analysis, sla_threshold)
+        # Setup analysis output folder
+        analysis_path = Path(artifacts_base) / test_run_id / 'analysis'
+        analysis_path.mkdir(parents=True, exist_ok=True)
         
-        # Save analysis results
-        output_file = blazemeter_path / 'performance_analysis.json'
-        write_json_output(analysis, output_file)
+        # Perform comprehensive analysis
+        analysis_result = await perform_aggregate_analysis(df, test_run_id, config, ctx)
         
-        # Save CSV summary for reporting
-        csv_file = blazemeter_path / 'performance_summary.csv'
-        write_performance_csv(analysis, csv_file)
+        # Generate output files
+        output_files = await generate_performance_outputs(
+            analysis_result, analysis_path, test_run_id, ctx
+        )
         
-        # Save markdown summary
-        md_file = blazemeter_path / 'performance_analysis.md'
-        write_markdown_output(format_performance_markdown(analysis), md_file)
-        
-        await ctx.info(f"BlazeMeter analysis completed", f"Results saved to {output_file}")
-        ctx.set_state("performance_analysis", json.dumps(analysis))
-        ctx.set_state("performance_analysis_file", str(output_file))
+        await ctx.success("BlazeMeter Analysis Complete", 
+                         f"Analysis completed for {len(df)} labels. "
+                         f"Files saved to {analysis_path}")
         
         return {
             "status": "success",
             "test_run_id": test_run_id,
-            "analysis": analysis,
-            "output_files": {
-                "json": str(output_file),
-                "csv": str(csv_file),
-                "markdown": str(md_file)
-            }
+            "analysis": analysis_result,
+            "output_files": output_files,
+            "data_source": "blazemeter_aggregate_api"
         }
         
     except Exception as e:
@@ -567,3 +571,35 @@ def extract_hostname_from_path(file_path: Path) -> str:
 def extract_service_from_path(file_path: Path) -> str:
     """Extract service name from file path"""
     return file_path.stem.replace('k8s_metrics_[', '').replace(']', '')
+
+# -----------------------------------------------
+# Output functions for performance analysis
+# -----------------------------------------------
+async def generate_performance_outputs(analysis: Dict, output_path: Path, test_run_id: str, ctx: Context) -> Dict[str, str]:
+    """Generate all output files for performance analysis"""
+    
+    output_files = {}
+    
+    try:
+        # JSON Output - Detailed analysis
+        json_file = output_path / 'performance_analysis.json'
+        await write_json_output(analysis, json_file)
+        output_files['json'] = str(json_file)
+        
+        # CSV Output - Structured data for reporting
+        csv_file = output_path / 'performance_summary.csv'
+        await write_performance_csv(analysis, csv_file)
+        output_files['csv'] = str(csv_file)
+        
+        # Markdown Output - Human-readable summary
+        markdown_file = output_path / 'performance_summary.md'
+        markdown_content = format_performance_markdown(analysis, test_run_id)
+        await write_markdown_output(markdown_content, markdown_file)
+        output_files['markdown'] = str(markdown_file)
+        
+        await ctx.info("Output Generation", f"Generated {len(output_files)} analysis files")
+        
+    except Exception as e:
+        await ctx.error("Output Generation Error", f"Failed to generate outputs: {str(e)}")
+    
+    return output_files
