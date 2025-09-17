@@ -29,6 +29,7 @@ async def perform_aggregate_analysis(df: pd.DataFrame, test_run_id: str, config:
     # Get overall summary from "ALL" row
     all_summary = df[df['labelName'] == 'ALL']
     if all_summary.empty:
+        await ctx.warning("No 'ALL' summary row found in aggregate data")
         overall_stats = {"error": "No 'ALL' summary found in aggregate data"}
     else:
         all_row = all_summary.iloc[0]
@@ -91,7 +92,10 @@ async def perform_aggregate_analysis(df: pd.DataFrame, test_run_id: str, config:
         "high_variability_apis": get_high_variability_apis(individual_apis)
     }
     
+    await ctx.info(f"Aggregate analysis completed for test run {test_run_id}")
+
     return {
+        "test_run_id": test_run_id,
         "overall_stats": overall_stats,
         "api_analysis": api_analysis,
         "sla_analysis": sla_analysis,
