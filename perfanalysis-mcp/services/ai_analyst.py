@@ -1,11 +1,14 @@
-# utils/openai_client.py
-
+# utils/ai_analyst.py
 import httpx
 import json
 import os
 import pandas as pd
 from typing import Dict, Any
+from fastmcp import Context
 
+# -----------------------------------------------
+# AI analysis functions
+# -----------------------------------------------
 async def generate_ai_insights(combined_data: Dict[str, Any], test_run_id: str) -> Dict[str, Any]:
     """Generate AI-powered insights using OpenAI"""
     
@@ -86,3 +89,13 @@ def prepare_analysis_context(combined_data: Dict[str, Any]) -> Dict[str, Any]:
         context['anomalies'] = combined_data['anomaly_detection'].get('summary', {})
     
     return context
+
+def summarize_host_metrics(host_data: pd.DataFrame) -> Dict:
+    """Summarize host metrics data"""
+    # Implementation for host metrics summarization
+    return {}
+
+def summarize_k8s_metrics(k8s_data: pd.DataFrame) -> Dict:
+    """Summarize K8s metrics data"""
+    # Implementation for K8s metrics summarization
+    return {}

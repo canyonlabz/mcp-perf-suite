@@ -1,5 +1,4 @@
 # utils/statistical_analyzer.py
-
 import pandas as pd
 import numpy as np
 import json
@@ -7,6 +6,9 @@ from pathlib import Path
 from typing import Dict, List, Any
 from scipy.stats import pearsonr, spearmanr
 
+# -----------------------------------------------
+# Statistical analysis functions
+# -----------------------------------------------
 def calculate_response_time_stats(df: pd.DataFrame) -> Dict[str, Any]:
     """Calculate comprehensive response time statistics"""
     

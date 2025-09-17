@@ -1,5 +1,4 @@
 # services/performance_analyzer.py
-
 import os
 import json
 import csv
@@ -20,7 +19,18 @@ from utils.file_processor import (
     load_datadog_metrics,
     write_json_output,
     write_csv_output,
-    write_markdown_output
+    write_markdown_output,
+    write_performance_csv,
+    write_infrastructure_csv,
+    write_correlation_csv,
+    write_anomalies_csv,
+    format_performance_markdown,
+    format_infrastructure_markdown,
+    format_correlation_markdown,
+    format_anomalies_markdown,
+    format_bottlenecks_markdown,
+    format_comparison_markdown,
+    format_executive_markdown
 )
 from utils.statistical_analyzer import (
     calculate_response_time_stats,
@@ -28,13 +38,22 @@ from utils.statistical_analyzer import (
     detect_statistical_anomalies,
     identify_resource_bottlenecks
 )
-from utils.openai_client import generate_ai_insights
+from services.ai_analyst import (
+    generate_ai_insights,
+    summarize_host_metrics,
+    summarize_k8s_metrics
+)
 
 # Load configuration and environment
 load_dotenv()
 config = load_config()
+pa_config = config.get('perf_analysis', {})
+apm_tool = pa_config.get('apm_tool', 'datadog').lower()
 artifacts_base = config['artifacts']['artifacts_path']
 
+# -----------------------------------------------
+# Main Functions for the PerfAnalysis MCP
+# -----------------------------------------------
 async def analyze_blazemeter_results(test_run_id: str, ctx: Context) -> Dict[str, Any]:
     """
     Analyze BlazeMeter JMeter test results focusing on response time aggregates
@@ -460,7 +479,9 @@ async def get_current_analysis_status(test_run_id: str, ctx: Context) -> Dict[st
         await ctx.error("Status Check Error", error_msg)
         return {"error": error_msg, "status": "failed"}
 
-# Helper functions for data processing
+# -----------------------------------------------
+# Helper Functions for data processing & analysis
+# -----------------------------------------------
 def validate_sla_compliance(analysis: Dict, sla_threshold: int) -> Dict:
     """Validate response times against SLA threshold"""
     sla_results = {"threshold_ms": sla_threshold, "violations": []}
@@ -538,7 +559,7 @@ def create_executive_overview(combined_data: Dict) -> Dict:
     
     return overview
 
-# Additional helper functions would go here...
+# Additional helper functions
 def extract_hostname_from_path(file_path: Path) -> str:
     """Extract hostname from file path"""
     return file_path.stem.replace('host_metrics_[', '').replace(']', '')
@@ -546,62 +567,3 @@ def extract_hostname_from_path(file_path: Path) -> str:
 def extract_service_from_path(file_path: Path) -> str:
     """Extract service name from file path"""
     return file_path.stem.replace('k8s_metrics_[', '').replace(']', '')
-
-def summarize_host_metrics(host_data: pd.DataFrame) -> Dict:
-    """Summarize host metrics data"""
-    # Implementation for host metrics summarization
-    return {}
-
-def summarize_k8s_metrics(k8s_data: pd.DataFrame) -> Dict:
-    """Summarize K8s metrics data"""
-    # Implementation for K8s metrics summarization
-    return {}
-
-def write_performance_csv(analysis: Dict, csv_file: Path):
-    """Write performance analysis to CSV"""
-    # Implementation for CSV writing
-    pass
-
-def write_infrastructure_csv(analysis: Dict, csv_file: Path):
-    """Write infrastructure analysis to CSV"""
-    # Implementation for CSV writing
-    pass
-
-def write_correlation_csv(correlation_results: Dict, csv_file: Path):
-    """Write correlation matrix to CSV"""
-    # Implementation for correlation CSV
-    pass
-
-def write_anomalies_csv(anomalies: Dict, csv_file: Path):
-    """Write detected anomalies to CSV"""
-    # Implementation for anomalies CSV
-    pass
-
-def format_performance_markdown(analysis: Dict) -> str:
-    """Format performance analysis as markdown"""
-    # Implementation for markdown formatting
-    return "# Performance Analysis\n\n"
-
-def format_infrastructure_markdown(analysis: Dict) -> str:
-    """Format infrastructure analysis as markdown"""
-    return "# Infrastructure Analysis\n\n"
-
-def format_correlation_markdown(correlation_results: Dict) -> str:
-    """Format correlation analysis as markdown"""
-    return "# Correlation Analysis\n\n"
-
-def format_anomalies_markdown(anomalies: Dict) -> str:
-    """Format anomaly detection as markdown"""
-    return "# Anomaly Detection\n\n"
-
-def format_bottlenecks_markdown(bottlenecks: Dict) -> str:
-    """Format bottleneck analysis as markdown"""
-    return "# Bottleneck Analysis\n\n"
-
-def format_comparison_markdown(comparison_results: Dict) -> str:
-    """Format test run comparison as markdown"""
-    return "# Test Run Comparison\n\n"
-
-def format_executive_markdown(summary: Dict) -> str:
-    """Format executive summary as markdown"""
-    return "# Executive Summary\n\n"
