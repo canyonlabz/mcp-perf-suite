@@ -100,7 +100,7 @@ async def perform_aggregate_analysis(df: pd.DataFrame, test_run_id: str, config:
         "api_analysis": api_analysis,
         "sla_analysis": sla_analysis,
         "statistical_summary": statistical_summary,
-        "analysis_timestamp": datetime.now().isoformat(),
+        "analysis_timestamp": datetime.datetime.now().isoformat(),
         "data_quality": {
             "total_labels": len(df),
             "individual_apis": len(individual_apis),

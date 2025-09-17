@@ -406,7 +406,7 @@ async def generate_executive_summary(test_run_id: str, include_recommendations: 
         # Create comprehensive summary
         summary = {
             "test_run_id": test_run_id,
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": datetime.datetime.now().isoformat(),
             "analysis_summary": combined_data,
             "ai_insights": ai_summary,
             "executive_summary": create_executive_overview(combined_data)
