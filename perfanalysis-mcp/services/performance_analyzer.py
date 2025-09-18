@@ -101,7 +101,7 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context) -> Dict[str
             analysis_result, analysis_path, test_run_id, ctx
         )
         
-        await ctx.success("BlazeMeter Analysis Complete", 
+        await ctx.info("BlazeMeter Analysis Complete", 
                          f"Analysis completed for {len(df)} labels. "
                          f"Files saved to {analysis_path}")
         
