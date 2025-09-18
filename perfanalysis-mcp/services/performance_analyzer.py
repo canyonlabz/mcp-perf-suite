@@ -96,6 +96,11 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context) -> Dict[str
         # Perform comprehensive analysis
         analysis_result = await perform_aggregate_analysis(df, test_run_id, config, ctx)
         
+        # Extract key summaries for response
+        overall_summary = analysis_result.get('overall_stats', {})
+        statistical_summary = analysis_result.get('statistical_summary', {})
+        sla_analysis = analysis_result.get('sla_analysis', {})
+
         # Generate output files
         output_files = await generate_performance_outputs(analysis_result, analysis_path, test_run_id, ctx)
 
@@ -105,7 +110,17 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context) -> Dict[str
         return {
             "status": "success",
             "test_run_id": test_run_id,
-            "analysis": analysis_result,
+            "summary": {
+                "overall_performance": overall_summary,
+                "statistical_insights": statistical_summary,
+                "sla_compliance": {
+                    "compliance_rate": sla_analysis.get('compliance_rate'),
+                    "total_apis": sla_analysis.get('total_apis'),
+                    "compliant_apis": sla_analysis.get('compliant_apis'),
+                    "violating_apis": sla_analysis.get('violating_apis'),
+                    "sla_threshold_ms": sla_analysis.get('sla_threshold_ms')
+                }
+            },
             "output_files": output_files,
             "data_source": "blazemeter_aggregate_api"
         }
