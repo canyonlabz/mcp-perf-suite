@@ -97,14 +97,11 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context) -> Dict[str
         analysis_result = await perform_aggregate_analysis(df, test_run_id, config, ctx)
         
         # Generate output files
-        output_files = await generate_performance_outputs(
-            analysis_result, analysis_path, test_run_id, ctx
-        )
-        
-        await ctx.info("BlazeMeter Analysis Complete", 
-                         f"Analysis completed for {len(df)} labels. "
-                         f"Files saved to {analysis_path}")
-        
+        output_files = await generate_performance_outputs(analysis_result, analysis_path, test_run_id, ctx)
+
+        await ctx.info("BlazeMeter Analysis Complete",
+                       f"Analysis completed for {len(df)} labels. "
+                       f"Files saved to {analysis_path}")
         return {
             "status": "success",
             "test_run_id": test_run_id,
