@@ -5,7 +5,7 @@ import json
 
 from services.performance_analyzer import (
     analyze_blazemeter_results,
-    analyze_datadog_metrics,
+    analyze_apm_metrics,
     correlate_performance_data,
     detect_performance_anomalies,
     identify_system_bottlenecks,
@@ -42,12 +42,12 @@ async def analyze_environment_metrics(test_run_id: str, ctx: Context) -> Dict[st
     Returns:
         Dictionary containing infrastructure metrics analysis
     """
-    return await analyze_datadog_metrics(test_run_id, ctx)
+    return await analyze_apm_metrics(test_run_id, ctx)
 
 @mcp.tool()
 async def correlate_test_results(test_run_id: str, ctx: Context) -> Dict[str, Any]:
     """
-    Cross-correlate BlazeMeter and Datadog data to identify relationships
+    Cross-correlate BlazeMeter and APM data to identify relationships
     
     Args:
         test_run_id: The unique test run identifier

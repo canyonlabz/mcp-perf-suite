@@ -1,6 +1,9 @@
 import yaml
 import os
 import platform
+import json
+from typing import Dict
+from pathlib import Path
 
 def load_config():
     # Assuming this file is at 'repo/<mcp-server>/utils/config.py', we go up one level.
@@ -28,6 +31,27 @@ def load_config():
                     raise Exception(f"Error parsing '{filename}': {e}")
     
     raise FileNotFoundError("No valid configuration file found (checked platform-specific and default).")
+
+def load_environments_config(config: Dict) -> Dict:
+    """
+    Load Datadog environments.json configuration. TODO: Pass in APM tool name instead of hardcoding (e.g. Datadog).
+    """
+    try:
+        # Path should be relative to project root, not artifacts
+        env_file = Path("../datadog-mcp/environments.json")
+        if env_file.exists():
+            with open(env_file, 'r') as f:
+                return json.load(f)
+        else:
+            # Fallback - look in current directory
+            env_file = Path("environments.json")
+            if env_file.exists():
+                with open(env_file, 'r') as f:
+                    return json.load(f)
+            else:
+                return {"environments": {}}  # Empty config if not found
+    except Exception:
+        return {"environments": {}}
 
 if __name__ == '__main__':
     # For testing purposes, print both configurations.

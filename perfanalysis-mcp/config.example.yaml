@@ -27,6 +27,24 @@ perf_analysis:
   correlation_threshold: 0.3
   min_samples_required: 100
 
+  # Default resource allocations when datadog-mcp/environments.json is incomplete
+  default_resources:
+    host:
+      cpus: 4           # Default host/VM CPUs
+      memory_gb: 16     # Default host/VM memory in GB
+    kubernetes:
+      cpus: 2.0         # Default K8s container CPU cores
+      memory_gb: 8      # Default K8s container memory in GB
+  
+  # Infrastructure utilization thresholds
+  resource_thresholds:
+    cpu:
+      high: 80          # CPU usage % - high utilization warning
+      low: 20           # CPU usage % - under-utilization warning
+    memory:
+      high: 85          # Memory usage % - high utilization warning  
+      low: 15           # Memory usage % - under-utilization warning
+
 # OpenAI Integration
 openai:
   model: "gpt-4o-mini"  # Cost-effective option

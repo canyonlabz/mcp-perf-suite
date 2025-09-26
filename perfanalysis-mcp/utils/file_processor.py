@@ -113,10 +113,61 @@ async def write_performance_csv(analysis: Dict, csv_file: Path):
     df = pd.DataFrame(csv_data)
     df.to_csv(csv_file, index=False)
 
-def write_infrastructure_csv(analysis: Dict, csv_file: Path):
-    """Write infrastructure analysis to CSV"""
-    # Implementation for CSV writing
-    pass
+async def write_infrastructure_csv(analysis: Dict, csv_file: Path):
+    """Write infrastructure analysis to CSV format"""
+    
+    csv_data = []
+    
+    # K8s services data
+    k8s_data = analysis.get("detailed_metrics", {}).get("kubernetes", {})
+    for service_name, service_metrics in k8s_data.get("services", {}).items():
+        env_name, svc_name = service_name.split("::", 1) if "::" in service_name else ("unknown", service_name)
+        
+        cpu_analysis = service_metrics.get("cpu_analysis", {})
+        memory_analysis = service_metrics.get("memory_analysis", {})
+        
+        csv_data.append({
+            'environment': env_name,
+            'resource_type': 'kubernetes',
+            'resource_name': svc_name,
+            'metric_type': 'overall',
+            'allocated_cpu': cpu_analysis.get('allocated_cores', 0),
+            'peak_cpu_utilization_pct': cpu_analysis.get('peak_utilization_pct', 0),
+            'avg_cpu_utilization_pct': cpu_analysis.get('avg_utilization_pct', 0),
+            'allocated_memory_gb': memory_analysis.get('allocated_gb', 0),
+            'peak_memory_utilization_pct': memory_analysis.get('peak_utilization_pct', 0),
+            'avg_memory_utilization_pct': memory_analysis.get('avg_utilization_pct', 0),
+            'total_containers': len(service_metrics.get('containers', {})),
+            'duration_minutes': service_metrics.get('time_range', {}).get('duration_minutes', 0)
+        })
+    
+    # Host data
+    host_data = analysis.get("detailed_metrics", {}).get("hosts", {})
+    for host_name, host_metrics in host_data.get("hosts", {}).items():
+        env_name, hostname = host_name.split("::", 1) if "::" in host_name else ("unknown", host_name)
+        
+        cpu_analysis = host_metrics.get("cpu_analysis", {})
+        memory_analysis = host_metrics.get("memory_analysis", {})
+        
+        csv_data.append({
+            'environment': env_name,
+            'resource_type': 'host',
+            'resource_name': hostname,
+            'metric_type': 'overall',
+            'allocated_cpu': cpu_analysis.get('allocated_cpus', 0),
+            'peak_cpu_utilization_pct': cpu_analysis.get('peak_utilization_pct', 0),
+            'avg_cpu_utilization_pct': cpu_analysis.get('avg_utilization_pct', 0),
+            'allocated_memory_gb': memory_analysis.get('allocated_gb', 0),
+            'peak_memory_utilization_pct': memory_analysis.get('peak_utilization_pct', 0),
+            'avg_memory_utilization_pct': memory_analysis.get('avg_utilization_pct', 0),
+            'total_containers': 0,  # N/A for hosts
+            'duration_minutes': host_metrics.get('time_range', {}).get('duration_minutes', 0)
+        })
+    
+    # Write to CSV
+    if csv_data:
+        df = pd.DataFrame(csv_data)
+        df.to_csv(csv_file, index=False)
 
 def write_correlation_csv(correlation_results: Dict, csv_file: Path):
     """Write correlation matrix to CSV"""
@@ -204,10 +255,87 @@ def format_performance_markdown(analysis: Dict, test_run_id: str) -> str:
     
     return md_content
 
-def format_infrastructure_markdown(analysis: Dict) -> str:
-    """Format infrastructure analysis as markdown"""
-    # Implementation for markdown formatting
-    return "# Infrastructure Analysis\n\n"
+def format_infrastructure_markdown(analysis: Dict, test_run_id: str) -> str:
+    """Format infrastructure analysis as markdown report"""
+    
+    infrastructure_summary = analysis.get('infrastructure_summary', {})
+    resource_insights = analysis.get('resource_insights', {})
+    assumptions = analysis.get('assumptions_made', [])
+    
+    # Basic stats
+    k8s_summary = infrastructure_summary.get('kubernetes_summary', {})
+    host_summary = infrastructure_summary.get('host_summary', {})
+    
+    total_services = k8s_summary.get('total_services', 0)
+    total_containers = k8s_summary.get('total_containers', 0)
+    total_hosts = host_summary.get('total_hosts', 0)
+    
+    md_content = f"""# Infrastructure Analysis Report - Run {test_run_id}
+
+## Infrastructure Overview
+- **Total Environments**: {infrastructure_summary.get('total_environments', 0)}
+- **Kubernetes Services**: {total_services} ({total_containers} containers)
+- **Host Systems**: {total_hosts}
+
+## Resource Utilization Summary
+
+### High Utilization (Needs Attention)
+"""
+    
+    high_util = resource_insights.get('high_utilization', [])
+    if high_util:
+        md_content += "| Resource | Type | Peak Usage | Threshold | Recommendation |\n"
+        md_content += "|----------|------|------------|-----------|----------------|\n"
+        
+        for item in high_util[:10]:  # Limit to top 10
+            md_content += f"| {item.get('resource', 'N/A')} | {item.get('type', 'N/A')} | {item.get('peak_utilization', 0):.1f}% | {item.get('threshold', 0)}% | {item.get('recommendation', 'N/A')[:50]}... |\n"
+    else:
+        md_content += "✅ No resources showing high utilization\n"
+    
+    md_content += "\n### Under-Utilized Resources (Cost Optimization)\n"
+    
+    low_util = resource_insights.get('low_utilization', [])
+    if low_util:
+        md_content += "| Resource | Type | Avg Usage | Threshold | Recommendation |\n"
+        md_content += "|----------|------|-----------|-----------|----------------|\n"
+        
+        for item in low_util[:10]:  # Limit to top 10
+            md_content += f"| {item.get('resource', 'N/A')} | {item.get('type', 'N/A')} | {item.get('avg_utilization', 0):.1f}% | {item.get('threshold', 0)}% | {item.get('recommendation', 'N/A')[:50]}... |\n"
+    else:
+        md_content += "✅ No significantly under-utilized resources detected\n"
+    
+    # Well-sized resources summary
+    right_sized = resource_insights.get('right_sized', [])
+    md_content += f"\n### Well-Utilized Resources: {len(right_sized)}\n"
+    
+    # Kubernetes details
+    if k8s_summary:
+        md_content += f"\n## Kubernetes Analysis\n"
+        md_content += f"- **Services Analyzed**: {total_services}\n"
+        md_content += f"- **Total Containers**: {total_containers}\n"
+        md_content += f"- **Environments**: {', '.join(k8s_summary.get('environments', []))}\n"
+    
+    # Host details
+    if host_summary:
+        md_content += f"\n## Host Analysis\n"
+        md_content += f"- **Hosts Analyzed**: {total_hosts}\n"
+        md_content += f"- **Environments**: {', '.join(host_summary.get('environments', []))}\n"
+    
+    # Configuration assumptions
+    if assumptions:
+        md_content += "\n## Configuration Assumptions\n\n"
+        md_content += "⚠️ The following resource allocations were assumed due to missing configuration:\n\n"
+        for assumption in assumptions[:10]:  # Limit assumptions list
+            md_content += f"- {assumption}\n"
+        
+        if len(assumptions) > 10:
+            md_content += f"- ... and {len(assumptions) - 10} more assumptions\n"
+        
+        md_content += "\n💡 **Recommendation**: Update environments.json with actual resource allocations for more accurate analysis.\n"
+    
+    md_content += f"\n---\n*Generated: {analysis.get('analysis_timestamp', 'N/A')}*"
+    
+    return md_content
 
 def format_correlation_markdown(correlation_results: Dict) -> str:
     """Format correlation analysis as markdown"""

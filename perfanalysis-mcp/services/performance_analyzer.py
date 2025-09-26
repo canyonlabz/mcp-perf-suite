@@ -13,7 +13,10 @@ import httpx
 from dotenv import load_dotenv
 from fastmcp import Context     # ✅ FastMCP 2.x import
 
-from utils.config import load_config
+from utils.config import (
+    load_config,
+    load_environments_config
+)
 from utils.file_processor import (
     load_jmeter_results,
     load_datadog_metrics,
@@ -38,6 +41,10 @@ from utils.statistical_analyzer import (
     calculate_correlation_matrix,
     detect_statistical_anomalies,
     identify_resource_bottlenecks
+)
+from services.apm_analyzer import (
+    perform_infrastructure_analysis,
+    generate_infrastructure_outputs
 )
 from services.ai_analyst import (
     generate_ai_insights,
@@ -130,56 +137,84 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context) -> Dict[str
         await ctx.error("Analysis Error", error_msg)
         return {"error": error_msg, "status": "failed"}
 
-async def analyze_datadog_metrics(test_run_id: str, ctx: Context) -> Dict[str, Any]:
+async def analyze_apm_metrics(test_run_id: str, ctx: Context) -> Dict[str, Any]:
     """
-    Analyze Datadog infrastructure metrics (CPU/Memory for Hosts and K8s)
+    Analyze infrastructure metrics from configurable APM tool (Datadog/Dynatrace/etc.)
+    
+    Args:
+        test_run_id: The unique test run identifier  
+        ctx: FastMCP workflow context for chaining
+        
+    Returns:
+        Dictionary containing infrastructure metrics analysis
     """
     try:
-        # Locate Datadog metrics
-        datadog_path = Path(artifacts_base) / test_run_id / 'datadog'
+        await ctx.info("Infrastructure Analysis", f"Starting metrics analysis for run {test_run_id}")
         
-        if not datadog_path.exists():
-            error_msg = f"Datadog metrics directory not found: {datadog_path}"
-            await ctx.error("Missing Datadog Metrics", error_msg)
-            return {"error": error_msg, "status": "failed"}
+        # Get APM tool from config (future-proof for multiple APM tools)
+        apm_tool = config['perf_analysis']['apm_tool']
         
-        # Find all metric files
-        host_metrics = list(datadog_path.glob('host_metrics_*.csv'))
-        k8s_metrics = list(datadog_path.glob('k8s_metrics_*.csv'))
+        # Check for metrics data in APM-specific folder
+        apm_path = Path(artifacts_base) / test_run_id / apm_tool
         
-        if not host_metrics and not k8s_metrics:
-            error_msg = "No Datadog metric files found"
-            await ctx.error("No Metrics Found", error_msg)
-            return {"error": error_msg, "status": "failed"}
+        if not apm_path.exists():
+            error_msg = f"No {apm_tool} metrics folder found at {apm_path}"
+            await ctx.error("Missing Metrics Data", error_msg)
+            return {
+                "error": error_msg,
+                "status": "no_data_available",
+                "expected_path": str(apm_path)
+            }
         
-        # Process metrics
-        infrastructure_analysis = process_infrastructure_metrics(host_metrics, k8s_metrics)
+        # Find metrics CSV files
+        k8s_files = list(apm_path.glob("k8s_metrics_*.csv"))
+        host_files = list(apm_path.glob("host_metrics_*.csv"))
         
-        # Save results
-        output_file = datadog_path / 'infrastructure_analysis.json'
-        write_json_output(infrastructure_analysis, output_file)
+        if not k8s_files and not host_files:
+            error_msg = f"No metrics CSV files found in {apm_path}. Expected k8s_metrics_*.csv or host_metrics_*.csv"
+            await ctx.error("No Metrics Files", error_msg)
+            return {
+                "error": error_msg,
+                "status": "no_metrics_files",
+                "expected_patterns": ["k8s_metrics_*.csv", "host_metrics_*.csv"]
+            }
         
-        # Save CSV summary
-        csv_file = datadog_path / 'infrastructure_summary.csv'
-        write_infrastructure_csv(infrastructure_analysis, csv_file)
+        # Load environments configuration 
+        environments_config = load_environments_config(config)
         
-        # Save markdown summary
-        md_file = datadog_path / 'infrastructure_analysis.md'
-        write_markdown_output(format_infrastructure_markdown(infrastructure_analysis), md_file)
+        # Setup analysis output folder
+        analysis_path = Path(artifacts_base) / test_run_id / 'analysis'
+        analysis_path.mkdir(parents=True, exist_ok=True)
         
-        await ctx.info(f"Infrastructure analysis completed", f"Results saved to {output_file}")
-        ctx.set_state("infrastructure_analysis", json.dumps(infrastructure_analysis))
-        ctx.set_state("infrastructure_analysis_file", str(output_file))
+        # Perform comprehensive infrastructure analysis
+        analysis_result = await perform_infrastructure_analysis(
+            k8s_files, host_files, environments_config, config, test_run_id, ctx
+        )
+        
+        # Generate output files
+        output_files = await generate_infrastructure_outputs(
+            analysis_result, analysis_path, test_run_id, ctx
+        )
+        
+        await ctx.info("Infrastructure Analysis Complete",
+                      f"Analysis completed for {len(k8s_files)} K8s + {len(host_files)} Host files. "
+                      f"Files saved to {analysis_path}")
+        
+        # Return lightweight summary (not full analysis data)
+        infrastructure_summary = analysis_result.get('infrastructure_summary', {})
+        resource_insights = analysis_result.get('resource_insights', {})
         
         return {
             "status": "success",
             "test_run_id": test_run_id,
-            "analysis": infrastructure_analysis,
-            "output_files": {
-                "json": str(output_file),
-                "csv": str(csv_file),
-                "markdown": str(md_file)
-            }
+            "summary": {
+                "infrastructure_overview": infrastructure_summary,
+                "resource_utilization": resource_insights,
+                "environments_analyzed": analysis_result.get('environments_analyzed', []),
+                "assumptions_made": analysis_result.get('assumptions_made', [])
+            },
+            "output_files": output_files,
+            "data_source": f"{apm_tool}_metrics"
         }
         
     except Exception as e:
