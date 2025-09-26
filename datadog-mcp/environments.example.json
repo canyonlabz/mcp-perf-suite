@@ -1,36 +1,46 @@
 {
   "schema_version": "1.0",
   "environments": {
-    "QA": {
-      "env_tag": "qa",
+    "QA1": {
+      "env_tag": "azure.qa1.local",
       "metadata": {
-        "platform": "Linux",
-        "cpus": 4,
-        "memory": "16GB",
-        "description": "QA environment for web/app/db tier"
+        "platform": "Azure Kubernetes",
+        "description": "QA1 environment for testing"
       },
-      "tags": ["team:qa"],
-      "services": [
-        {"service_name": "serviceA", "type": "web"},
-        {"service_name": "serviceB", "type": "app"},
-        {"service_name": "serviceC", "type": "db"}
-      ],
-      "hosts": [
-        {"hostname": "qa-web-01"},
-        {"hostname": "qa-app-01"},
-        {"hostname": "qa-db-01"}
-      ],
+      "tags": ["example", "test"],
+      "services": [],
+      "hosts": [],
       "kubernetes": {
         "services": [
           {
-            "service_filter": "*products*",
-            "description": "Products microservices"
-          },
-          {
-            "service_filter": "*auth*", 
-            "description": "Authentication services"
+            "service_filter": "my-app-api",
+            "description": "My App microservice",
+            "cpus": "4.05 core",
+            "memory": "16 GiB"
           }
         ]
+      }
+    },
+    "QA2": {
+      "env_tag": "azure.qa2.local",
+      "metadata": {
+        "platform": "Windows Servers",
+        "cpus": 4,
+        "memory": "16GB",
+        "description": "QA2 environment for testing"
+      },
+      "tags": ["example", "test"],
+      "services": [],
+      "hosts": [
+        {"hostname": "az-web-01", "description": "webserver", "cpus": 4, "memory": "16GB"},
+        {"hostname": "az-web-02", "description": "webserver", "cpus": 4, "memory": "16GB"},
+        {"hostname": "az-db-01", "description": "database", "cpus": 4, "memory": "16GB"},
+        {"hostname": "az-db-02", "description": "database", "cpus": 4, "memory": "16GB"},
+        {"hostname": "az-app-01", "description": "application server", "cpus": 4, "memory": "16GB"},
+        {"hostname": "az-app-02", "description": "application server", "cpus": 4, "memory": "16GB"}
+      ],
+      "kubernetes": {
+        "services": []
       }
     }
   }
