@@ -228,12 +228,11 @@ async def correlate_performance_data(test_run_id: str, ctx: Context) -> Dict[str
     """
     try:
         # Load previous analysis results
-        blazemeter_path = Path(artifacts_base) / test_run_id / 'blazemeter'
-        datadog_path = Path(artifacts_base) / test_run_id / 'datadog'
-        
-        performance_file = blazemeter_path / 'performance_analysis.json'
-        infrastructure_file = datadog_path / 'infrastructure_analysis.json'
-        
+        analysis_path = Path(artifacts_base) / test_run_id / "analysis"
+
+        performance_file = analysis_path / 'performance_analysis.json'
+        infrastructure_file = analysis_path / 'infrastructure_analysis.json'
+
         if not performance_file.exists():
             error_msg = "Performance analysis file not found. Run analyze_test_results first."
             await ctx.error("Missing Performance Analysis", error_msg)
@@ -254,15 +253,15 @@ async def correlate_performance_data(test_run_id: str, ctx: Context) -> Dict[str
         correlation_results = calculate_correlation_matrix(performance_data, infrastructure_data, test_run_id)
         
         # Save correlation results
-        output_file = Path(artifacts_base) / test_run_id / 'correlation_analysis.json'
+        output_file = analysis_path / 'correlation_analysis.json'
         write_json_output(correlation_results, output_file)
         
         # Save CSV matrix
-        csv_file = Path(artifacts_base) / test_run_id / 'correlation_matrix.csv'
+        csv_file = analysis_path / 'correlation_matrix.csv'
         write_correlation_csv(correlation_results, csv_file)
         
         # Save markdown summary
-        md_file = Path(artifacts_base) / test_run_id / 'correlation_analysis.md'
+        md_file = analysis_path / 'correlation_analysis.md'
         write_markdown_output(format_correlation_markdown(correlation_results), md_file)
         
         await ctx.info(f"Correlation analysis completed", f"Results saved to {output_file}")
