@@ -192,9 +192,9 @@ def analyze_k8s_service_metrics(service_data: pd.DataFrame, resource_allocation:
     
     # CPU Analysis with CORRECT nanocore conversion
     if not cpu_data.empty:
-        # CRITICAL: Use /1e3 for microcores to cores conversion
+        # CRITICAL: Use /1e9 for nanocores to cores conversion
         cpu_data_converted = cpu_data.copy()
-        cpu_data_converted['cpu_cores'] = cpu_data_converted['value'] / 1e3  # microcores to cores
+        cpu_data_converted['cpu_cores'] = cpu_data_converted['value'] / 1e9  # nanocores to cores
 
         service_metrics["cpu_analysis"] = {
             "allocated_cores": resource_allocation['cpus'],
