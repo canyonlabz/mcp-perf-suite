@@ -169,10 +169,140 @@ async def write_infrastructure_csv(analysis: Dict, csv_file: Path):
         df = pd.DataFrame(csv_data)
         df.to_csv(csv_file, index=False)
 
-def write_correlation_csv(correlation_results: Dict, csv_file: Path):
-    """Write correlation matrix to CSV"""
-    # Implementation for correlation CSV
-    pass
+async def write_correlation_csv(correlation_results: Dict, csv_file: Path):
+    """Write temporal correlation analysis to CSV format"""
+    csv_data = []
+    
+    # Overall correlation summary
+    summary = correlation_results.get('summary', {})
+    csv_data.append({
+        'analysis_type': 'summary',
+        'metric': 'total_analysis_periods',
+        'value': summary.get('total_analysis_periods', 0),
+        'description': 'Total time periods analyzed',
+        'time_window': '',
+        'correlation_coefficient': '',
+        'strength': '',
+        'direction': '',
+        'insight': ''
+    })
+    
+    csv_data.append({
+        'analysis_type': 'summary', 
+        'metric': 'total_correlations_found',
+        'value': summary.get('total_correlations_found', 0),
+        'description': 'Total significant correlations found',
+        'time_window': '',
+        'correlation_coefficient': '',
+        'strength': '',
+        'direction': '',
+        'insight': ''
+    })
+    
+    csv_data.append({
+        'analysis_type': 'summary',
+        'metric': 'correlation_samples',
+        'value': summary.get('correlation_samples', 0),
+        'description': 'Total correlation data points',
+        'time_window': '',
+        'correlation_coefficient': '',
+        'strength': '',
+        'direction': '',
+        'insight': ''
+    })
+    
+    # Temporal analysis periods
+    temporal_analysis = correlation_results.get('temporal_analysis', {})
+    for period in temporal_analysis.get('analysis_periods', []):
+        time_window = period.get('time_window', '')
+        perf_issues = period.get('performance_issues', {})
+        infra_metrics = period.get('infrastructure_metrics', {})
+        correlation_analysis = period.get('correlation_analysis', {})
+        
+        # Performance issues row
+        csv_data.append({
+            'analysis_type': 'time_period',
+            'metric': 'performance_issues',
+            'value': perf_issues.get('sla_violations', 0),
+            'description': f'SLA violations in time window',
+            'time_window': time_window,
+            'correlation_coefficient': '',
+            'strength': '',
+            'direction': '',
+            'insight': f"Avg RT: {perf_issues.get('avg_response_time', 0):.0f}ms, SLA violations: {perf_issues.get('sla_violation_rate', 0):.1f}%"
+        })
+        
+        # Infrastructure metrics row
+        csv_data.append({
+            'analysis_type': 'time_period',
+            'metric': 'infrastructure_metrics',
+            'value': infra_metrics.get('avg_cpu', 0),
+            'description': f'CPU utilization in time window',
+            'time_window': time_window,
+            'correlation_coefficient': '',
+            'strength': '',
+            'direction': '',
+            'insight': f"CPU: {infra_metrics.get('avg_cpu', 0):.1f}%, Memory: {infra_metrics.get('avg_memory', 0):.1f}%"
+        })
+        
+        # Correlation analysis row
+        csv_data.append({
+            'analysis_type': 'time_period',
+            'metric': 'correlation_analysis',
+            'value': 1 if correlation_analysis.get('cpu_constraint') else 0,
+            'description': f'Resource constraints in time window',
+            'time_window': time_window,
+            'correlation_coefficient': '',
+            'strength': '',
+            'direction': '',
+            'insight': f"CPU constraint: {correlation_analysis.get('cpu_constraint', False)}, Memory constraint: {correlation_analysis.get('memory_constraint', False)}"
+        })
+    
+    # Individual significant correlations
+    for corr in correlation_results.get('significant_correlations', []):
+        csv_data.append({
+            'analysis_type': 'significant_correlation',
+            'metric': corr.get('type', ''),
+            'value': corr.get('correlation_coefficient', 0),
+            'description': corr.get('interpretation', ''),
+            'time_window': '',
+            'correlation_coefficient': corr.get('correlation_coefficient', 0),
+            'strength': corr.get('strength', ''),
+            'direction': corr.get('direction', ''),
+            'insight': f"Correlation: {corr.get('correlation_coefficient', 0):.3f}, {corr.get('strength', '')} {corr.get('direction', '')}"
+        })
+    
+    # Correlation matrix data
+    correlation_matrix = correlation_results.get('correlation_matrix', {})
+    if correlation_matrix:
+        csv_data.append({
+            'analysis_type': 'correlation_matrix',
+            'metric': 'cpu_response_time_correlation',
+            'value': correlation_matrix.get('cpu_response_time_correlation', 0),
+            'description': 'Overall CPU utilization vs response time correlation',
+            'time_window': '',
+            'correlation_coefficient': correlation_matrix.get('cpu_response_time_correlation', 0),
+            'strength': get_correlation_strength(correlation_matrix.get('cpu_response_time_correlation', 0)),
+            'direction': get_correlation_direction(correlation_matrix.get('cpu_response_time_correlation', 0)),
+            'insight': f"Based on {correlation_matrix.get('total_correlation_samples', 0)} correlation samples"
+        })
+        
+        csv_data.append({
+            'analysis_type': 'correlation_matrix',
+            'metric': 'memory_response_time_correlation',
+            'value': correlation_matrix.get('memory_response_time_correlation', 0),
+            'description': 'Overall memory utilization vs response time correlation',
+            'time_window': '',
+            'correlation_coefficient': correlation_matrix.get('memory_response_time_correlation', 0),
+            'strength': get_correlation_strength(correlation_matrix.get('memory_response_time_correlation', 0)),
+            'direction': get_correlation_direction(correlation_matrix.get('memory_response_time_correlation', 0)),
+            'insight': f"Based on {correlation_matrix.get('total_correlation_samples', 0)} correlation samples"
+        })
+    
+    # Write to CSV
+    if csv_data:
+        df = pd.DataFrame(csv_data)
+        df.to_csv(csv_file, index=False)
 
 def write_anomalies_csv(anomalies: Dict, csv_file: Path):
     """Write detected anomalies to CSV"""
@@ -338,9 +468,229 @@ def format_infrastructure_markdown(analysis: Dict, test_run_id: str) -> str:
     return md_content
 
 def format_correlation_markdown(correlation_results: Dict) -> str:
-    """Format correlation analysis as markdown"""
-    # Implementation for markdown formatting
-    return "# Correlation Analysis\n\n"
+    """Format temporal correlation analysis as comprehensive markdown report"""
+    
+    test_run_id = correlation_results.get('test_run_id', 'Unknown')
+    summary = correlation_results.get('summary', {})
+    significant_correlations = correlation_results.get('significant_correlations', [])
+    insights = correlation_results.get('insights', [])
+    temporal_analysis = correlation_results.get('temporal_analysis', {})
+    correlation_matrix = correlation_results.get('correlation_matrix', {})
+    
+    md_content = f"""# Temporal Correlation Analysis Report - Run {test_run_id}
+
+## Analysis Summary
+
+- **Analysis Periods**: {summary.get('total_analysis_periods', 0)}
+- **Total Correlations Found**: {summary.get('total_correlations_found', 0)}
+- **Strong Correlations**: {summary.get('strong_correlations', 0)}
+- **Moderate Correlations**: {summary.get('moderate_correlations', 0)}
+- **Correlation Samples**: {summary.get('correlation_samples', 0)}
+- **Correlation Threshold**: {correlation_results.get('correlation_threshold', 0.3)}
+
+## Key Findings
+
+"""
+    
+    if insights:
+        for insight in insights:
+            md_content += f"- {insight}\n"
+    else:
+        md_content += "- No significant correlations identified in this temporal analysis\n"
+    
+    # Temporal Analysis Periods
+    analysis_periods = temporal_analysis.get('analysis_periods', [])
+    if analysis_periods:
+        md_content += "\n## Time Periods with Issues\n\n"
+        md_content += "| Time Window | Avg Response Time | SLA Violations | Avg CPU | Avg Memory | CPU Constraint | Memory Constraint |\n"
+        md_content += "|-------------|-------------------|----------------|---------|------------|----------------|-------------------|\n"
+        
+        for period in analysis_periods[:10]:  # Limit to top 10 periods
+            time_window = period.get('time_window', 'N/A')
+            perf_issues = period.get('performance_issues', {})
+            infra_metrics = period.get('infrastructure_metrics', {})
+            correlation_analysis = period.get('correlation_analysis', {})
+            
+            # Truncate time window for display
+            if len(time_window) > 35:
+                time_window = time_window[:32] + "..."
+            
+            md_content += f"| {time_window} "
+            md_content += f"| {perf_issues.get('avg_response_time', 0):.0f}ms "
+            md_content += f"| {perf_issues.get('sla_violations', 0)} "
+            md_content += f"| {infra_metrics.get('avg_cpu', 0):.1f}% "
+            md_content += f"| {infra_metrics.get('avg_memory', 0):.1f}% "
+            md_content += f"| {'✅' if correlation_analysis.get('cpu_constraint') else '❌'} "
+            md_content += f"| {'✅' if correlation_analysis.get('memory_constraint') else '❌'} |\n"
+        
+        if len(analysis_periods) > 10:
+            md_content += f"\n*... and {len(analysis_periods) - 10} more periods with issues*\n"
+    
+    # Significant Correlations
+    md_content += "\n## Significant Correlations\n\n"
+    
+    if significant_correlations:
+        md_content += "| Correlation Type | Coefficient | Strength | Direction | Interpretation |\n"
+        md_content += "|------------------|-------------|----------|-----------|----------------|\n"
+        
+        for corr in significant_correlations:
+            md_content += f"| {corr.get('type', 'N/A').replace('_', ' ').title()} "
+            md_content += f"| {corr.get('correlation_coefficient', 0):.3f} "
+            md_content += f"| {corr.get('strength', 'N/A').title()} "
+            md_content += f"| {corr.get('direction', 'N/A').title()} "
+            md_content += f"| {corr.get('interpretation', 'N/A')} |\n"
+    else:
+        md_content += "No significant correlations found above the threshold.\n"
+    
+    # Overall Correlation Matrix
+    if correlation_matrix:
+        md_content += "\n## Overall Correlation Analysis\n\n"
+        md_content += "### Resource-Performance Correlations\n\n"
+        md_content += "**What is Correlation?**\n"
+        md_content += "Correlation measures the relationship between infrastructure resources and API performance:\n"
+        md_content += "- **+1.0**: Perfect positive correlation (high CPU/Memory → slow APIs)\n"
+        md_content += "- **0.0**: No relationship (resource usage doesn't affect performance)\n"
+        md_content += "- **-1.0**: Perfect negative correlation (high CPU/Memory → fast APIs)\n"
+        md_content += "- **Threshold**: ±0.3 or higher indicates a significant relationship worth investigating\n\n"
+        
+        cpu_rt_corr = correlation_matrix.get('cpu_response_time_correlation', 0)
+        mem_rt_corr = correlation_matrix.get('memory_response_time_correlation', 0)
+        cpu_sla_corr = correlation_matrix.get('cpu_sla_violations_correlation', 0)
+        mem_sla_corr = correlation_matrix.get('memory_sla_violations_correlation', 0)
+        
+        # Add interpretation helpers
+        def interpret_corr(value, resource, metric):
+            abs_val = abs(value)
+            if abs_val >= 0.7:
+                strength = "**Strong**"
+            elif abs_val >= 0.3:
+                strength = "**Moderate**"
+            else:
+                strength = "Weak"
+            
+            if value > 0.3:
+                return f"{strength} positive correlation: Higher {resource} usage → {metric}"
+            elif value < -0.3:
+                return f"{strength} negative correlation: Higher {resource} usage → Better {metric} (unexpected)"
+            else:
+                return f"{strength}: No significant relationship between {resource} and {metric}"
+        
+        md_content += f"**CPU vs Response Time**: {cpu_rt_corr:.3f}\n"
+        md_content += f"  - {interpret_corr(cpu_rt_corr, 'CPU', 'slower response times')}\n\n"
+        
+        md_content += f"**Memory vs Response Time**: {mem_rt_corr:.3f}\n"
+        md_content += f"  - {interpret_corr(mem_rt_corr, 'Memory', 'slower response times')}\n\n"
+        
+        md_content += f"**CPU vs SLA Violations**: {cpu_sla_corr:.3f}\n"
+        md_content += f"  - {interpret_corr(cpu_sla_corr, 'CPU', 'more SLA violations')}\n\n"
+        
+        md_content += f"**Memory vs SLA Violations**: {mem_sla_corr:.3f}\n"
+        md_content += f"  - {interpret_corr(mem_sla_corr, 'Memory', 'more SLA violations')}\n\n"
+        
+        md_content += f"**Analysis Details:**\n"
+        md_content += f"- Total time windows analyzed: {correlation_matrix.get('analysis_windows', 0)}\n"
+        md_content += f"- Correlation data points: {correlation_matrix.get('total_correlation_samples', 0)}\n"
+    
+    # Detailed Time Period Analysis
+    if analysis_periods:
+        md_content += "\n## Detailed Time Period Analysis\n\n"
+        
+        # Find periods with highest response times
+        sorted_periods = sorted(analysis_periods, 
+                              key=lambda x: x.get('performance_issues', {}).get('avg_response_time', 0), 
+                              reverse=True)[:5]
+        
+        if sorted_periods:
+            md_content += "### Top 5 Periods with Highest Response Times\n\n"
+            for i, period in enumerate(sorted_periods, 1):
+                time_window = period.get('time_window', 'N/A')
+                perf_issues = period.get('performance_issues', {})
+                infra_metrics = period.get('infrastructure_metrics', {})
+                api_breakdown = period.get('api_breakdown', [])
+                
+                md_content += f"#### {i}. {time_window}\n"
+                md_content += f"- **Average Response Time**: {perf_issues.get('avg_response_time', 0):.0f}ms\n"
+                md_content += f"- **Max Response Time**: {perf_issues.get('max_response_time', 0):.0f}ms\n"
+                md_content += f"- **SLA Violations**: {perf_issues.get('sla_violations', 0)} ({perf_issues.get('sla_violation_rate', 0):.1f}%)\n"
+                md_content += f"- **Total Requests**: {perf_issues.get('total_requests', 0)}\n"
+                md_content += f"- **CPU Utilization**: {infra_metrics.get('avg_cpu', 0):.1f}%\n"
+                md_content += f"- **Memory Utilization**: {infra_metrics.get('avg_memory', 0):.1f}%\n"
+                
+                # Add slowest APIs during this period
+                if api_breakdown:
+                    md_content += f"\n**Slowest APIs During This Period:**\n"
+                    for j, api_info in enumerate(api_breakdown[:5], 1):  # Top 5 APIs
+                        api_name = api_info.get('api_name', 'Unknown')
+                        avg_rt = api_info.get('avg_response_time', 0)
+                        max_rt = api_info.get('max_response_time', 0)
+                        count = api_info.get('request_count', 0)
+                        violations = api_info.get('sla_violations', 0)
+                        
+                        # Truncate long API names
+                        if len(api_name) > 80:
+                            api_name = api_name[:77] + "..."
+                        
+                        md_content += f"  {j}. `{api_name}`\n"
+                        md_content += f"     - Avg: {avg_rt:.0f}ms | Max: {max_rt:.0f}ms | Requests: {count} | Violations: {violations}\n"
+                
+                md_content += "\n"
+    
+    # Analysis methodology
+    md_content += "\n## Analysis Methodology\n\n"
+    md_content += "This temporal correlation analysis:\n"
+    md_content += "- Divides the test period into 1-minute time windows\n"
+    md_content += "- Analyzes each window for performance issues and resource constraints\n"
+    md_content += "- Correlates infrastructure metrics with performance degradation\n"
+    md_content += "- Identifies patterns between CPU/memory usage and response times\n"
+    md_content += f"- Uses a correlation threshold of {correlation_results.get('correlation_threshold', 0.3)} for significance\n"
+    
+    # Recommendations
+    if significant_correlations or analysis_periods:
+        md_content += "\n## Recommendations\n\n"
+        
+        # CPU-related recommendations
+        cpu_correlations = [c for c in significant_correlations if 'cpu' in c.get('type', '')]
+        if cpu_correlations:
+            md_content += "### CPU Optimization\n"
+            for corr in cpu_correlations:
+                strength = corr.get('strength', 'unknown')
+                direction = corr.get('direction', 'unknown')
+                coefficient = corr.get('correlation_coefficient', 0)
+                
+                if direction == 'positive' and strength in ['strong', 'moderate']:
+                    md_content += f"- **CPU Constraint Detected**: Consider increasing CPU allocation or optimizing CPU-intensive operations (correlation: {coefficient:.3f})\n"
+                elif direction == 'negative':
+                    md_content += f"- **CPU Underutilization**: Current CPU allocation may be excessive (correlation: {coefficient:.3f})\n"
+        
+        # Memory-related recommendations  
+        memory_correlations = [c for c in significant_correlations if 'memory' in c.get('type', '')]
+        if memory_correlations:
+            md_content += "\n### Memory Optimization\n"
+            for corr in memory_correlations:
+                strength = corr.get('strength', 'unknown')
+                direction = corr.get('direction', 'unknown')
+                coefficient = corr.get('correlation_coefficient', 0)
+                
+                if direction == 'positive' and strength in ['strong', 'moderate']:
+                    md_content += f"- **Memory Constraint Detected**: Consider increasing memory allocation or optimizing memory usage (correlation: {coefficient:.3f})\n"
+                elif direction == 'negative':
+                    md_content += f"- **Memory Underutilization**: Current memory allocation may be excessive (correlation: {coefficient:.3f})\n"
+        
+        # Time period recommendations
+        if analysis_periods:
+            cpu_constrained = sum(1 for p in analysis_periods if p.get('correlation_analysis', {}).get('cpu_constraint'))
+            memory_constrained = sum(1 for p in analysis_periods if p.get('correlation_analysis', {}).get('memory_constraint'))
+            
+            if cpu_constrained > 0:
+                md_content += f"\n### Infrastructure Scaling\n"
+                md_content += f"- **CPU Scaling**: {cpu_constrained} time periods showed CPU constraints - consider auto-scaling or resource increases\n"
+            
+            if memory_constrained > 0:
+                md_content += f"- **Memory Scaling**: {memory_constrained} time periods showed memory constraints - consider memory optimization or scaling\n"
+    
+    md_content += f"\n---\n*Generated: {correlation_results.get('analysis_timestamp', 'N/A')}*"
+    
+    return md_content
 
 def format_anomalies_markdown(anomalies: Dict) -> str:
     """Format anomaly detection as markdown"""
@@ -361,3 +711,20 @@ def format_executive_markdown(summary: Dict) -> str:
     """Format executive summary as markdown"""
     # Implementation for markdown formatting
     return "# Executive Summary\n\n"
+
+# -----------------------------------------------
+# Helper functions
+# -----------------------------------------------
+def get_correlation_strength(correlation: float) -> str:
+    """Determine correlation strength"""
+    abs_corr = abs(correlation)
+    if abs_corr > 0.7:
+        return "strong"
+    elif abs_corr > 0.3:
+        return "moderate"
+    else:
+        return "weak"
+
+def get_correlation_direction(correlation: float) -> str:
+    """Determine correlation direction"""
+    return "positive" if correlation > 0 else "negative" if correlation < 0 else "none"

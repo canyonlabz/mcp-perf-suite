@@ -250,19 +250,19 @@ async def correlate_performance_data(test_run_id: str, ctx: Context) -> Dict[str
             infrastructure_data = json.load(f)
         
         # Perform correlation analysis
-        correlation_results = calculate_correlation_matrix(performance_data, infrastructure_data, test_run_id)
+        correlation_results = calculate_correlation_matrix(performance_data, infrastructure_data, test_run_id, config)
         
         # Save correlation results
         output_file = analysis_path / 'correlation_analysis.json'
-        write_json_output(correlation_results, output_file)
+        await write_json_output(correlation_results, output_file)
         
         # Save CSV matrix
         csv_file = analysis_path / 'correlation_matrix.csv'
-        write_correlation_csv(correlation_results, csv_file)
+        await write_correlation_csv(correlation_results, csv_file)
         
         # Save markdown summary
         md_file = analysis_path / 'correlation_analysis.md'
-        write_markdown_output(format_correlation_markdown(correlation_results), md_file)
+        await write_markdown_output(format_correlation_markdown(correlation_results), md_file)
         
         await ctx.info(f"Correlation analysis completed", f"Results saved to {output_file}")
         ctx.set_state("correlation_analysis", json.dumps(correlation_results))

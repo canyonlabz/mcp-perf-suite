@@ -248,3 +248,10 @@ artifacts/*
 
 # ignore Datadog environments
 datadog-mcp/environments.json
+
+# Temp files
+docs/*
+test_datadog.py
+test_blazemeter.py
+test_perfanalysis.py
+simple_test.py
