@@ -1,0 +1,9 @@
+# Chart color scheme
+primary: "#1f77b4"
+secondary: "#ff7f0e"
+success: "#2ca02c"
+error: "#d62728"
+warning: "#ff9800"
+info: "#17a2b8"
+background: "#ffffff"
+grid: "#e0e0e0"
