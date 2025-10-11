@@ -1,14 +1,14 @@
 # 🚦 PerfReport MCP Server
 
 Welcome to the **PerfReport MCP Server**!
-This Python-based MCP server is built using FastMCP to generate easy-to-share, stakeholder-ready performance reports from your BlazeMeter and Datadog analysis workflows.
+This Python-based MCP server is built using FastMCP to generate easy-to-share, stakeholder-ready performance reports from your BlazeMeter and APM (e.g. Datadog, Dynatrace, AppDynamics, etc) analysis workflows.
 
 ***
 
 ## ⭐ Features
 
 - 📝 Generate beautiful performance test reports (Markdown, PDF, Word)
-- 📊 Create PNG charts for single and dual metric test visualizations
+- 📊 Create PNG charts for single and dual-axis metric test visualizations
 - 📑 Template-driven formatting for flexible and branded reports
 - 🗂 Compare multiple runs in a single analysis
 - 🛠 Revise reports based on business/AI feedback
@@ -19,8 +19,8 @@ This Python-based MCP server is built using FastMCP to generate easy-to-share, s
 ## ⚡ Prerequisites
 
 - Python 3.12.4 or higher
-- Access to BlazeMeter and Datadog MCP artifacts
-- Setup your `config.yaml` and `chartcolors.yaml` file
+- Access to BlazeMeter and APM MCP artifacts
+- Setup your `config.yaml` and `chart_colors.yaml` file
 
 ***
 
@@ -34,7 +34,7 @@ This Python-based MCP server is built using FastMCP to generate easy-to-share, s
 `source venv/bin/activate`
 `pip install -r requirements.txt`
 3. **Configure your environment**
-    - Update `config.yaml` and `chartcolors.yaml`
+    - Update `config.yaml` and `chart_colors.yaml`
     - Ensure `templates/` contains required .md templates
 4. **Run the MCP server**
 `python perfreport.py`
