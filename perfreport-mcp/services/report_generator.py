@@ -5,6 +5,7 @@ Performance report generation from PerfAnalysis MCP outputs
 
 import json
 import asyncio
+import pypandoc
 from pathlib import Path
 from typing import Dict, Optional, List
 from datetime import datetime

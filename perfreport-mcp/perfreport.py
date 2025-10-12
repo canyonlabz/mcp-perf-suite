@@ -26,7 +26,7 @@ async def create_performance_test_report(run_id: str, template: str = None, form
         dict with run_id and path to created report file, or error info.
     """
     return await create_performance_test_report(run_id, template, format)
-    
+
 @mcp.tool
 async def create_single_axis_chart(run_id: str, chart_data: dict, metric_config: dict, ctx: Context = None) -> dict:
     """
