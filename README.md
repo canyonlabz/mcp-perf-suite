@@ -19,7 +19,7 @@ This repository hosts multiple MCP servers, each designed for a specific role in
 - **Performance Test Analysis MCP Server:**  
   Leverage Large Language Models (e.g., OpenAI GPT) to analyze test results, detect anomalies, and provide insights.
 
-- **Reporting MCP Server:**  
+- **Performance Reporting MCP Server:**  
   Generate formatted reports (e.g. PDF, Word, Markdown) from test data and analysis files for presentation and decision-making.
 
 ---
