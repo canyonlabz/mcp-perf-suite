@@ -15,8 +15,11 @@ from utils.config import load_config
 
 # Load configuration globally
 CONFIG = load_config()
-ARTIFACTS_PATH = Path(CONFIG.get('artifacts_path', './artifacts'))
-TEMPLATES_PATH = Path(CONFIG.get('templates_path', './templates'))
+ARTIFACTS_CONFIG = CONFIG.get('artifacts', {})
+REPORT_CONFIG = CONFIG.get('perf_report', {})
+
+ARTIFACTS_PATH = Path(ARTIFACTS_CONFIG.get('artifacts_path', './artifacts'))
+TEMPLATES_PATH = Path(REPORT_CONFIG.get('templates_path', './templates'))
 MCP_VERSION = CONFIG.get('mcp_version', '0.1.0-dev')
 
 
@@ -452,8 +455,9 @@ def _extract_infra_peaks(infra_data: Dict) -> tuple:
     
     detailed = infra_data.get("detailed_metrics", {})
     k8s = detailed.get("kubernetes", {})
+    services = k8s.get("services", {})
     
-    for service_data in k8s.values():
+    for service_data in services.values():
         cpu_analysis = service_data.get("cpu_analysis", {})
         mem_analysis = service_data.get("memory_analysis", {})
         
@@ -545,9 +549,7 @@ async def _save_json_file(path: Path, data: Dict):
 
 async def _convert_to_pdf(md_path: Path, output_dir: Path, run_id: str) -> Path:
     """Convert Markdown to PDF using pypandoc"""
-    try:
-        import pypandoc
-        
+    try:        
         pdf_path = output_dir / f"performance_report_{run_id}.pdf"
         pypandoc.convert_file(
             str(md_path),
@@ -562,9 +564,7 @@ async def _convert_to_pdf(md_path: Path, output_dir: Path, run_id: str) -> Path:
 
 async def _convert_to_docx(md_path: Path, output_dir: Path, run_id: str) -> Path:
     """Convert Markdown to Word using pypandoc"""
-    try:
-        import pypandoc
-        
+    try:       
         docx_path = output_dir / f"performance_report_{run_id}.docx"
         pypandoc.convert_file(
             str(md_path),

@@ -26,6 +26,7 @@ perf_analysis:
     high: 2.0
   correlation_threshold: 0.3
   min_samples_required: 100
+  correlation_granularity_window: 60  # seconds (1 minute)
 
   # Default resource allocations when datadog-mcp/environments.json is incomplete
   default_resources:
