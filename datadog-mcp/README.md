@@ -69,6 +69,8 @@ DD_API_BASE_URL=your_datadog_base_url_here
 
 ### 4. Configure Your Infrastructure
 
+NOTE: When configuring environments.json, Host or Kubernetes settings can be customized per service—or fall back to config.yaml defaults if unspecified.
+
 Create an `environments.json` file defining your environments, hosts, and Kubernetes services:
 
 ```json
@@ -85,23 +87,27 @@ Create an `environments.json` file defining your environments, hosts, and Kubern
       },
       "tags": ["team:qa"],
       "services": [
-        {"service_name": "serviceA", "type": "web"},
-        {"service_name": "serviceB", "type": "app"}
+        {"service_name": "serviceA", "type": "web", "cpus": 4, "memory": "8GB"},
+        {"service_name": "serviceB", "type": "app", "cpus": 4, "memory": "16GB"}
       ],
       "hosts": [
-        {"hostname": "qa-web-01", "description": "webserver"},
-        {"hostname": "qa-app-01", "description": "application server"},
+        {"hostname": "qa-web-01", "description": "webserver", "cpus": "4 cores", "memory": "4GB"},
+        {"hostname": "qa-app-01", "description": "application server", "cpus": "4.05 cores", "memory": "8GB"},
         {"hostname": "qa-db-01", "description": "database"}
       ],
       "kubernetes": {
         "services": [
           {
             "service_filter": "*products*",
-            "description": "Products microservices"
+            "description": "Products microservices",
+            "cpus": "4.05 cores",
+            "memory": "16GiB"
           },
           {
             "service_filter": "*auth*", 
-            "description": "Authentication services"
+            "description": "Authentication services",
+            "cpus": "4.05 cores",
+            "memory": "8GiB"
           }
         ]
       }
