@@ -3,7 +3,7 @@
 Welcome to the **PerfReport MCP Server**!
 This Python-based MCP server is built using FastMCP to generate easy-to-share, stakeholder-ready performance reports from your BlazeMeter and APM (e.g. Datadog, Dynatrace, AppDynamics, etc) analysis workflows.
 
-***
+---
 
 ## ⭐ Features
 
@@ -14,7 +14,7 @@ This Python-based MCP server is built using FastMCP to generate easy-to-share, s
 - 🛠 Revise reports based on business/AI feedback
 - 🔗 Modular structure with seamless MCP suite integration
 
-***
+---
 
 ## ⚡ Prerequisites
 
@@ -22,31 +22,65 @@ This Python-based MCP server is built using FastMCP to generate easy-to-share, s
 - Access to BlazeMeter and APM MCP artifacts
 - Setup your `config.yaml` and `chart_colors.yaml` file
 
-***
+---
 
 ## 🚀 Getting Started
 
-1. **Clone the repository**
-`git clone <your-repo-url>`
-`cd perfreport-mcp`
-2. **Create/activate virtual environment**
-`python3 -m venv venv`
-`source venv/bin/activate`
-`pip install -r requirements.txt`
-3. **Configure your environment**
-    - Update `config.yaml` and `chart_colors.yaml`
-    - Ensure `templates/` contains required .md templates
-4. **Run the MCP server**
-`python perfreport.py`
-Or use [uv](https://github.com/astral-sh/uv) for fast, isolated runs:
-`uv run perfreport.py`
+### 1. Clone the repository
 
-***
+```
+git clone <your-repo-url>
+cd perfreport-mcp
+```
+
+### 2. Create/activate virtual environment
+
+A virtual environment can be manually activated, or automatically initialized by the MCP Client (e.g. Cursor) on startup.
+
+#### On macOS / Linux
+```
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+#### On Windows (PowerShell)
+```
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+#### 3. Configure your environment
+
+- Update `config.yaml` and `chart_colors.yaml`
+- Ensure `templates/` contains required .md templates
+
+#### 4. Running the MCP server ▶️
+
+*Option 1: Run directly with Python*
+`python perfreport.py`
+
+*Option 2: Run using `uv` (Recommended) ⚡
+
+You can use **uv** to simplify setup and execution. It manages dependencies and environments automatically.
+
+- Install `uv` (macOS, Linux, Windows PowerShell)
+```
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+- Run the MCP Server with `uv`
+
+```
+uv run perfreport.py
+```
+
+---
 
 ## 🛎 MCP Tools
 
 These are exposed for Cursor, agent, or CLI use:
-
 
 | Tool | Description |
 | :-- | :-- |
@@ -59,7 +93,7 @@ These are exposed for Cursor, agent, or CLI use:
 | `get_template_details` | Show details/preview for a specific template |
 
 
-***
+---
 
 ## 🔄 Workflow Example
 
@@ -69,7 +103,7 @@ These are exposed for Cursor, agent, or CLI use:
 4. 📈 Compare test runs for trends and regression
 5. 📂 Download outputs from the artifacts directory
 
-***
+---
 
 ## 📎 Output Examples
 
@@ -87,7 +121,7 @@ These are exposed for Cursor, agent, or CLI use:
 ```json
 {
   "run_id": "RUN-20251010-01",
-  "path": "/artifacts/RUN-20251010-01/reports/report.md"
+  "path": "/artifacts/RUN-20251010-01/reports/performance_report.md"
 }
 ```
 
@@ -97,27 +131,27 @@ These are exposed for Cursor, agent, or CLI use:
 /artifacts/RUN-20251010-01/charts/response-time.png
 ```
 
-
-***
+---
 
 ## 🏗 Project Structure
 
 ```
 perfreport-mcp/
-  perfreport.py
-  services/
-    report_generator.py
-    chart_generator.py
-    template_manager.py
-  utils/
-    utils.py
-  config.yaml
-  chartcolors.yaml
-  templates/
-    default_report_template.md
-    multi_run_comparison_template.md
-  README.md
-  requirements.txt
+├── perfreport.py   
+├── services/
+│   ├── report_generator.py                     # Module containing functions for report generation
+│   ├── chart_generator.py                      # Module containing functions for chart generation
+│   └── template_manager.py                     # Module with functions for reading/writing templates
+├── utils/
+│   └── config.py                               # Utility for loading config.yaml
+├── config.yaml                                 # Centralized, environment-agnostic config
+├── chart_colors.yaml                           # Configurations for colors to be used in the visualization charts generated
+├── templates/
+│   ├── default_report_template.md              # Template for a single performance test run with detailed analysis and executive summary
+│   └── multi_run_comparison_template.md        # Template for comparing multiple performance test runs side-by-side
+├── README.md
+├── pyproject.toml                              # Modern Python project metadata & dependencies
+└── requirements.txt                            # Dependencies
 ```
 
 

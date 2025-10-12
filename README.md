@@ -19,8 +19,8 @@ This repository hosts multiple MCP servers, each designed for a specific role in
 - **Performance Test Analysis MCP Server:**  
   Leverage Large Language Models (e.g., OpenAI GPT) to analyze test results, detect anomalies, and provide insights.
 
-- **Reporting MCP Server (planned):**  
-  Generate formatted reports from test data and analysis for presentation and decision-making.
+- **Reporting MCP Server:**  
+  Generate formatted reports (e.g. PDF, Word, Markdown) from test data and analysis files for presentation and decision-making.
 
 ---
 
@@ -35,7 +35,7 @@ mcp-perf-suite/
 ├── blazemeter-mcp/          # BlazeMeter MCP server (current)
 ├── datadog-mcp/             # Datadog MCP server (current)
 ├── perfanalysis-mcp/        # LLM-powered test analysis MCP (current)
-├── reporting-mcp/           # Reporting and formatting MCP (planned)
+├── perfreport-mcp/          # Reporting and formatting MCP (*in development*)
 ├── README.md                # This file: repo overview and guidance
 └── LICENSE                  # Repository license (e.g., MIT)
 
@@ -67,12 +67,21 @@ The Performance Analysis MCP server uses FastMCP, Python 3.12+, and exposes acti
 
 ---
 
+## ▶️ Getting Started with Performance Report MCP Server
+
+Navigate to the `perfreport-mcp/` folder for detailed setup and usage instructions specific to the Performance Report MCP server.
+
+The Performance Report MCP server uses FastMCP, Python 3.12+, and exposes tools to generate performance test reports based upon analysis files. Outputs
+reports as either PDF or Word format.
+
+---
+
 ## 🛣️ Future Roadmap 
 
-- Refine the **Datadog MCP Server** to enable log ingestion and correlation.  
-- Refine the **Test Analysis MCP Server** utilizing OpenAI GPT and other LLMs for automated test result analytics.  
-- Create the **Reporting MCP Server** to produce executive-friendly reports and dashboards from test and analysis data.  
-- Enable seamless orchestration across MCP servers for comprehensive performance testing workflows.
+- Refactor the **Datadog MCP Server** to an **APM MCP Server** to support multiple APM (Application Performance Monitoring) tools (e.g. Dynatrace, AppDynamics, etc).  
+- Enhance the **Test Analysis MCP Server** utilizing OpenAI GPT or other LLMs for enhanced test result analysis.  
+- Continue refinement of the **Reporting MCP Server** to produce executive-friendly reports and dashboards from test analysis data.  
+- Enable seamless workflow orchestration across MCP servers for a comprehensive performance testing pipeline.
 
 ---
 
@@ -88,5 +97,5 @@ This project is licensed under the MIT License. See the LICENSE file for details
 
 ---
 
-Created with ❤️ to enable next-gen performance testing and analysis powered by MCP and AI.
+Created with ❤️ to enable next-gen performance testing, analysis, and reporting powered by MCP and AI.
 

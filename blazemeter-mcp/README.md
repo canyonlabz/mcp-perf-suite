@@ -28,10 +28,8 @@ Welcome to the BlazeMeter MCP Server! 🎉 This is a Python-based MCP server bui
 ### 1. Clone the Repository
 
 ```
-
 git clone <your-repo-url>
 cd blazemeter_mcp_server
-
 ```
 
 ### 2. Create & Activate a Python Virtual Environment
@@ -51,11 +49,9 @@ pip install -r requirements.txt
 #### On Windows (PowerShell)
 
 ```
-
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-
 ```
 
 ### 3. Configure Environment Variables
@@ -63,12 +59,10 @@ pip install -r requirements.txt
 Create a `.env` file in the project root with your BlazeMeter API key:
 
 ```
-
 BLAZEMETER_API_KEY=your_blazemeter_api_key_here
 BLAZEMETER_API_SECRET=your_blazemeter_api_secret_here
 BLAZEMETER_ACCOUNT_ID=your_blazemeter_account_id_here
 BLAZEMETER_WORKSPACE_ID=your_blazemeter_workspace_id_here
-
 ```
 
 ---
@@ -78,9 +72,7 @@ BLAZEMETER_WORKSPACE_ID=your_blazemeter_workspace_id_here
 ### Option 1: Run Directly with Python
 
 ```
-
 python blazemeter.py
-
 ```
 
 This runs the MCP server with the default `stdio` transport — ideal for running locally or integrating with Cursor AI.
@@ -94,17 +86,13 @@ You can use **uv** to simplify setup and execution. It manages dependencies and 
 #### Install `uv` (macOS, Linux, Windows PowerShell)
 
 ```
-
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
 ```
 
 #### Run the MCP Server with `uv`
 
 ```
-
 uv run blazemeter.py
-
 ```
 
 ---
@@ -114,7 +102,6 @@ uv run blazemeter.py
 You can create an `mcp.json` file to configure how Cursor or other MCP hosts start the server:
 
 ```
-
 {
     "mcpServers": {
         "blazemeter": {
@@ -128,7 +115,6 @@ You can create an `mcp.json` file to configure how Cursor or other MCP hosts sta
         }
     }
 }
-
 ```
 
 Replace `/path/to/your/blazemeter_mcp_server` with your local path.

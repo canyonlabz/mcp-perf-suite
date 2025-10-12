@@ -199,20 +199,22 @@ A standard Datadog MCP workflow for performance testing correlation:
 
 ## 📊 CSV Output Examples
 
+MCP’s APM module emits post-test metrics using a unified CSV schema that supports host/VM and containerized (Kubernetes) infrastructures.
+
 ### Host Metrics CSV
 
 ```csv
-env_name,env_tag,hostname,timestamp,metric,value
-QA,qa,qa-web-01,2025-09-03T15:30:00,system.cpu.user,25.4
-QA,qa,qa-web-01,2025-09-03T15:30:00,system.mem.used,8589934592
+env_name,env_tag,scope,hostname,service_filter,container_or_pod,timestamp_utc,metric,value,unit,derived_pct
+STG,my_stg_env,host,my_hostname_of_vm,,,2024-07-22T12:29:00,system.cpu.user,0.7486701287759618,%,
+STG,my_stg_env,host,my_hostname_of_vm,,,2024-07-22T12:29:00,system.mem.used,8945780736.0,B,
 ```
-
 
 ### Kubernetes Metrics CSV
 
 ```csv
 env_name,env_tag,scope,hostname,service_filter,container_or_pod,timestamp_utc,metric,value,unit,derived_pct
-QA,qa,k8s,<empty>,*products*,product-api,2025-09-05T22:00:00,kubernetes.cpu.usage.total,2711498.777,nanocores,
+QA,my_qa_env,k8s,,my-k8-service-api*,my-k8-pod-name,2025-09-19T14:41:50,kubernetes.cpu.usage.total,11095701.891776,nanocores,
+QA,my_qa_env,k8s,,my-k8-service-api*,my-k8-pod-name,2025-09-19T14:41:50,kubernetes.memory.usage,394260480.0,bytes,
 ```
 
 ### 📌 Important Note on Kubernetes Service Filtering
@@ -287,11 +289,8 @@ datadog:
 
 ## 🚧 Future Enhancements
 
-- **Memory metrics for Kubernetes**: Add memory collection alongside CPU metrics
 - **Custom metric support**: Allow arbitrary Datadog metric queries
-- **Dashboard integration**: Export metrics to Datadog dashboards
-- **Alert correlation**: Link infrastructure alerts with performance test results
-- **Multi-region support**: Handle metrics from different Datadog regions
+- **Enhanced Log Queries**: Ability for end-users to create custom log queries and store them as templates.
 
 ***
 
