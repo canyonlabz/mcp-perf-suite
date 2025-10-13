@@ -1,0 +1,14 @@
+general:
+  enable_debug: False   # Enable/disable debug mode
+  enable_logging: True  # Enable/disable logging
+
+logging:
+  log_level: "INFO"     # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  verbose_mode: False   # Enable verbose logging for debugging
+  log_path: "C:\\<path_to_repo>\\mcp-perf-suite\\tmp\\logs"  # Update with the actual path
+
+artifacts:
+  artifacts_path: "C:\\<path_to_repo>\\mcp-perf-suite\\artifacts"  # Path for artifacts
+
+perf_report:
+  templates_path: "C:\\<path_to_repo>\\mcp-perf-suite\\perfreport-mcp\\templates"  # Path to report templates
