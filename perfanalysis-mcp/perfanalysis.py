@@ -31,18 +31,19 @@ async def analyze_test_results(test_run_id: str, ctx: Context) -> Dict[str, Any]
     return await analyze_blazemeter_results(test_run_id, ctx)
 
 @mcp.tool()
-async def analyze_environment_metrics(test_run_id: str, ctx: Context) -> Dict[str, Any]:
+async def analyze_environment_metrics(test_run_id: str, environment: str, ctx: Context) -> Dict[str, Any]:
     """
     Analyze Datadog infrastructure metrics and logs
     
     Args:
         test_run_id: The unique test run identifier
+        environment: The target environment name (pulled from environments.json)
         ctx: FastMCP workflow context for chaining
         
     Returns:
         Dictionary containing infrastructure metrics analysis
     """
-    return await analyze_apm_metrics(test_run_id, ctx)
+    return await analyze_apm_metrics(test_run_id, environment, ctx)
 
 @mcp.tool()
 async def correlate_test_results(test_run_id: str, ctx: Context) -> Dict[str, Any]:

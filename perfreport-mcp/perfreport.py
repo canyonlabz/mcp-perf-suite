@@ -1,6 +1,6 @@
 from fastmcp import FastMCP, Context
 from services.report_generator import (
-    create_performance_test_report as generate_report
+    generate_performance_test_report,
 )
 from services.chart_generator import (
     create_single_axis_chart as generate_single_axis_chart,
@@ -14,18 +14,19 @@ from services.template_manager import (
 mcp = FastMCP(name="perfreport")
 
 @mcp.tool
-async def create_performance_test_report(run_id: str, template: str = None, format: str = "md", ctx: Context = None) -> dict:
+async def create_performance_test_report(run_id: str, ctx: Context, format: str = "md", template: str = None) -> dict:
     """
     Generate a formatted performance test report for a specific run.
     Args:
         run_id: Unique test run identifier.
-        template: Optional name of Markdown report template to use.
-        format: Output type; one of 'md', 'pdf', or 'docx'.
         ctx: Workflow context for chaining.
+        format: Output type; one of 'md', 'pdf', or 'docx'.
+        template: Optional name of Markdown report template to use.
+        
     Returns:
         dict with run_id and path to created report file, or error info.
     """
-    return await generate_report(run_id, template, format)
+    return await generate_performance_test_report(run_id, ctx, format, template)
 
 @mcp.tool
 async def create_single_axis_chart(run_id: str, chart_data: dict, metric_config: dict, ctx: Context = None) -> dict:

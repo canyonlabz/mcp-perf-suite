@@ -1,6 +1,7 @@
 general:
   enable_debug: False   # Enable/disable debug mode
   enable_logging: True  # Enable/disable logging
+  mcp_version: "0.1.0-dev"  # MCP version
 
 logging:
   log_level: "INFO"     # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL

@@ -2,13 +2,13 @@
 services/report_generator.py
 Performance report generation from PerfAnalysis MCP outputs
 """
-
 import json
 import asyncio
 import pypandoc
 from pathlib import Path
 from typing import Dict, Optional, List
 from datetime import datetime
+from fastmcp import Context
 
 # Import config at module level (global)
 from utils.config import load_config
@@ -20,22 +20,19 @@ REPORT_CONFIG = CONFIG.get('perf_report', {})
 
 ARTIFACTS_PATH = Path(ARTIFACTS_CONFIG.get('artifacts_path', './artifacts'))
 TEMPLATES_PATH = Path(REPORT_CONFIG.get('templates_path', './templates'))
-MCP_VERSION = CONFIG.get('mcp_version', '0.1.0-dev')
+MCP_VERSION = (CONFIG.get('general') or {}).get('mcp_version', 'unknown')
 
 
-async def create_performance_test_report(
-    run_id: str,
-    template: Optional[str] = None,
-    format: str = "md"
-) -> Dict:
+async def generate_performance_test_report(run_id: str, ctx: Context, format: str = "md", template: Optional[str] = None) -> Dict:
     """
     Generate performance test report from PerfAnalysis outputs.
     
     Args:
         run_id: Test run identifier
-        template: Optional template name
+        ctx: Workflow context for chaining
         format: Output format ('md', 'pdf', 'docx')
-    
+        template: Optional template name
+        
     Returns:
         Dict with metadata and paths
     """
@@ -49,6 +46,7 @@ async def create_performance_test_report(
         analysis_path = run_path / "analysis"
         
         if not run_path.exists():
+            await ctx.error(f"Run path not found: {run_path}")
             return {
                 "run_id": run_id,
                 "error": f"Run path not found: {run_path}",
@@ -56,6 +54,7 @@ async def create_performance_test_report(
             }
         
         if not analysis_path.exists():
+            await ctx.error(f"Analysis path not found: {analysis_path}")
             return {
                 "run_id": run_id,
                 "error": f"Analysis path not found: {analysis_path}",
@@ -115,6 +114,7 @@ async def create_performance_test_report(
         template_path = TEMPLATES_PATH / template_name
         
         if not template_path.exists():
+            await ctx.error(f"Template not found: {template_name}")
             return {
                 "run_id": run_id,
                 "error": f"Template not found: {template_name}",
@@ -241,12 +241,27 @@ def _build_report_context(
     # Extract infrastructure data
     if infra_data:
         summary = infra_data.get("infrastructure_summary", {})
-        k8s_summary = summary.get("kubernetes_summary", {})
+        environments_analyzed = infra_data.get("environments_analyzed", [])
+        # Flatten and deduplicate environments, then stringify
+        flat_envs: List[str] = []
+        for item in environments_analyzed:
+            if isinstance(item, list):
+                flat_envs.extend([str(x) for x in item])
+            else:
+                flat_envs.append(str(item))
+        seen = set()
+        unique_envs: List[str] = []
+        for e in flat_envs:
+            if e and e not in seen:
+                unique_envs.append(e)
+                seen.add(e)
+        env_str = ", ".join(unique_envs) if unique_envs else "Unknown"
         
         # Find peak CPU/Memory from detailed metrics
         cpu_peak, cpu_avg, mem_peak, mem_avg, cpu_cores, mem_gb = _extract_infra_peaks(infra_data)
         
         context.update({
+            "ENVIRONMENT": env_str,
             "PEAK_CPU_USAGE": f"{cpu_peak:.2f}",
             "AVG_CPU_USAGE": f"{cpu_avg:.2f}",
             "CPU_CORES_ALLOCATED": f"{cpu_cores:.2f}",

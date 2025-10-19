@@ -2,7 +2,6 @@
 services/chart_generator.py
 Chart generation for performance reports using Matplotlib
 """
-
 from pathlib import Path
 from typing import Dict, Optional
 from datetime import datetime

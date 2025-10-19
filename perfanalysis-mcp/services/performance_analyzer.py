@@ -137,12 +137,13 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context) -> Dict[str
         await ctx.error("Analysis Error", error_msg)
         return {"error": error_msg, "status": "failed"}
 
-async def analyze_apm_metrics(test_run_id: str, ctx: Context) -> Dict[str, Any]:
+async def analyze_apm_metrics(test_run_id: str, environment: str, ctx: Context) -> Dict[str, Any]:
     """
     Analyze infrastructure metrics from configurable APM tool (Datadog/Dynatrace/etc.)
     
     Args:
         test_run_id: The unique test run identifier  
+        environment: The target environment name (pulled from environments.json)
         ctx: FastMCP workflow context for chaining
         
     Returns:
@@ -179,8 +180,8 @@ async def analyze_apm_metrics(test_run_id: str, ctx: Context) -> Dict[str, Any]:
                 "expected_patterns": ["k8s_metrics_*.csv", "host_metrics_*.csv"]
             }
         
-        # Load environments configuration 
-        environments_config = load_environments_config(config)
+        # Load environments configuration for APM tool
+        environments_config = load_environments_config(environment)
         
         # Setup analysis output folder
         analysis_path = Path(artifacts_base) / test_run_id / 'analysis'
