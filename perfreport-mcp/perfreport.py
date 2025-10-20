@@ -3,8 +3,9 @@ from services.report_generator import (
     generate_performance_test_report,
 )
 from services.chart_generator import (
-    create_single_axis_chart as generate_single_axis_chart,
-    create_dual_axis_chart as generate_dual_axis_chart,
+    generate_single_axis_chart,
+    generate_dual_axis_chart,
+    generate_stacked_area_chart,
 )
 from services.template_manager import (
     list_templates as get_template_list, 
@@ -55,7 +56,21 @@ async def create_dual_axis_chart(run_id: str, chart_data: dict, metric_config: d
         dict with run_id and path to chart image, or error info.
     """
     return await generate_dual_axis_chart(run_id, chart_data, metric_config)
-    
+
+@mcp.tool
+async def create_stacked_area_chart(run_id: str, chart_data: dict, metric_config: dict, ctx: Context = None) -> dict:
+    """
+    Create a stacked area PNG chart for cumulative metrics across services.
+    Args:
+        run_id: Associated test run ID.
+        chart_data: Multi-service time-series data.
+        metric_config: Chart configuration metadata.
+        ctx: Workflow context.
+    Returns:
+        dict with run_id, path to PNG, services list, or error.
+    """
+    return await generate_stacked_area_chart(run_id, chart_data, metric_config)
+
 @mcp.tool
 async def create_comparison_report(run_id_list: list, template: str = None, format: str = "md", ctx: Context = None) -> dict:
     """

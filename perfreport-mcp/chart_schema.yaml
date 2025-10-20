@@ -1,0 +1,216 @@
+# chart_schema.yaml - Chart specifications for PerfReport MCP
+version: "1.0"
+
+# Chart naming convention for CUSTOM charts:
+# Format: [CHART_PLACEHOLDER: SECTION_METRIC_CHARTTYPE]
+# Examples:
+#   - RESP_TIME_P95_LINE (single-axis)
+#   - RESP_TIME_P90_VUSERS_DUALAXIS (dual-axis)
+#   - TOP_SLOWEST_APIS_BAR (horizontal bar)
+#   - CORR_PERF_INFRA_HEATMAP (heatmap)
+#   - CPU_UTILIZATION_STACKED (stacked area)
+
+defaults:
+  resolution:
+    width: 1920
+    height: 1080
+    dpi: 100
+  time_granularity: "1min"  # Pandas resample frequency
+  font_size:
+    title: 16
+    axis_label: 12
+    tick_label: 10
+    legend: 10
+
+charts:
+  # ===== SECTION 2: SLA & ERRORS =====
+  
+  - id: "SLA_ERROR_RATE_LINE"
+    placeholder: "[CHART_PLACEHOLDER: SLA_ERROR_RATE_LINE]"
+    chart_type: "single_axis_line"
+    title: "Error Rate Over Time"
+    description: "Time-series view of error occurrences during test execution"
+    data_sources:
+      primary: "performance_summary.csv"
+      required_columns: ["timeStamp", "allThreads", "success", "failure"]
+    x_axis:
+      label: "Time (minutes)"
+      column: "timeStamp"
+      format: "datetime"
+    y_axis:
+      label: "Error Count"
+      column: "failure"
+      scale: "linear"
+    output_filename: "error_rate_timeline_{run_id}.png"
+    colors: ["error"]
+    show_grid: true
+    include_legend: false
+    precondition: "failure > 0"  # Only generate if errors exist
+    
+  # ===== SECTION 3: RESPONSE TIME & THROUGHPUT =====
+  
+  - id: "RESP_TIME_P90_VUSERS_DUALAXIS"
+    placeholder: "[CHART_PLACEHOLDER: RESP_TIME_P90_VUSERS_DUALAXIS]"
+    chart_type: "dual_axis_line"
+    title: "Response Time (90th Percentile) vs Virtual Users"
+    description: "Correlation between load and 90th percentile response time"
+    data_sources:
+      primary: "performance_summary.csv"
+      required_columns: ["timeStamp", "90_percentile", "allThreads"]
+    x_axis:
+      label: "Time (minutes)"
+      column: "timeStamp"
+      format: "datetime"
+    y_axis_left:
+      label: "90th Percentile Response Time (ms)"
+      column: "90_percentile"
+      scale: "linear"
+      color: "primary"
+    y_axis_right:
+      label: "Virtual Users"
+      column: "allThreads"
+      scale: "linear"
+      color: "secondary"
+    output_filename: "response_time_vs_load_{run_id}.png"
+    colors: ["primary", "secondary"]
+    show_grid: true
+    include_legend: true
+    
+  - id: "THROUGHPUT_HITS_LINE"
+    placeholder: "[CHART_PLACEHOLDER: THROUGHPUT_HITS_LINE]"
+    chart_type: "single_axis_line"
+    title: "Throughput Over Time"
+    description: "Transaction throughput (hits/sec) throughout test execution"
+    data_sources:
+      primary: "performance_summary.csv"
+      required_columns: ["timeStamp", "throughput"]
+    x_axis:
+      label: "Time (minutes)"
+      column: "timeStamp"
+      format: "datetime"
+    y_axis:
+      label: "Throughput (req/sec)"
+      column: "throughput"
+      scale: "linear"
+    output_filename: "throughput_timeline_{run_id}.png"
+    colors: ["primary"]
+    show_grid: true
+    include_legend: false
+    
+  - id: "TOP_SLOWEST_APIS_BAR"
+    placeholder: "[CHART_PLACEHOLDER: TOP_SLOWEST_APIS_BAR]"
+    chart_type: "horizontal_bar"
+    title: "Top API SLA Violators"
+    description: "APIs with highest average response times exceeding SLA"
+    data_sources:
+      primary: "performance_analysis.json"
+      json_path: "api_analysis"
+    x_axis:
+      label: "Average Response Time (ms)"
+      column: "avg_response_time"
+    y_axis:
+      label: "API Name"
+      column: "api_name"
+    limit: 10  # Top N violators (configurable)
+    sort: "descending"
+    filter_condition: "sla_compliant == False"  # Only show violators
+    sla_threshold:
+      value: 5000  # Default SLA in ms
+      source: "sla_threshold_ms"
+      show_line: true
+      line_style: "dashed"
+      line_color: "error"
+    output_filename: "top_sla_violators_{run_id}.png"
+    colors: ["error", "warning"]
+    show_grid: true
+    include_legend: false
+    
+  # ===== SECTION 4: INFRASTRUCTURE (STACKED AREA) =====
+  
+  - id: "CPU_UTILIZATION_STACKED"
+    placeholder: "[CHART_PLACEHOLDER: CPU_UTILIZATION_STACKED]"
+    chart_type: "stacked_area"
+    title: "CPU Utilization (%)"
+    description: "Cumulative CPU usage per service showing total resource consumption"
+    data_sources:
+      primary: "infrastructure_analysis.json"
+      json_path: "detailed_metrics"
+      service_types: ["kubernetes", "hosts"]  # Check both
+      metric_extraction: "cpu_samples"  # Time-series data location
+    x_axis:
+      label: "Time"
+      column: "timestamp"
+      format: "datetime"
+    y_axis:
+      label: "CPU Utilization (%)"
+      column: "cpu_utilization_pct"
+      scale: "linear"
+      max: 100
+    service_grouping: true  # One colored area per service
+    stack_cumulative: true  # Stacked, not overlaid
+    output_filename: "cpu_utilization_stacked_{run_id}.png"
+    colors: ["primary", "secondary", "info", "warning"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper left"
+    
+  - id: "MEM_UTILIZATION_STACKED"
+    placeholder: "[CHART_PLACEHOLDER: MEM_UTILIZATION_STACKED]"
+    chart_type: "stacked_area"
+    title: "Memory Utilization (%)"
+    description: "Cumulative memory usage per service showing total resource consumption"
+    data_sources:
+      primary: "infrastructure_analysis.json"
+      json_path: "detailed_metrics"
+      service_types: ["kubernetes", "hosts"]
+      metric_extraction: "memory_samples"
+    x_axis:
+      label: "Time"
+      column: "timestamp"
+      format: "datetime"
+    y_axis:
+      label: "Memory Utilization (%)"
+      column: "memory_utilization_pct"
+      scale: "linear"
+      max: 100
+    service_grouping: true
+    stack_cumulative: true
+    output_filename: "memory_utilization_stacked_{run_id}.png"
+    colors: ["warning", "info", "secondary", "primary"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper left"
+    
+  # ===== SECTION 5: CORRELATION =====
+  
+  - id: "CORR_HEATMAP_MATRIX"
+    placeholder: "[CHART_PLACEHOLDER: CORR_HEATMAP_MATRIX]"
+    chart_type: "heatmap"
+    title: "Performance-Infrastructure Correlation Matrix"
+    description: "Heatmap showing correlation strength between metrics"
+    data_sources:
+      primary: "correlation_analysis.json"
+      json_path: "correlation_matrix"
+    colormap: "RdYlGn"  # Red-Yellow-Green diverging
+    annotations: true  # Show correlation coefficients
+    vmin: -1.0
+    vmax: 1.0
+    output_filename: "correlation_heatmap_{run_id}.png"
+    show_colorbar: true
+    colorbar_label: "Correlation Coefficient"
+    
+# Custom chart support
+custom_chart_naming:
+  enabled: true
+  format: "SECTION_METRIC_CHARTTYPE"
+  supported_types:
+    - "LINE"          # Single-axis line chart
+    - "DUALAXIS"      # Dual-axis line chart
+    - "BAR"           # Horizontal bar chart
+    - "HEATMAP"       # Correlation heatmap
+    - "STACKED"       # Stacked area chart
+  examples:
+    - "CUSTOM_LATENCY_P99_LINE"
+    - "CUSTOM_ERRORS_VUSERS_DUALAXIS"
+    - "CUSTOM_TOP10_APIS_BAR"
+    - "CUSTOM_CPU_SERVICES_STACKED"
