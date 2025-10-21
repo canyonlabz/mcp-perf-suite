@@ -137,18 +137,20 @@ These are exposed for Cursor, agent, or CLI use:
 
 ```
 perfreport-mcp/
-├── perfreport.py   
+├── perfreport.py                               # MCP entrypoint   
 ├── services/
 │   ├── report_generator.py                     # Module containing functions for report generation
+│   ├── comparison_report_generator.py          # Multi-run comparisons
 │   ├── chart_generator.py                      # Module containing functions for chart generation
 │   └── template_manager.py                     # Module with functions for reading/writing templates
 ├── utils/
 │   └── config.py                               # Utility for loading config.yaml
 ├── config.yaml                                 # Centralized, environment-agnostic config
 ├── chart_colors.yaml                           # Configurations for colors to be used in the visualization charts generated
+├── chart_schema.yaml                           # Configurations for template chart generation
 ├── templates/
 │   ├── default_report_template.md              # Template for a single performance test run with detailed analysis and executive summary
-│   └── multi_run_comparison_template.md        # Template for comparing multiple performance test runs side-by-side
+│   └── default_comparison_report_template.md   # Template for comparing multiple performance test runs side-by-side
 ├── README.md
 ├── pyproject.toml                              # Modern Python project metadata & dependencies
 └── requirements.txt                            # Dependencies
