@@ -12,6 +12,15 @@ from fastmcp import Context
 
 # Import config at module level (global)
 from utils.config import load_config
+from utils.file_utils import (
+    _load_json_safe,
+    _load_text_safe,
+    _load_text_file,
+    _save_text_file,
+    _save_json_file,
+    _convert_to_pdf,
+    _convert_to_docx
+)
 
 # Load configuration globally
 CONFIG = load_config()
@@ -22,7 +31,9 @@ ARTIFACTS_PATH = Path(ARTIFACTS_CONFIG.get('artifacts_path', './artifacts'))
 TEMPLATES_PATH = Path(REPORT_CONFIG.get('templates_path', './templates'))
 MCP_VERSION = (CONFIG.get('general') or {}).get('mcp_version', 'unknown')
 
-
+# -----------------------------------------------
+# Main Performance Report functions
+# ----------------------------------------------- 
 async def generate_performance_test_report(run_id: str, ctx: Context, format: str = "md", template: Optional[str] = None) -> Dict:
     """
     Generate performance test report from PerfAnalysis outputs.
@@ -135,6 +146,59 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             corr_summary_md
         )
         
+        # Extract key metrics for metadata (needed for comparison reports)
+        overall_stats = {}
+        sla_analysis = {}
+        api_violations = []
+
+        if perf_data:
+            overall_stats = perf_data.get("overall_stats", {})
+            sla_analysis = perf_data.get("sla_analysis", {})
+            
+            # Extract SLA violators
+            api_analysis = perf_data.get("api_analysis", {})
+            for api_name, stats in api_analysis.items():
+                if not stats.get("sla_compliant", True):
+                    api_violations.append({
+                        "api_name": api_name,
+                        "avg_response_time": stats.get("avg_response_time", 0),
+                        "sla_threshold": stats.get("sla_threshold_ms", 5000),
+                        "error_rate": stats.get("error_rate", 0)
+                    })
+
+        # Extract infrastructure service-level details
+        infra_services = []
+        if infra_data:
+            detailed = infra_data.get("detailed_metrics", {})
+            k8s = detailed.get("kubernetes", {})
+            services = k8s.get("services", {})
+            
+            for service_name, service_data in services.items():
+                cpu_analysis = service_data.get("cpu_analysis", {})
+                mem_analysis = service_data.get("memory_analysis", {})
+                res_alloc = service_data.get("resource_allocation", {})
+                
+                infra_services.append({
+                    "service_name": service_name,
+                    "cpu_peak_pct": cpu_analysis.get("peak_utilization_pct", 0),
+                    "cpu_avg_pct": cpu_analysis.get("avg_utilization_pct", 0),
+                    "memory_peak_pct": mem_analysis.get("peak_utilization_pct", 0),
+                    "memory_avg_pct": mem_analysis.get("avg_utilization_pct", 0),
+                    "cpu_cores": res_alloc.get("cpus", 0),
+                    "memory_gb": res_alloc.get("memory_gb", 0)
+                })
+
+        # Extract correlation insights
+        correlation_insights = []
+        if corr_data:
+            significant_corr = corr_data.get("significant_correlations", [])
+            for corr in significant_corr:
+                correlation_insights.append({
+                    "type": corr.get("type", "Unknown"),
+                    "interpretation": corr.get("interpretation", "N/A"),
+                    "strength": corr.get("strength", "N/A")
+                })
+
         # Render template
         report_markdown = _render_template(template_content, context)
         
@@ -155,12 +219,16 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             final_path = await _convert_to_pdf(md_path, reports_dir, run_id)
         elif format == "docx":
             final_path = await _convert_to_docx(md_path, reports_dir, run_id)
-        
+
+        # Define metadata path
+        metadata_path = reports_dir / f"report_metadata_{run_id}.json"
+
         # Build response
         response = {
             "run_id": run_id,
             "report_name": report_name if format == "md" else final_path.name,
             "report_path": str(final_path),
+            "metadata_path": str(metadata_path),
             "generated_timestamp": generated_timestamp,
             "mcp_version": MCP_VERSION,
             "format": format,
@@ -168,13 +236,70 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             "source_files": source_files,
             "missing_sections": missing_sections,
             "warnings": warnings,
-            "chart_placeholders": chart_placeholder_count
+            "chart_placeholders": chart_placeholder_count,
         }
         
+        # Build comprehensive metadata for programmatic use
+        metadata = {
+            # Include basic response info
+            **response,
+            
+            # Add detailed metrics for comparison report generator
+            "test_config": {
+                "test_date": generated_timestamp,
+                "test_duration": overall_stats.get("test_duration", 0),
+                "total_samples": overall_stats.get("total_samples", 0),
+                "success_rate": overall_stats.get("success_rate", 0),
+                "environment": context.get("ENVIRONMENT", "Unknown"),
+                "test_type": context.get("TEST_TYPE", "Load Test")
+            },
+            
+            "performance_metrics": {
+                "avg_response_time": overall_stats.get("avg_response_time", 0),
+                "min_response_time": overall_stats.get("min_response_time", 0),
+                "max_response_time": overall_stats.get("max_response_time", 0),
+                "median_response_time": overall_stats.get("median_response_time", 0),
+                "p90_response_time": overall_stats.get("p90_response_time", 0),
+                "p95_response_time": overall_stats.get("p95_response_time", 0),
+                "p99_response_time": overall_stats.get("p99_response_time", 0),
+                "avg_throughput": overall_stats.get("avg_throughput", 0),
+                "peak_throughput": overall_stats.get("peak_throughput", overall_stats.get("avg_throughput", 0)),
+                "error_count": overall_stats.get("error_count", 0),
+                "error_rate": overall_stats.get("error_rate", 0),
+                "top_error_type": overall_stats.get("top_error_type", "N/A")
+            },
+            
+            "infrastructure_metrics": {
+                "services": infra_services,
+                "summary": {
+                    "cpu_peak_pct": _safe_float(context.get("PEAK_CPU_USAGE")),
+                    "cpu_avg_pct": _safe_float(context.get("AVG_CPU_USAGE")),
+                    "memory_peak_pct": _safe_float(context.get("PEAK_MEMORY_USAGE")),
+                    "memory_avg_pct": _safe_float(context.get("AVG_MEMORY_USAGE")),
+                    "cpu_cores_allocated": _safe_float(context.get("CPU_CORES_ALLOCATED")),
+                    "memory_allocated_gb": _safe_float(context.get("MEMORY_ALLOCATED"))
+                }
+            },
+            
+            "sla_analysis": {
+                "sla_threshold_ms": sla_analysis.get("sla_threshold_ms", 5000),
+                "compliant_apis": sla_analysis.get("compliant_apis", 0),
+                "non_compliant_apis": sla_analysis.get("non_compliant_apis", 0),
+                "compliance_rate": sla_analysis.get("compliance_rate", 100.0),
+                "violations": api_violations
+            },
+            
+            "correlation_insights": {
+                "significant_correlations": correlation_insights,
+                "correlation_summary": corr_data.get("insights", "") if corr_data else ""
+            },
+            
+            "bugs_created": []  # Placeholder for future enhancement
+        }
+
         # Save metadata JSON
-        metadata_path = reports_dir / f"report_metadata_{run_id}.json"
-        await _save_json_file(metadata_path, response)
-        
+        await _save_json_file(metadata_path, metadata)
+
         return response
         
     except Exception as e:
@@ -184,7 +309,9 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             "generated_timestamp": datetime.now().isoformat()
         }
 
-
+# -----------------------------------------------
+# Report generation functions
+# ----------------------------------------------- 
 def _build_report_context(
     run_id: str,
     timestamp: str,
@@ -297,7 +424,6 @@ def _build_report_context(
     
     return context
 
-
 def _render_template(template: str, context: Dict) -> str:
     """Render template with context using {{}} placeholders"""
     rendered = template
@@ -305,7 +431,6 @@ def _render_template(template: str, context: Dict) -> str:
         placeholder = "{{" + key + "}}"
         rendered = rendered.replace(placeholder, str(value))
     return rendered
-
 
 def _build_api_table(api_analysis: Dict) -> str:
     """Build Markdown table for API performance"""
@@ -332,7 +457,6 @@ def _build_api_table(api_analysis: Dict) -> str:
     
     return "\n".join(lines)
 
-
 def _build_sla_summary(sla_analysis: Dict) -> str:
     """Build SLA compliance summary"""
     if not sla_analysis:
@@ -343,7 +467,6 @@ def _build_sla_summary(sla_analysis: Dict) -> str:
     compliance_rate = sla_analysis.get("compliance_rate", 0)
     
     return f"**SLA Compliance:** {compliant}/{total} APIs met SLA ({compliance_rate:.1f}%)"
-
 
 def _build_executive_summary(perf_data: Optional[Dict], infra_data: Optional[Dict], corr_data: Optional[Dict]) -> str:
     """Generate executive summary"""
@@ -365,7 +488,6 @@ def _build_executive_summary(perf_data: Optional[Dict], infra_data: Optional[Dic
     
     return summary
 
-
 def _build_key_observations(perf_data: Optional[Dict], infra_data: Optional[Dict]) -> str:
     """Build key observations bullets"""
     observations = []
@@ -382,7 +504,6 @@ def _build_key_observations(perf_data: Optional[Dict], infra_data: Optional[Dict
     
     return "\n".join(observations) if observations else "- Test completed successfully"
 
-
 def _build_issues_table(perf_data: Optional[Dict]) -> str:
     """Build issues table from error data"""
     if not perf_data:
@@ -396,7 +517,6 @@ def _build_issues_table(perf_data: Optional[Dict]) -> str:
     
     return f"| Issue Type | Count |\n|------------|-------|\n| Errors | {error_count} |"
 
-
 def _build_correlation_summary(corr_data: Dict) -> str:
     """Build correlation summary text"""
     correlations = corr_data.get("significant_correlations", [])
@@ -408,7 +528,6 @@ def _build_correlation_summary(corr_data: Dict) -> str:
         summary += f"- {corr.get('type', 'Unknown')}: {corr.get('interpretation', 'N/A')}\n"
     
     return summary
-
 
 def _build_correlation_details(corr_data: Dict) -> str:
     """Build detailed correlation information"""
@@ -423,7 +542,6 @@ def _build_correlation_details(corr_data: Dict) -> str:
     
     return "\n".join(lines)
 
-
 def _build_bottleneck_analysis(corr_data: Optional[Dict], infra_data: Optional[Dict]) -> str:
     """Build bottleneck identification section"""
     if not corr_data and not infra_data:
@@ -437,7 +555,6 @@ def _build_bottleneck_analysis(corr_data: Optional[Dict], infra_data: Optional[D
             analysis += f"\n{insights}\n"
     
     return analysis
-
 
 def _build_recommendations(perf_data: Optional[Dict], infra_data: Optional[Dict], corr_data: Optional[Dict]) -> str:
     """Generate recommendations based on analysis"""
@@ -457,7 +574,6 @@ def _build_recommendations(perf_data: Optional[Dict], infra_data: Optional[Dict]
         recommendations.append("- Maintain current system configuration")
     
     return "\n".join(recommendations)
-
 
 def _extract_infra_peaks(infra_data: Dict) -> tuple:
     """Extract peak CPU/Memory values from infrastructure data"""
@@ -487,105 +603,16 @@ def _extract_infra_peaks(infra_data: Dict) -> tuple:
     
     return cpu_peak, cpu_avg, mem_peak, mem_avg, cpu_cores, mem_gb
 
-
 def _set_na_values(context: Dict, keys: List[str]):
     """Set N/A for missing keys"""
     for key in keys:
         context[key] = "N/A"
 
-
-# File I/O helper functions
-async def _load_json_safe(
-    path: Path,
-    key: str,
-    source_dict: Dict,
-    warnings: List,
-    missing_sections: List
-) -> Optional[Dict]:
-    """Load JSON file safely with error handling"""
+def _safe_float(value, default=0.0):
+    """Safely convert value to float, handling 'N/A' strings"""
+    if value == "N/A" or value is None:
+        return default
     try:
-        if path.exists():
-            data = await _load_json_file(path)
-            source_dict[key] = str(path)
-            return data
-        else:
-            warnings.append(f"{key} file not found: {path}")
-            missing_sections.append(key)
-            return None
-    except Exception as e:
-        warnings.append(f"Error loading {key}: {str(e)}")
-        missing_sections.append(key)
-        return None
-
-
-async def _load_text_safe(
-    path: Path,
-    key: str,
-    source_dict: Dict,
-    warnings: List
-) -> Optional[str]:
-    """Load text file safely"""
-    try:
-        if path.exists():
-            content = await _load_text_file(path)
-            source_dict[key] = str(path)
-            return content
-        else:
-            warnings.append(f"{key} file not found: {path}")
-            return None
-    except Exception as e:
-        warnings.append(f"Error loading {key}: {str(e)}")
-        return None
-
-
-async def _load_json_file(path: Path) -> Dict:
-    """Load JSON file"""
-    with open(path, 'r', encoding='utf-8') as f:
-        return json.load(f)
-
-
-async def _load_text_file(path: Path) -> str:
-    """Load text file"""
-    with open(path, 'r', encoding='utf-8') as f:
-        return f.read()
-
-
-async def _save_text_file(path: Path, content: str):
-    """Save text file"""
-    with open(path, 'w', encoding='utf-8') as f:
-        f.write(content)
-
-
-async def _save_json_file(path: Path, data: Dict):
-    """Save JSON file"""
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
-
-
-async def _convert_to_pdf(md_path: Path, output_dir: Path, run_id: str) -> Path:
-    """Convert Markdown to PDF using pypandoc"""
-    try:        
-        pdf_path = output_dir / f"performance_report_{run_id}.pdf"
-        pypandoc.convert_file(
-            str(md_path),
-            'pdf',
-            outputfile=str(pdf_path),
-            extra_args=['--pdf-engine=xelatex']
-        )
-        return pdf_path
-    except Exception as e:
-        raise Exception(f"PDF conversion failed: {str(e)}")
-
-
-async def _convert_to_docx(md_path: Path, output_dir: Path, run_id: str) -> Path:
-    """Convert Markdown to Word using pypandoc"""
-    try:       
-        docx_path = output_dir / f"performance_report_{run_id}.docx"
-        pypandoc.convert_file(
-            str(md_path),
-            'docx',
-            outputfile=str(docx_path)
-        )
-        return docx_path
-    except Exception as e:
-        raise Exception(f"DOCX conversion failed: {str(e)}")
+        return float(value)
+    except (ValueError, TypeError):
+        return default

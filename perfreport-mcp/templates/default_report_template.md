@@ -121,6 +121,18 @@
 
 ---
 
+## 8.0 Action Items & Bug Tracking
+
+### 8.1 Bugs Created
+
+| Bug ID | Title | Severity | Status | Assignee | Link |
+|--------|-------|----------|--------|----------|------|
+{{BUG_TRACKING_ROWS}}
+
+**Instructions:** After reviewing this report, use the ADO/Jira MCP to create bugs for identified issues. Update this section manually or via the `update_report_bugs` tool.
+
+---
+
 ## Appendix A: Test Artifacts
 
 ### Source Files Used

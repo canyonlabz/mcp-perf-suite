@@ -66,41 +66,18 @@
 
 **Summary:** {{ERROR_RATE_SUMMARY}}
 
-### 3.5 Bugs to Create
+### 3.5 Bugs Created Per Run
 
-**Action Items:** The following bugs should be created in your tracking system (Azure DevOps, Jira, etc.):
+| Run | Bug ID | Bug Title | Status | Severity | Link |
+|-----|--------|-----------|--------|----------|------|
+| {{RUN_1_LABEL}} | {{RUN_1_BUG_1_ID}} | {{RUN_1_BUG_1_TITLE}} | {{RUN_1_BUG_1_STATUS}} | {{RUN_1_BUG_1_SEVERITY}} | [View]({{RUN_1_BUG_1_LINK}}) |
+| {{RUN_1_LABEL}} | {{RUN_1_BUG_2_ID}} | {{RUN_1_BUG_2_TITLE}} | {{RUN_1_BUG_2_STATUS}} | {{RUN_1_BUG_2_SEVERITY}} | [View]({{RUN_1_BUG_2_LINK}}) |
+| {{RUN_2_LABEL}} | {{RUN_2_BUG_1_ID}} | {{RUN_2_BUG_1_TITLE}} | {{RUN_2_BUG_1_STATUS}} | {{RUN_2_BUG_1_SEVERITY}} | [View]({{RUN_2_BUG_1_LINK}}) |
+| ... | ... | ... | ... | ... | ... |
 
-#### Bug Placeholder 1
-- **Title:** {{BUG_1_TITLE}}
-- **Environment:** {{BUG_1_ENVIRONMENT}}
-- **Affected Run(s):** {{BUG_1_RUNS}}
-- **Severity:** {{BUG_1_SEVERITY}}
-
-#### Bug Placeholder 2
-- **Title:** {{BUG_2_TITLE}}
-- **Environment:** {{BUG_2_ENVIRONMENT}}
-- **Affected Run(s):** {{BUG_2_RUNS}}
-- **Severity:** {{BUG_2_SEVERITY}}
-
-#### Bug Placeholder 3
-- **Title:** {{BUG_3_TITLE}}
-- **Environment:** {{BUG_3_ENVIRONMENT}}
-- **Affected Run(s):** {{BUG_3_RUNS}}
-- **Severity:** {{BUG_3_SEVERITY}}
-
-#### Bug Placeholder 4
-- **Title:** {{BUG_4_TITLE}}
-- **Environment:** {{BUG_4_ENVIRONMENT}}
-- **Affected Run(s):** {{BUG_4_RUNS}}
-- **Severity:** {{BUG_4_SEVERITY}}
-
-#### Bug Placeholder 5
-- **Title:** {{BUG_5_TITLE}}
-- **Environment:** {{BUG_5_ENVIRONMENT}}
-- **Affected Run(s):** {{BUG_5_RUNS}}
-- **Severity:** {{BUG_5_SEVERITY}}
-
-> **Note:** Use the ADO MCP Server to auto-generate detailed bug descriptions and create work items programmatically.
+**Total Bugs:** {{TOTAL_BUG_COUNT}}  
+**Open Bugs:** {{OPEN_BUG_COUNT}}  
+**Resolved Bugs:** {{RESOLVED_BUG_COUNT}}
 
 ---
 

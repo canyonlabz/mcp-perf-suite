@@ -38,12 +38,10 @@ CHART_WIDTH = CHART_DEFAULTS['resolution']['width'] / CHART_DEFAULTS['resolution
 CHART_HEIGHT = CHART_DEFAULTS['resolution']['height'] / CHART_DEFAULTS['resolution']['dpi']
 DPI = CHART_DEFAULTS['resolution']['dpi']
 
-
-async def generate_single_axis_chart(
-    run_id: str,
-    chart_data: dict,
-    metric_config: dict
-) -> Dict:
+# -----------------------------------------------
+# Main Functions for the Chart Generation Module
+# -----------------------------------------------
+async def generate_single_axis_chart(run_id: str, chart_data: dict, metric_config: dict) -> Dict:
     """
     Generate single axis PNG chart.
     
@@ -133,11 +131,7 @@ async def generate_single_axis_chart(
         }
 
 
-async def generate_dual_axis_chart(
-    run_id: str,
-    chart_data: dict,
-    metric_config: dict
-) -> Dict:
+async def generate_dual_axis_chart(run_id: str, chart_data: dict, metric_config: dict) -> Dict:
     """
     Generate dual axis PNG chart.
     
@@ -237,11 +231,7 @@ async def generate_dual_axis_chart(
         }
 
 
-async def generate_stacked_area_chart(
-    run_id: str,
-    chart_data: dict,
-    metric_config: dict
-) -> Dict:
+async def generate_stacked_area_chart(run_id: str, chart_data: dict, metric_config: dict) -> Dict:
     """
     Generate stacked area chart showing cumulative resource usage per service.
     
@@ -335,8 +325,9 @@ async def generate_stacked_area_chart(
         }
 
 
-# ===== HELPER FUNCTIONS =====
-
+# -----------------------------------------------
+# Helper Functions
+# -----------------------------------------------
 def _get_chart_spec_by_id(chart_id: str) -> Optional[Dict]:
     """Retrieve chart specification from schema by ID"""
     for chart in CHART_SCHEMA.get('charts', []):
