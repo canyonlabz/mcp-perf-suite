@@ -11,8 +11,11 @@ from services.template_manager import (
     list_templates as get_template_list, 
     get_template_details as get_template_info
 )
+from services.comparison_report_generator import generate_comparison_report
+
 
 mcp = FastMCP(name="perfreport")
+
 
 @mcp.tool
 async def create_performance_test_report(run_id: str, ctx: Context, format: str = "md", template: str = None) -> dict:
@@ -75,18 +78,17 @@ async def create_stacked_area_chart(run_id: str, chart_data: dict, metric_config
 async def create_comparison_report(run_id_list: list, template: str = None, format: str = "md", ctx: Context = None) -> dict:
     """
     Generate a report comparing multiple test runs.
+    
     Args:
-        run_id_list: List of test run identifiers to compare.
-        template: Optional name of Markdown report template to use.
+        run_id_list: List of test run identifiers to compare (2-5 recommended).
+        template: Optional name of Markdown comparison template to use.
         format: Output type; 'md', 'pdf', or 'docx'.
         ctx: Workflow chaining context.
+    
     Returns:
-        dict with run_id_list and report path, or error info.
+        dict with run_id_list, report path, and metadata, or error info.
     """
-    return {
-        "error": "Comparison report feature not yet implemented",
-        "run_id_list": run_id_list
-    }
+    return await generate_comparison_report(run_id_list, ctx, format, template)
     
 @mcp.tool
 async def revise_performance_test_report(run_id: str, feedback: str, ctx: Context = None) -> dict:

@@ -309,9 +309,7 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             "generated_timestamp": datetime.now().isoformat()
         }
 
-# -----------------------------------------------
-# Report generation functions
-# ----------------------------------------------- 
+# ===== REPORT CONTEXT BUILDER =====
 def _build_report_context(
     run_id: str,
     timestamp: str,
@@ -424,6 +422,9 @@ def _build_report_context(
     
     return context
 
+# -----------------------------------------------
+# Report generation utility functions
+# ----------------------------------------------- 
 def _render_template(template: str, context: Dict) -> str:
     """Render template with context using {{}} placeholders"""
     rendered = template
