@@ -133,8 +133,9 @@ charts:
     title: "%CPU Utilization Over Time"
     description: "CPU utilization (%) throughout test execution"
     data_sources:
-      primary: "k8s_metrics_[nga-ai-autogen-app-api_].csv"
+      primary: "{scope}_metrics_[{service_filter}].csv"
       required_columns: ["timestamp_utc", "metric", "value", "container_or_pod"]
+      metric_filter: "cpu_util_pct"
     x_axis:
       label: "Time (hh:mm)"
       column: "timestamp_utc"
@@ -155,14 +156,15 @@ charts:
     description: "Memory utilization (%) throughout test execution"
     data_sources:
       primary: "{scope}_metrics_[{service_filter}].csv"
-      required_columns: ["timestamp_utc", "mem_util_pct", "container_or_pod"]
+      required_columns: ["timestamp_utc", "metric", "value", "container_or_pod"]
+      metric_filter: "mem_util_pct"
     x_axis:
       label: "Time (hh:mm)"
       column: "timestamp_utc"
       format: "datetime"
     y_axis:
       label: "%Memory Utilization"
-      column: "mem_util_pct"
+      column: "value"
       scale: "linear"
     output_filename: "memory_utilization_{container_or_pod}_{run_id}.png"
     colors: ["primary"]

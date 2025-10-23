@@ -527,6 +527,17 @@ async def _load_chart_data(run_id: str, chart_spec: Dict, chart_data: dict) -> O
     else:
         return None
     
+    # Apply metric filter if specified (e.g., only cpu_util_pct rows)
+    metric_filter = chart_spec.get('data_sources', {}).get('metric_filter')
+    if metric_filter and 'metric' in df.columns:
+        original_count = len(df)
+        df = df[df['metric'] == metric_filter]
+        filtered_count = len(df)
+        if df.empty:
+            print(f"Warning: No data found for metric filter '{metric_filter}'")
+            return None
+        print(f"Applied metric filter '{metric_filter}': {original_count} -> {filtered_count} rows")
+    
     # Apply filter condition if specified (e.g., only SLA violators)
     filter_cond = chart_spec.get('filter_condition')
     if filter_cond:
