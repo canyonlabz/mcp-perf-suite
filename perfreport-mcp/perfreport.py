@@ -33,32 +33,34 @@ async def create_performance_test_report(run_id: str, ctx: Context, format: str 
     return await generate_performance_test_report(run_id, ctx, format, template)
 
 @mcp.tool
-async def create_single_axis_chart(run_id: str, chart_data: dict, metric_config: dict, ctx: Context = None) -> dict:
+async def create_single_axis_chart(run_id: str, chart_type: str, ctx: Context = None) -> dict:
     """
     Create a single axis (PNG) chart for a test run's reported metric(s).
+    
     Args:
         run_id: Unique test run identifier.
-        chart_data: Data to plot on the chart.
-        metric_config: Chart configuration metadata.
+        chart_type: Chart type identifier from chart_schema.yaml (e.g., 'CPU_UTILIZATION_LINE', 'THROUGHPUT_HITS_LINE')
         ctx: Workflow chaining context.
+    
     Returns:
         dict with run_id and path to chart image, or error info.
     """
-    return await generate_single_axis_chart(run_id, chart_data, metric_config)
+    return await generate_single_axis_chart(run_id, chart_type)
 
 @mcp.tool
-async def create_dual_axis_chart(run_id: str, chart_data: dict, metric_config: dict, ctx: Context = None) -> dict:
+async def create_dual_axis_chart(run_id: str, chart_type: str, ctx: Context = None) -> dict:
     """
     Create a dual axis (PNG) chart for a test run's reported metrics.
+    
     Args:
         run_id: Unique test run identifier.
-        chart_data: Data to plot across two Y axes.
-        metric_config: Chart configuration metadata.
+        chart_type: Chart type identifier from chart_schema.yaml (e.g., 'RESP_TIME_P90_VUSERS_DUALAXIS')
         ctx: Workflow chaining context.
+    
     Returns:
         dict with run_id and path to chart image, or error info.
     """
-    return await generate_dual_axis_chart(run_id, chart_data, metric_config)
+    return await generate_dual_axis_chart(run_id, chart_type)
 
 @mcp.tool
 async def create_stacked_area_chart(run_id: str, chart_data: dict, metric_config: dict, ctx: Context = None) -> dict:
@@ -120,14 +122,42 @@ async def list_templates(ctx: Context = None) -> dict:
 @mcp.tool
 async def get_template_details(template_name: str, ctx: Context = None) -> dict:
     """
-    Get detailed info about a report template.
+    Get detailed info about a report markdown template.
     Args:
-        template_name: The template to look up.
+        template_name: The markdown template to look up.
         ctx: Workflow chaining context.
     Returns:
         dict with template metadata and content preview, or error info.
     """
     return await get_template_info(template_name)
+
+@mcp.tool
+async def list_chart_types(ctx: Context = None) -> dict:
+    """
+    List available chart types from chart_schema.yaml.
+    
+    Args:
+        ctx: Workflow chaining context.
+    
+    Returns:
+        dict with available chart types and their descriptions.
+    """
+    from services.chart_generator import CHART_SCHEMA
+    
+    chart_types = []
+    for chart in CHART_SCHEMA.get('charts', []):
+        chart_types.append({
+            'id': chart['id'],
+            'title': chart['title'],
+            'description': chart['description'],
+            'chart_type': chart['chart_type'],
+            'placeholder': chart.get('placeholder', '')
+        })
+    
+    return {
+        'chart_types': chart_types,
+        'total_count': len(chart_types)
+    }
 
 if __name__ == "__main__":
     try:

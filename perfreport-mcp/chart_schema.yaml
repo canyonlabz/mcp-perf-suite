@@ -31,10 +31,10 @@ charts:
     title: "Error Rate Over Time"
     description: "Time-series view of error occurrences during test execution"
     data_sources:
-      primary: "performance_summary.csv"
+      primary: "test-results.csv"
       required_columns: ["timeStamp", "allThreads", "success", "failure"]
     x_axis:
-      label: "Time (minutes)"
+      label: "Time (hh:mm)"
       column: "timeStamp"
       format: "datetime"
     y_axis:
@@ -55,10 +55,10 @@ charts:
     title: "Response Time (90th Percentile) vs Virtual Users"
     description: "Correlation between load and 90th percentile response time"
     data_sources:
-      primary: "performance_summary.csv"
+      primary: "test-results.csv"
       required_columns: ["timeStamp", "90_percentile", "allThreads"]
     x_axis:
-      label: "Time (minutes)"
+      label: "Time (hh:mm)"
       column: "timeStamp"
       format: "datetime"
     y_axis_left:
@@ -82,10 +82,10 @@ charts:
     title: "Throughput Over Time"
     description: "Transaction throughput (hits/sec) throughout test execution"
     data_sources:
-      primary: "performance_summary.csv"
+      primary: "test-results.csv"
       required_columns: ["timeStamp", "throughput"]
     x_axis:
-      label: "Time (minutes)"
+      label: "Time (hh:mm)"
       column: "timeStamp"
       format: "datetime"
     y_axis:
@@ -124,8 +124,52 @@ charts:
     colors: ["error", "warning"]
     show_grid: true
     include_legend: false
-    
-  # ===== SECTION 4: INFRASTRUCTURE (STACKED AREA) =====
+
+  # ===== SECTION 4: INFRASTRUCTURE (LINE CHARTS) =====
+
+  - id: "CPU_UTILIZATION_LINE"
+    placeholder: "[CHART_PLACEHOLDER: CPU_UTILIZATION_LINE]"
+    chart_type: "single_axis_line"
+    title: "%CPU Utilization Over Time"
+    description: "CPU utilization (%) throughout test execution"
+    data_sources:
+      primary: "k8s_metrics_[nga-ai-autogen-app-api_].csv"
+      required_columns: ["timestamp_utc", "metric", "value", "container_or_pod"]
+    x_axis:
+      label: "Time (hh:mm)"
+      column: "timestamp_utc"
+      format: "datetime"
+    y_axis:
+      label: "%CPU Utilization"
+      column: "value"
+      scale: "linear"
+    output_filename: "cpu_utilization_{container_or_pod}_{run_id}.png"
+    colors: ["primary"]
+    show_grid: true
+    include_legend: false
+
+  - id: "MEMORY_UTILIZATION_LINE"
+    placeholder: "[CHART_PLACEHOLDER: MEMORY_UTILIZATION_LINE]"
+    chart_type: "single_axis_line"
+    title: "%Memory Utilization Over Time"
+    description: "Memory utilization (%) throughout test execution"
+    data_sources:
+      primary: "{scope}_metrics_[{service_filter}].csv"
+      required_columns: ["timestamp_utc", "mem_util_pct", "container_or_pod"]
+    x_axis:
+      label: "Time (hh:mm)"
+      column: "timestamp_utc"
+      format: "datetime"
+    y_axis:
+      label: "%Memory Utilization"
+      column: "mem_util_pct"
+      scale: "linear"
+    output_filename: "memory_utilization_{container_or_pod}_{run_id}.png"
+    colors: ["primary"]
+    show_grid: true
+    include_legend: false
+
+  # ===== SECTION 5: INFRASTRUCTURE (STACKED AREA) =====
   
   - id: "CPU_UTILIZATION_STACKED"
     placeholder: "[CHART_PLACEHOLDER: CPU_UTILIZATION_STACKED]"
@@ -181,7 +225,7 @@ charts:
     include_legend: true
     legend_location: "upper left"
     
-  # ===== SECTION 5: CORRELATION =====
+  # ===== SECTION 6: CORRELATION =====
   
   - id: "CORR_HEATMAP_MATRIX"
     placeholder: "[CHART_PLACEHOLDER: CORR_HEATMAP_MATRIX]"

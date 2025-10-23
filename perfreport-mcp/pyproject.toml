@@ -20,7 +20,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["services"]
+packages = ["services", "utils"]
 include = ["perfreport.py"]
 
 [tool.hatch.build.targets.sdist]
@@ -32,5 +32,8 @@ include = [
     "pyproject.toml",
     "README.md",
     "config.yaml",
-    "chart_colors.yaml"
+    "config.windows.yaml",
+    "config.mac.yaml",
+    "chart_colors.yaml",
+    "chart_schema.yaml"
 ]

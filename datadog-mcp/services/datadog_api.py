@@ -29,6 +29,58 @@ V2_TIMESERIES_URL = f"{DD_API_BASE_URL}/api/v2/query/timeseries"
 # Helpers
 # -----------------------------------------------
 
+def _parse_resource_limit(resource_str: str) -> float:
+    """
+    Parse resource limit strings like "4.05 core", "16 GiB", "50 millicores" into numeric values.
+    
+    Args:
+        resource_str: Resource string from environments.json
+    
+    Returns:
+        float: Numeric value in base units (cores for CPU, bytes for memory)
+    """
+    if not resource_str:
+        return 0.0
+    
+    resource_str = resource_str.strip().lower()
+    
+    # CPU parsing
+    if 'core' in resource_str:
+        value = float(re.findall(r'[\d.]+', resource_str)[0])
+        if 'millicore' in resource_str:
+            return value / 1000.0  # Convert millicores to cores
+        return value  # cores
+    
+    # Memory parsing
+    elif 'gib' in resource_str:
+        value = float(re.findall(r'[\d.]+', resource_str)[0])
+        return value * 1024**3  # Convert GiB to bytes
+    elif 'gb' in resource_str:
+        value = float(re.findall(r'[\d.]+', resource_str)[0])
+        return value * 1000**3  # Convert GB to bytes
+    elif 'mib' in resource_str:
+        value = float(re.findall(r'[\d.]+', resource_str)[0])
+        return value * 1024**2  # Convert MiB to bytes
+    elif 'mb' in resource_str:
+        value = float(re.findall(r'[\d.]+', resource_str)[0])
+        return value * 1000**2  # Convert MB to bytes
+    
+    return 0.0
+
+def _calculate_cpu_percentage(usage_nanocores: float, limit_cores: float) -> float:
+    """Calculate CPU utilization percentage."""
+    if limit_cores <= 0:
+        return 0.0
+    # Convert nanocores to cores: 1 core = 1,000,000,000 nanocores
+    usage_cores = usage_nanocores / 1_000_000_000.0
+    return (usage_cores / limit_cores) * 100.0
+
+def _calculate_memory_percentage(usage_bytes: float, limit_bytes: float) -> float:
+    """Calculate memory utilization percentage."""
+    if limit_bytes <= 0:
+        return 0.0
+    return (usage_bytes / limit_bytes) * 100.0
+
 def _sanitize_filename(text: str) -> str:
     """Sanitize text to be safe for filenames."""
     text = text.strip().replace(" ", "_")
@@ -208,6 +260,9 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
             if not hostname:
                 continue
 
+            # Parse CPU limit for percentage calculation
+            cpu_limit_cores = _parse_resource_limit(h.get("cpus", ""))
+
             query = q_tpl % {"h": hostname}
             params = {"from": v1_from_s, "to": v1_to_s, "query": query}
 
@@ -262,6 +317,18 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
                         mem_pct_vals.append(pct)
                         dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
                         w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, "mem_used_pct", pct, "%", pct])
+
+                # Derived CPU percent per timestamp (if CPU limit is configured)
+                if cpu_limit_cores > 0:
+                    cpu_user = dict(series_map.get("system.cpu.user", []))
+                    cpu_sys = dict(series_map.get("system.cpu.system", []))
+                    common_ts = sorted(set(cpu_user.keys()) & set(cpu_sys.keys()))
+                    
+                    for ts_ms in common_ts:
+                        cpu_total = (cpu_user.get(ts_ms, 0) or 0) + (cpu_sys.get(ts_ms, 0) or 0)
+                        cpu_pct = (cpu_total / cpu_limit_cores) * 100.0
+                        dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
+                        w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, "cpu_util_pct", cpu_pct, "%", cpu_pct])
 
             # Aggregates
             # CPU utilization ≈ avg(user + system) over overlapping timestamps
@@ -367,6 +434,10 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
             s_filter = svc.get("service_filter")
             if not s_filter:
                 continue
+
+            # Parse CPU and Memory limits for percentage calculation
+            cpu_limit_cores = _parse_resource_limit(svc.get("cpus", ""))
+            memory_limit_bytes = _parse_resource_limit(svc.get("memory", ""))
 
             # 1) CPU request
             body_cpu = {
@@ -477,6 +548,22 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
 
                 write_series("kubernetes.cpu.usage.total", "nanocores", cpu_series)
                 write_series("kubernetes.memory.usage", "bytes", mem_series)
+
+                # Write CPU percentages (if CPU limit is configured)
+                if cpu_limit_cores > 0:
+                    for cname, pts in cpu_series.items():
+                        for ts_ms, val in pts:
+                            cpu_pct = _calculate_cpu_percentage(val, cpu_limit_cores)
+                            dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
+                            w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, "cpu_util_pct", cpu_pct, "%", cpu_pct])
+
+                # Write Memory percentages (if Memory limit is configured)
+                if memory_limit_bytes > 0:
+                    for cname, pts in mem_series.items():
+                        for ts_ms, val in pts:
+                            mem_pct = _calculate_memory_percentage(val, memory_limit_bytes)
+                            dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
+                            w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, "mem_util_pct", mem_pct, "%", mem_pct])
 
             # Aggregates (service-level): simple mean across all container values within window
             def flat_vals(d: Dict[str, List[Tuple[int, float]]]) -> List[float]:

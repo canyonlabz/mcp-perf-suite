@@ -12,4 +12,5 @@ artifacts:
   artifacts_path: "C:\\<path_to_repo>\\mcp-perf-suite\\artifacts"  # Path for artifacts
 
 perf_report:
+  time_zone: "America/New_York"  # Set the time zone
   templates_path: "C:\\<path_to_repo>\\mcp-perf-suite\\perfreport-mcp\\templates"  # Path to report templates

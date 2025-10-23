@@ -21,7 +21,7 @@ build-backend = "hatchling.build"
 
 # 👇 Tell hatch which files belong in the wheel
 [tool.hatch.build.targets.wheel]
-packages = ["services"]          # include the services/ package
+packages = ["services", "utils"]          # include the services/ package
 include = ["perfanalysis.py"]         # also include the top-level script
 
 # (optional, but tidy)
