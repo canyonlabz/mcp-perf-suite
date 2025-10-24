@@ -27,6 +27,10 @@ async def analyze_test_results(test_run_id: str, ctx: Context) -> Dict[str, Any]
         
     Returns:
         Dictionary containing statistical analysis of test results
+
+    Note:
+        This must be run BEFORE analyze_environment_metrics and correlate_test_results.
+        Required files: artifacts/{test_run_id}/blazemeter/test-results.csv
     """
     return await analyze_blazemeter_results(test_run_id, ctx)
 

@@ -32,8 +32,8 @@ async def get_host_metrics(env_name: str, start_time: str, end_time: str, run_id
     
     Args:
         env_name (str): The environment short name to load (e.g., 'QA', 'UAT', etc.).
-        start_time (str): Start timestamp in epoch or ISO8601 format.
-        end_time (str): End timestamp in epoch or ISO8601 format.
+        start_time (str): Start timestamp in format "YYYY-MM-DD HH:MM:SS" (e.g., "2025-10-21 22:10:00").
+        end_time (str): End timestamp in format "YYYY-MM-DD HH:MM:SS" (e.g., "2025-10-21 22:10:00").
         run_id (Optional[str]): Optional test run identifier for artifacts (e.g., BlazeMeter run_id or timestamp '2023-01-01T00:00:00Z').
         ctx (Context, optional): Workflow context for chaining state/status/errors.
 
@@ -49,8 +49,8 @@ async def get_kubernetes_metrics(env_name: str, start_time: str, end_time: str, 
 
     Args:
         env_name (str): The environment short name to load (e.g., 'QA', 'UAT', etc.).
-        start_time (str): Start timestamp in epoch or ISO8601 format.
-        end_time (str): End timestamp in epoch or ISO8601 format.
+        start_time (str): Start timestamp in format "YYYY-MM-DD HH:MM:SS" (e.g., "2025-10-21 22:10:00").
+        end_time (str): End timestamp in format "YYYY-MM-DD HH:MM:SS" (e.g., "2025-10-21 22:10:00").
         run_id (Optional[str]): Optional test run identifier for artifacts (e.g., BlazeMeter run_id or timestamp '2023-01-01T00:00:00Z').
         ctx (Context, optional): Workflow context for chaining state/status/errors.
 

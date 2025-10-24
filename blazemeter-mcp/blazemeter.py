@@ -159,6 +159,16 @@ async def download_artifacts_zip(artifact_zip_url: str, run_id: str, ctx: Contex
 
     Returns:
         Local file path (string). Updates context with path for downstream workflow steps.
+
+    Note:
+        If download fails with 500 errors, try:
+        1. Re-fetch test run results: get_run_results(run_id)
+        2. Re-fetch artifact file list: get_artifact_file_list(session_id)
+        3. Retry download with updated URL
+        
+        Common issues:
+        - 500 Internal Server Error: Usually indicates expired session/URL
+        - Solution: Re-fetch run details and artifact list before retrying
     """
     return await download_artifact_zip_file(artifact_zip_url, run_id, ctx)
 
