@@ -16,9 +16,19 @@ from typing import Dict, Optional, List, Tuple
 from datetime import datetime
 import numpy as np
 import pytz
+from fastmcp import Context
 
 # Import config at module level
 from utils.config import load_config, load_chart_colors
+
+# Import chart utilities
+from utils.chart_utils import (
+    load_environment_details,
+    get_metric_files
+)
+
+# Import chart functions
+from services.charts import single_axis_charts, dual_axis_charts
 
 # Load configuration globally
 CONFIG = load_config()
@@ -39,293 +49,100 @@ CHART_WIDTH = CHART_DEFAULTS['resolution']['width'] / CHART_DEFAULTS['resolution
 CHART_HEIGHT = CHART_DEFAULTS['resolution']['height'] / CHART_DEFAULTS['resolution']['dpi']
 DPI = CHART_DEFAULTS['resolution']['dpi']
 
+# Chart mapping to functions and data sources
+chart_module_registry = {
+    "single_axis_charts": single_axis_charts,
+    "dual_axis_charts": dual_axis_charts
+}
+
+chart_map = {
+    "CPU_UTILIZATION_LINE": {
+        "function": "generate_cpu_utilization_chart",
+        "module": "single_axis_charts",
+        "data_source": "infrastructure",
+    },
+    "MEMORY_UTILIZATION_LINE": {
+        "function": "generate_memory_utilization_chart",
+        "module": "single_axis_charts",
+        "data_source": "infrastructure",
+    },
+    "RESP_TIME_P90_VUSERS_DUALAXIS": {
+        "function": "generate_p90_vusers_chart",
+        "module": "dual_axis_charts",
+        "data_source": "performance",
+    },
+    # Add more chart definitions here as needed
+}
+
 # -----------------------------------------------
 # Main Functions for the Chart Generation Module
 # -----------------------------------------------
-async def generate_single_axis_chart(run_id: str, chart_type: str) -> Dict:
-    """
-    Generate single axis PNG chart using chart type from schema.
-    
-    Args:
-        run_id: Test run identifier
-        chart_type: Chart type identifier from chart_schema.yaml
-    
-    Returns:
-        Dict with run_id, path to PNG, and metadata
-    """
-    try:
-        # Look up chart specification from schema
-        chart_spec = _get_chart_spec_by_id(chart_type)
-        if not chart_spec:
-            return {
-                "run_id": run_id,
-                "error": f"Chart type not found: {chart_type}. Use list_chart_types() to see available options."
-            }
-        
-        # Load data automatically based on chart specification
-        df = await _load_chart_data_from_spec(run_id, chart_spec)
-        
-        # Validate data
-        is_valid, validation_error = _validate_chart_data(df, chart_spec)
-        if not is_valid:
-            return {
-                "run_id": run_id,
-                "error": f"Data validation failed: {validation_error}"
-            }
-        
-        # Check preconditions (e.g., failure > 0)
-        if not _check_precondition(df, chart_spec):
-            return {
-                "run_id": run_id,
-                "skipped": True,
-                "reason": f"Precondition not met: {chart_spec.get('precondition', 'N/A')}"
-            }
-        
-        # Generate chart
-        fig, ax = plt.subplots(figsize=(CHART_WIDTH, CHART_HEIGHT), dpi=DPI)
-        
-        x_col = chart_spec['x_axis']['column']
-        y_col = chart_spec['y_axis']['column']
-        
-        # Resample to 1-minute if timestamp
-        if chart_spec['x_axis'].get('format') == 'datetime':
-            df = _parse_datetime_column(df, x_col)
-            df = df.set_index(x_col).resample('1min').mean().ffill().reset_index()
-        
-        # Plot line
-        color = CHART_COLORS.get(chart_spec['colors'][0], CHART_COLORS['primary'])
-        ax.plot(df[x_col], df[y_col], color=color, linewidth=2, marker='o', markersize=3)
-        
-        # Styling
-        ax.set_xlabel(chart_spec['x_axis']['label'], fontsize=CHART_DEFAULTS['font_size']['axis_label'])
-        ax.set_ylabel(chart_spec['y_axis']['label'], fontsize=CHART_DEFAULTS['font_size']['axis_label'])
-        ax.set_title(chart_spec['title'], fontsize=CHART_DEFAULTS['font_size']['title'], fontweight='bold')
-        
-        if chart_spec.get('show_grid', True):
-            ax.grid(True, alpha=0.3, color=CHART_COLORS['grid'])
-        
-        # Format x-axis for datetime
-        if chart_spec['x_axis'].get('format') == 'datetime':
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-            plt.xticks(rotation=45)
-        
-        plt.tight_layout()
-        
-        # Save chart
-        output_path = await _save_chart(fig, run_id, chart_spec)
-        plt.close(fig)
-        
-        return {
-            "run_id": run_id,
-            "chart_type": chart_type or "custom",
-            "path": str(output_path),
-            "title": chart_spec['title'],
-            "data_points": len(df)
-        }
-        
-    except Exception as e:
-        return {
-            "run_id": run_id,
-            "error": f"Chart generation failed: {str(e)}"
-        }
 
+async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
+    chart_spec = _get_chart_spec_by_id(chart_id)
+    if not chart_spec:
+        return {"error": f"Unsupported chart_id: {chart_id}"}
 
-async def generate_dual_axis_chart(run_id: str, chart_type: str) -> Dict:
-    """
-    Generate dual axis PNG chart using chart type from schema.
-    
-    Args:
-        run_id: Test run identifier
-        chart_type: Chart type identifier from chart_schema.yaml
-    
-    Returns:
-        Dict with run_id, path to PNG, and metadata
-    """
-    try:
-        # Look up chart specification from schema
-        chart_spec = _get_chart_spec_by_id(chart_type)
-        if not chart_spec:
-            return {
-                "run_id": run_id,
-                "error": f"Chart type not found: {chart_type}. Use list_chart_types() to see available options."
-            }
-        
-        # Load data automatically based on chart specification
-        df = await _load_chart_data_from_spec(run_id, chart_spec)
-        
-        # Validate data
-        is_valid, validation_error = _validate_chart_data(df, chart_spec)
-        if not is_valid:
-            return {
-                "run_id": run_id,
-                "error": f"Data validation failed: {validation_error}"
-            }
-        
-        # Generate dual-axis chart
-        fig, ax1 = plt.subplots(figsize=(CHART_WIDTH, CHART_HEIGHT), dpi=DPI)
-        
-        x_col = chart_spec['x_axis']['column']
-        y_left_col = chart_spec['y_axis_left']['column']
-        y_right_col = chart_spec['y_axis_right']['column']
-        
-        # Resample to 1-minute if timestamp
-        if chart_spec['x_axis'].get('format') == 'datetime':
-            df = _parse_datetime_column(df, x_col)
-            df = df.set_index(x_col).resample('1min').mean().ffill().reset_index()
-        
-        # Plot left axis
-        color_left = CHART_COLORS.get(chart_spec['y_axis_left'].get('color', 'primary'))
-        ax1.plot(df[x_col], df[y_left_col], color=color_left, linewidth=2, 
-                 marker='o', markersize=3, label=chart_spec['y_axis_left']['label'])
-        ax1.set_xlabel(chart_spec['x_axis']['label'], fontsize=CHART_DEFAULTS['font_size']['axis_label'])
-        ax1.set_ylabel(chart_spec['y_axis_left']['label'], color=color_left, 
-                       fontsize=CHART_DEFAULTS['font_size']['axis_label'])
-        ax1.tick_params(axis='y', labelcolor=color_left)
-        
-        # Plot right axis
-        ax2 = ax1.twinx()
-        color_right = CHART_COLORS.get(chart_spec['y_axis_right'].get('color', 'secondary'))
-        ax2.plot(df[x_col], df[y_right_col], color=color_right, linewidth=2, 
-                 marker='s', markersize=3, label=chart_spec['y_axis_right']['label'])
-        ax2.set_ylabel(chart_spec['y_axis_right']['label'], color=color_right, 
-                       fontsize=CHART_DEFAULTS['font_size']['axis_label'])
-        ax2.tick_params(axis='y', labelcolor=color_right)
-        
-        # Title and grid
-        ax1.set_title(chart_spec['title'], fontsize=CHART_DEFAULTS['font_size']['title'], fontweight='bold')
-        if chart_spec.get('show_grid', True):
-            ax1.grid(True, alpha=0.3, color=CHART_COLORS['grid'])
-        
-        # Format x-axis for datetime
-        if chart_spec['x_axis'].get('format') == 'datetime':
-            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-            plt.xticks(rotation=45)
-        
-        # Legend
-        if chart_spec.get('include_legend', True):
-            lines1, labels1 = ax1.get_legend_handles_labels()
-            lines2, labels2 = ax2.get_legend_handles_labels()
-            ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left', 
-                       fontsize=CHART_DEFAULTS['font_size']['legend'])
-        
-        plt.tight_layout()
-        
-        # Save chart
-        output_path = await _save_chart(fig, run_id, chart_spec)
-        plt.close(fig)
-        
-        return {
-            "run_id": run_id,
-            "chart_type": chart_type or "custom",
-            "path": str(output_path),
-            "title": chart_spec['title'],
-            "data_points": len(df)
-        }
-        
-    except Exception as e:
-        return {
-            "run_id": run_id,
-            "error": f"Dual-axis chart generation failed: {str(e)}"
-        }
+    mapping = chart_map.get(chart_id)
+    if not mapping:
+        return {"error": f"No handler mapped for chart_id: {chart_id}"}
 
+    chart_handler = get_chart_handler(mapping)
+    if not chart_handler:
+        return {"error": f"Handler not found: {mapping['module']}.{mapping['function']}"}
 
-async def generate_stacked_area_chart(run_id: str, chart_data: dict, metric_config: dict) -> Dict:
-    """
-    Generate stacked area chart showing cumulative resource usage per service.
-    
-    Args:
-        run_id: Test run identifier
-        chart_data: Dict with multi-service time-series data
-        metric_config: Chart configuration
-    
-    Returns:
-        Dict with run_id, path to PNG, and metadata
-    """
-    try:
-        schema_id = metric_config.get('schema_id')
-        if schema_id:
-            chart_spec = _get_chart_spec_by_id(schema_id)
-            if not chart_spec:
-                return {
-                    "run_id": run_id,
-                    "error": f"Chart schema ID not found: {schema_id}"
-                }
-        else:
-            chart_spec = metric_config
-        
-        # Load multi-service data
-        service_data_dict = await _load_infrastructure_time_series(run_id, chart_spec)
-        if not service_data_dict:
-            return {
-                "run_id": run_id,
-                "error": "No infrastructure time-series data available"
-            }
-        
-        # Generate stacked area chart
-        fig, ax = plt.subplots(figsize=(CHART_WIDTH, CHART_HEIGHT), dpi=DPI)
-        
-        # Prepare data: Align all services to common timeline
-        aligned_df = _align_service_timeseries(service_data_dict, chart_spec)
-        if aligned_df.empty:
-            return {
-                "run_id": run_id,
-                "error": "Failed to align service time-series data"
-            }
-        
-        # Get service columns (exclude timestamp)
-        service_cols = [col for col in aligned_df.columns if col != 'timestamp']
-        
-        # Stack plot (cumulative)
-        colors = [CHART_COLORS.get(c, CHART_COLORS['primary']) for c in chart_spec['colors'][:len(service_cols)]]
-        ax.stackplot(aligned_df['timestamp'], 
-                     *[aligned_df[col] for col in service_cols],
-                     labels=service_cols,
-                     colors=colors,
-                     alpha=0.7)
-        
-        # Styling
-        ax.set_xlabel(chart_spec['x_axis']['label'], fontsize=CHART_DEFAULTS['font_size']['axis_label'])
-        ax.set_ylabel(chart_spec['y_axis']['label'], fontsize=CHART_DEFAULTS['font_size']['axis_label'])
-        ax.set_title(chart_spec['title'], fontsize=CHART_DEFAULTS['font_size']['title'], fontweight='bold')
-        ax.set_ylim(0, chart_spec['y_axis'].get('max', 100))
-        
-        if chart_spec.get('show_grid', True):
-            ax.grid(True, alpha=0.3, color=CHART_COLORS['grid'])
-        
-        # Format x-axis for datetime
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        plt.xticks(rotation=45)
-        
-        # Legend
-        if chart_spec.get('include_legend', True):
-            ax.legend(loc=chart_spec.get('legend_location', 'upper left'),
-                      fontsize=CHART_DEFAULTS['font_size']['legend'])
-        
-        plt.tight_layout()
-        
-        # Save chart
-        output_path = await _save_chart(fig, run_id, chart_spec)
-        plt.close(fig)
-        
-        return {
-            "run_id": run_id,
-            "chart_id": schema_id or "custom",
-            "path": str(output_path),
-            "title": chart_spec['title'],
-            "services": service_cols,
-            "data_points": len(aligned_df)
-        }
-        
-    except Exception as e:
-        return {
-            "run_id": run_id,
-            "error": f"Stacked area chart generation failed: {str(e)}"
-        }
+    data_source = mapping["data_source"]
+    results = []
+    errors = []
 
+    # Infrastructure (Datadog) charts
+    if data_source == "infrastructure":
+        env_info = await load_environment_details(run_id, env_name)
+        if not env_info:
+            return {"error": f"Missing environment info for: {env_name}"}
+        resources = env_info["resources"]
+        print(f"DEBUG: run_id={run_id}, env_type={env_info['env_type']}, resources={resources}")
+        metric_files = await get_metric_files(run_id, env_info["env_type"], resources)
+        print(f"DEBUG: metric_files={metric_files}")
+        for resource, metric_file in zip(resources, metric_files):
+            try:
+                df = pd.read_csv(metric_file)
+                out = await chart_handler(df, chart_spec, resource, run_id)
+                results.append(out)
+            except Exception as e:
+                errors.append({"resource": resource, "error": str(e)})
+
+    # Performance (BlazeMeter or JMeter) charts
+    elif data_source == "performance":
+        perf_path = Path("artifacts") / run_id / "blazemeter" / "test-results.csv"
+        if not perf_path.exists():
+            return {"error": f"Missing BlazeMeter test-results.csv for run: {run_id}"}
+        try:
+            df = pd.read_csv(perf_path)
+            out = await chart_handler(df, chart_spec, resource, run_id)
+            results.append(out)
+        except Exception as e:
+            errors.append({"error": str(e)})
+
+    else:
+        return {"error": f"Unknown data source: {data_source}"}
+
+    return {
+        "run_id": run_id,
+        "chart_id": chart_id,
+        "charts": results,
+        "errors": errors,
+    }
 
 # -----------------------------------------------
 # Helper Functions
 # -----------------------------------------------
+def get_chart_handler(mapping):
+    module = chart_module_registry.get(mapping["module"])
+    if module is None:
+        return None
+    return getattr(module, mapping["function"], None)
+
 def _parse_datetime_column(df: pd.DataFrame, column: str) -> pd.DataFrame:
     """
     Parse datetime column handling both epoch timestamps and ISO datetime strings.

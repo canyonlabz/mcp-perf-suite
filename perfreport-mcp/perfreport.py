@@ -1,11 +1,10 @@
 from fastmcp import FastMCP, Context
+from typing import Optional
 from services.report_generator import (
     generate_performance_test_report,
 )
 from services.chart_generator import (
-    generate_single_axis_chart,
-    generate_dual_axis_chart,
-    generate_stacked_area_chart,
+    generate_chart,
 )
 from services.template_manager import (
     list_templates as get_template_list, 
@@ -31,50 +30,6 @@ async def create_performance_test_report(run_id: str, ctx: Context, format: str 
         dict with run_id and path to created report file, or error info.
     """
     return await generate_performance_test_report(run_id, ctx, format, template)
-
-@mcp.tool
-async def create_single_axis_chart(run_id: str, chart_type: str, ctx: Context = None) -> dict:
-    """
-    Create a single axis (PNG) chart for a test run's reported metric(s).
-    
-    Args:
-        run_id: Unique test run identifier.
-        chart_type: Chart type identifier from chart_schema.yaml (e.g., 'CPU_UTILIZATION_LINE', 'THROUGHPUT_HITS_LINE')
-        ctx: Workflow chaining context.
-    
-    Returns:
-        dict with run_id and path to chart image, or error info.
-    """
-    return await generate_single_axis_chart(run_id, chart_type)
-
-@mcp.tool
-async def create_dual_axis_chart(run_id: str, chart_type: str, ctx: Context = None) -> dict:
-    """
-    Create a dual axis (PNG) chart for a test run's reported metrics.
-    
-    Args:
-        run_id: Unique test run identifier.
-        chart_type: Chart type identifier from chart_schema.yaml (e.g., 'RESP_TIME_P90_VUSERS_DUALAXIS')
-        ctx: Workflow chaining context.
-    
-    Returns:
-        dict with run_id and path to chart image, or error info.
-    """
-    return await generate_dual_axis_chart(run_id, chart_type)
-
-@mcp.tool
-async def create_stacked_area_chart(run_id: str, chart_data: dict, metric_config: dict, ctx: Context = None) -> dict:
-    """
-    Create a stacked area PNG chart for cumulative metrics across services.
-    Args:
-        run_id: Associated test run ID.
-        chart_data: Multi-service time-series data.
-        metric_config: Chart configuration metadata.
-        ctx: Workflow context.
-    Returns:
-        dict with run_id, path to PNG, services list, or error.
-    """
-    return await generate_stacked_area_chart(run_id, chart_data, metric_config)
 
 @mcp.tool
 async def create_comparison_report(run_id_list: list, template: str = None, format: str = "md", ctx: Context = None) -> dict:
@@ -107,6 +62,20 @@ async def revise_performance_test_report(run_id: str, feedback: str, ctx: Contex
         "error": "Report revision feature not yet implemented",
         "run_id": run_id
     }
+
+@mcp.tool
+async def create_chart(run_id: str, chart_id: str, env_name: Optional[str] = None, ctx: Context = None) -> dict:
+    """
+    Unified chart generation tool for MCP.
+    Args:
+        run_id: Test run ID
+        chart_id: Chart type specifier (must match YAML/schema)
+        env_name: Optional, for infrastructure charts
+        ctx: Workflow context
+    Returns:
+        dict containing chart metadata, path, and any errors
+    """
+    return await generate_chart(run_id, env_name, chart_id)
 
 @mcp.tool
 async def list_templates(ctx: Context = None) -> dict:

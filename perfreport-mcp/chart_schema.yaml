@@ -1,5 +1,5 @@
 # chart_schema.yaml - Chart specifications for PerfReport MCP
-version: "1.0"
+version: "1.1"
 
 # Chart naming convention for CUSTOM charts:
 # Format: [CHART_PLACEHOLDER: SECTION_METRIC_CHARTTYPE]
@@ -25,53 +25,32 @@ defaults:
 charts:
   # ===== SECTION 2: SLA & ERRORS =====
   
-  - id: "SLA_ERROR_RATE_LINE"
-    placeholder: "[CHART_PLACEHOLDER: SLA_ERROR_RATE_LINE]"
+  - id: "ERROR_RATE_LINE"
+    placeholder: "[CHART_PLACEHOLDER: ERROR_RATE_LINE]"
     chart_type: "single_axis_line"
     title: "Error Rate Over Time"
     description: "Time-series view of error occurrences during test execution"
-    data_sources:
-      primary: "test-results.csv"
-      required_columns: ["timeStamp", "allThreads", "success", "failure"]
     x_axis:
       label: "Time (hh:mm)"
-      column: "timeStamp"
-      format: "datetime"
     y_axis:
       label: "Error Count"
-      column: "failure"
-      scale: "linear"
-    output_filename: "error_rate_timeline_{run_id}.png"
     colors: ["error"]
     show_grid: true
     include_legend: false
-    precondition: "failure > 0"  # Only generate if errors exist
     
   # ===== SECTION 3: RESPONSE TIME & THROUGHPUT =====
   
   - id: "RESP_TIME_P90_VUSERS_DUALAXIS"
     placeholder: "[CHART_PLACEHOLDER: RESP_TIME_P90_VUSERS_DUALAXIS]"
     chart_type: "dual_axis_line"
-    title: "Response Time (90th Percentile) vs Virtual Users"
+    title: "Response Time (P90) vs Virtual Users"
     description: "Correlation between load and 90th percentile response time"
-    data_sources:
-      primary: "test-results.csv"
-      required_columns: ["timeStamp", "90_percentile", "allThreads"]
     x_axis:
       label: "Time (hh:mm)"
-      column: "timeStamp"
-      format: "datetime"
     y_axis_left:
       label: "90th Percentile Response Time (ms)"
-      column: "90_percentile"
-      scale: "linear"
-      color: "primary"
     y_axis_right:
       label: "Virtual Users"
-      column: "allThreads"
-      scale: "linear"
-      color: "secondary"
-    output_filename: "response_time_vs_load_{run_id}.png"
     colors: ["primary", "secondary"]
     show_grid: true
     include_legend: true
@@ -81,18 +60,10 @@ charts:
     chart_type: "single_axis_line"
     title: "Throughput Over Time"
     description: "Transaction throughput (hits/sec) throughout test execution"
-    data_sources:
-      primary: "test-results.csv"
-      required_columns: ["timeStamp", "throughput"]
     x_axis:
       label: "Time (hh:mm)"
-      column: "timeStamp"
-      format: "datetime"
     y_axis:
       label: "Throughput (req/sec)"
-      column: "throughput"
-      scale: "linear"
-    output_filename: "throughput_timeline_{run_id}.png"
     colors: ["primary"]
     show_grid: true
     include_legend: false
@@ -130,21 +101,12 @@ charts:
   - id: "CPU_UTILIZATION_LINE"
     placeholder: "[CHART_PLACEHOLDER: CPU_UTILIZATION_LINE]"
     chart_type: "single_axis_line"
-    title: "%CPU Utilization Over Time"
-    description: "CPU utilization (%) throughout test execution"
-    data_sources:
-      primary: "{scope}_metrics_[{service_filter}].csv"
-      required_columns: ["timestamp_utc", "metric", "value", "container_or_pod"]
-      metric_filter: "cpu_util_pct"
+    title: "CPU Utilization - {resource_name}"
+    description: "CPU utilization (%) for a specific host or Kubernetes service"
     x_axis:
       label: "Time (hh:mm)"
-      column: "timestamp_utc"
-      format: "datetime"
     y_axis:
-      label: "%CPU Utilization"
-      column: "value"
-      scale: "linear"
-    output_filename: "cpu_utilization_{container_or_pod}_{run_id}.png"
+      label: "CPU Utilization (%)"
     colors: ["primary"]
     show_grid: true
     include_legend: false
@@ -152,22 +114,13 @@ charts:
   - id: "MEMORY_UTILIZATION_LINE"
     placeholder: "[CHART_PLACEHOLDER: MEMORY_UTILIZATION_LINE]"
     chart_type: "single_axis_line"
-    title: "%Memory Utilization Over Time"
-    description: "Memory utilization (%) throughout test execution"
-    data_sources:
-      primary: "{scope}_metrics_[{service_filter}].csv"
-      required_columns: ["timestamp_utc", "metric", "value", "container_or_pod"]
-      metric_filter: "mem_util_pct"
+    title: "Memory Utilization - {resource_name}"
+    description: "Memory utilization (%) for a specific host or Kubernetes service"
     x_axis:
       label: "Time (hh:mm)"
-      column: "timestamp_utc"
-      format: "datetime"
     y_axis:
-      label: "%Memory Utilization"
-      column: "value"
-      scale: "linear"
-    output_filename: "memory_utilization_{container_or_pod}_{run_id}.png"
-    colors: ["primary"]
+      label: "Memory Utilization (%)"
+    colors: ["secondary"]
     show_grid: true
     include_legend: false
 
