@@ -5,6 +5,7 @@ File I/O helper functions for chart generation in PerfAnalysis MCP
 import json
 import asyncio
 import pypandoc
+import re
 from pathlib import Path
 from typing import Dict, Optional, List
 
@@ -147,3 +148,44 @@ def get_chart_output_path(run_id: str, chart_name: str) -> Path:
     charts_dir = ARTIFACTS_PATH / run_id / "charts"
     charts_dir.mkdir(parents=True, exist_ok=True)
     return charts_dir / f"{chart_name}.png"
+
+def interpolate_placeholders(template: str, **kwargs) -> str:
+    """
+    Replace placeholder tokens (e.g., {resource_name}) in a template string
+    with the provided keyword arguments.
+
+    Args:
+        template (str):
+            The input string containing one or more placeholders enclosed
+            in curly braces. Example: "CPU Utilization - {resource_name}".
+        **kwargs:
+            Key-value pairs corresponding to placeholders and their values.
+            For example:
+                interpolate_placeholders(
+                    "CPU Utilization - {resource_name}",
+                    resource_name="api-service"
+                )
+
+    Returns:
+        str: A string with all matching placeholders substituted. If a
+        placeholder in the template does not have a corresponding key
+        in `kwargs`, it will remain unchanged or be replaced with a
+        `{MISSING:key}` token as a fallback.
+
+    Example:
+        >>> interpolate_placeholders(
+        ...     "Run {run_id} - Resource: {resource_name}",
+        ...     run_id="80014829",
+        ...     resource_name="api-service"
+        ... )
+        'Run 80014829 - Resource: api-service'
+    """
+    if not template or "{" not in template:
+        return template
+    try:
+        return template.format(**kwargs)
+    except KeyError as e:
+        # gracefully handle missing placeholders
+        missing_key = str(e).strip("'")
+        return re.sub(rf"{{{missing_key}}}", f"{{MISSING:{missing_key}}}", template)
+

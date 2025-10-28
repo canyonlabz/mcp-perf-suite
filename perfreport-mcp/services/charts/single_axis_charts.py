@@ -1,7 +1,10 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 from fastmcp import Context
-from utils.chart_utils import get_chart_output_path
+from utils.chart_utils import (
+    get_chart_output_path,
+    interpolate_placeholders
+)
 from utils.config import load_chart_colors
 
 # Load chart colors for color name resolution
@@ -35,7 +38,8 @@ async def generate_cpu_utilization_chart(df, chart_spec, resource_name, run_id):
     df_filtered["timestamp_utc"] = pd.to_datetime(df_filtered["timestamp_utc"])
     df_filtered = df_filtered.sort_values(by="timestamp_utc")
 
-    title = chart_spec.get("title", f"CPU Utilization - {resource_name}")
+    raw_title = chart_spec.get("title", f"CPU Utilization - {resource_name}")
+    title = interpolate_placeholders(raw_title, resource_name=resource_name)
     y_label = chart_spec.get("y_axis", {}).get("label", "CPU Util (%)")
     x_label = chart_spec.get("x_axis", {}).get("label", "Time (UTC)")
     color_names = chart_spec.get("colors", ["primary"])
@@ -78,7 +82,8 @@ async def generate_memory_utilization_chart(df, chart_spec, resource_name, run_i
     df_filtered["timestamp_utc"] = pd.to_datetime(df_filtered["timestamp_utc"])
     df_filtered = df_filtered.sort_values(by="timestamp_utc")
 
-    title = chart_spec.get("title", f"Memory Utilization - {resource_name}")
+    raw_title = chart_spec.get("title", f"Memory Utilization - {resource_name}")
+    title = interpolate_placeholders(raw_title, resource_name=resource_name)
     y_label = chart_spec.get("y_axis", {}).get("label", "Memory Util (%)")
     x_label = chart_spec.get("x_axis", {}).get("label", "Time (UTC)")
     color_names = chart_spec.get("colors", ["secondary"])
