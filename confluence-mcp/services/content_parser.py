@@ -1,0 +1,1 @@
+# place holder for content parsing logic to convert markdown to confluence storage format (e.g XHTML)
