@@ -46,14 +46,14 @@ charts:
     title: "Response Time (P90) vs Virtual Users"
     description: "Correlation between load and 90th percentile response time"
     x_axis:
-      label: "Time (hh:mm)"
+      label: "Time (hh:mm) UTC"
     y_axis_left:
       label: "90th Percentile Response Time (ms)"
     y_axis_right:
       label: "Virtual Users"
     colors: ["primary", "secondary"]
     show_grid: true
-    include_legend: true
+    include_legend: false
     
   - id: "THROUGHPUT_HITS_LINE"
     placeholder: "[CHART_PLACEHOLDER: THROUGHPUT_HITS_LINE]"

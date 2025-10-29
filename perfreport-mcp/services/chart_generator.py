@@ -114,12 +114,12 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
 
     # Performance (BlazeMeter or JMeter) charts
     elif data_source == "performance":
-        perf_path = Path("artifacts") / run_id / "blazemeter" / "test-results.csv"
+        perf_path = ARTIFACTS_PATH / run_id / "blazemeter" / "test-results.csv"
         if not perf_path.exists():
             return {"error": f"Missing BlazeMeter test-results.csv for run: {run_id}"}
         try:
             df = pd.read_csv(perf_path)
-            out = await chart_handler(df, chart_spec, resource, run_id)
+            out = await chart_handler(df, chart_spec, run_id)
             results.append(out)
         except Exception as e:
             errors.append({"error": str(e)})
