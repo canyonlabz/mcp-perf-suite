@@ -1,5 +1,5 @@
 [project]
-name = "blazemeter-mcp"
+name = "confluence-mcp"
 version = "0.1.0"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -16,14 +16,14 @@ build-backend = "hatchling.build"
 # 👇 Tell hatch which files belong in the wheel
 [tool.hatch.build.targets.wheel]
 packages = ["services", "utils"]          # include the services/ package
-include = ["blazemeter.py"]      # also include the top-level script
+include = ["confluence.py"]      # also include the top-level script
 
 # (optional, but tidy)
 [tool.hatch.build.targets.sdist]
 include = [
   "services", 
   "utils",
-  "blazemeter.py", 
+  "confluence.py", 
   "pyproject.toml", 
   "README.md",
   "config.yaml",
