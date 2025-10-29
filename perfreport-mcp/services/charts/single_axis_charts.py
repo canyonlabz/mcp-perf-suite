@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import pandas as pd
 from fastmcp import Context
 from utils.chart_utils import (
@@ -45,18 +46,40 @@ async def generate_cpu_utilization_chart(df, chart_spec, resource_name, run_id):
     color_names = chart_spec.get("colors", ["primary"])
     colors = [resolve_color(c) for c in color_names]
 
-    fig, ax = plt.subplots()
-    ax.plot(df_filtered["timestamp_utc"], df_filtered["value"], color=colors[0])
+    # Figure sizing: 16:9 with YAML overrides
+    # You can specify either width/height in *pixels* OR figsize directly.
+    dpi = int(chart_spec.get("dpi", 144))  # crisper default for HD exports
+    width_px = int(chart_spec.get("width_px", 1280))   # 16:9 default
+    height_px = int(chart_spec.get("height_px", 720))  # 16:9 default
+    figsize = (width_px / dpi, height_px / dpi)
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+
+    ax.plot(df_filtered["timestamp_utc"], df_filtered["value"], color=colors[0], linewidth=1.5)
     ax.set_title(title)
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
-    if chart_spec.get("show_grid"):
-        ax.grid(True)
+    if chart_spec.get("show_grid", True):
+        ax.grid(True, linewidth=0.5, alpha=0.6)
     if chart_spec.get("include_legend"):
         ax.legend([resource_name])
 
+    # Time axis formatting + label rotation
+    locator = mdates.AutoDateLocator()
+    formatter = mdates.DateFormatter("%H:%M")  # matches your (hh:mm) label
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(formatter)
+
+    # Rotate ~45° (readable “clockwise” slant visually)
+    for label in ax.get_xticklabels():
+        label.set_rotation(45)
+        label.set_horizontalalignment("right")
+        label.set_rotation_mode("anchor")
+
+    # Save
+    bbox = chart_spec.get("bbox_inches", "tight")
     chart_path = get_chart_output_path(run_id, f"cpu_metric_{resource_name}")
-    fig.savefig(chart_path, dpi=120, bbox_inches="tight", facecolor="white")
+    fig.savefig(chart_path, dpi=dpi, bbox_inches=bbox, facecolor="white")
     plt.close(fig)
 
     return {"resource": resource_name, "path": str(chart_path)}
@@ -89,18 +112,40 @@ async def generate_memory_utilization_chart(df, chart_spec, resource_name, run_i
     color_names = chart_spec.get("colors", ["secondary"])
     colors = [resolve_color(c) for c in color_names]
 
-    fig, ax = plt.subplots()
-    ax.plot(df_filtered["timestamp_utc"], df_filtered["value"], color=colors[0])
+    # Figure sizing: 16:9 with YAML overrides
+    # You can specify either width/height in *pixels* OR figsize directly.
+    dpi = int(chart_spec.get("dpi", 144))  # crisper default for HD exports
+    width_px = int(chart_spec.get("width_px", 1280))   # 16:9 default
+    height_px = int(chart_spec.get("height_px", 720))  # 16:9 default
+    figsize = (width_px / dpi, height_px / dpi)
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+
+    ax.plot(df_filtered["timestamp_utc"], df_filtered["value"], color=colors[0], linewidth=1.5)
     ax.set_title(title)
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
-    if chart_spec.get("show_grid"):
-        ax.grid(True)
+    if chart_spec.get("show_grid", True):
+        ax.grid(True, linewidth=0.5, alpha=0.6)
     if chart_spec.get("include_legend"):
         ax.legend([resource_name])
 
+    # Time axis formatting + label rotation
+    locator = mdates.AutoDateLocator()
+    formatter = mdates.DateFormatter("%H:%M")  # matches your (hh:mm) label
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(formatter)
+
+    # Rotate ~45° (readable “clockwise” slant visually)
+    for label in ax.get_xticklabels():
+        label.set_rotation(45)
+        label.set_horizontalalignment("right")
+        label.set_rotation_mode("anchor")
+
+    # Save
+    bbox = chart_spec.get("bbox_inches", "tight")
     chart_path = get_chart_output_path(run_id, f"memory_metric_{resource_name}")
-    fig.savefig(chart_path, dpi=120, bbox_inches="tight", facecolor="white")
+    fig.savefig(chart_path, dpi=dpi, bbox_inches=bbox, facecolor="white")
     plt.close(fig)
 
     return {"resource": resource_name, "path": str(chart_path)}

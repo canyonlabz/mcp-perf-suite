@@ -104,7 +104,7 @@ charts:
     title: "CPU Utilization - {resource_name}"
     description: "CPU utilization (%) for a specific host or Kubernetes service"
     x_axis:
-      label: "Time (hh:mm)"
+      label: "Time (hh:mm) UTC"
     y_axis:
       label: "CPU Utilization (%)"
     colors: ["primary"]
@@ -117,7 +117,7 @@ charts:
     title: "Memory Utilization - {resource_name}"
     description: "Memory utilization (%) for a specific host or Kubernetes service"
     x_axis:
-      label: "Time (hh:mm)"
+      label: "Time (hh:mm) UTC"
     y_axis:
       label: "Memory Utilization (%)"
     colors: ["secondary"]
