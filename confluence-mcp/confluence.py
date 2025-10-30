@@ -205,17 +205,19 @@ async def get_available_charts(test_run_id: str = None, ctx: Context = None) -> 
     return await list_available_charts(test_run_id, ctx)
 
 @mcp.tool
-async def convert_markdown_to_confluence_xhtml(markdown_path: str):
+async def convert_markdown_to_xhtml(markdown_path: str, ctx: Context = None) -> str:
     """
-    Converts a Markdown report file (from PerfReport MCP output) to Confluence-compatible XHTML storage format.
-
+    Converts a Markdown performance report to Confluence storage-format XHTML.
+    
     Args:
-        markdown_path (str): Path to local Markdown report file.
-
+        markdown_path: Full path to the markdown report file.
+        ctx: FastMCP context for error/status reporting.
+    
     Returns:
-        str: String containing processed XHTML, suitable for page creation or update.
+        str: Confluence-compatible XHTML markup, ready for page creation or update.
+             Returns error dict if conversion fails.
     """
-    return await markdown_to_confluence_xhtml(markdown_path)
+    return await markdown_to_confluence_xhtml(markdown_path, ctx)
 
 # -----------------------------
 # Confluence MCP entry point
