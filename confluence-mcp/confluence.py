@@ -14,6 +14,7 @@ from services.confluence_api_v2 import (
     create_page_v2,
     attach_file_v2,
 )
+from services.artifact_manager import list_available_reports, list_available_charts
 from services.content_parser import markdown_to_confluence_xhtml
 
 mcp = FastMCP(name="confluence")
@@ -176,47 +177,32 @@ async def attach_file(page_ref: str, filename: str, mode: str, ctx: Context) -> 
     return await attach_file_v1(page_ref, filename, ctx)
 
 @mcp.tool()
-async def list_available_reports(mode: str, run_id: str = None, ctx: Context = None) -> list:
+async def get_available_reports(test_run_id: str = None, ctx: Context = None) -> list:
     """
-    Lists available Markdown report files that can be published to Confluence.
-
+    Lists available Markdown performance reports that can be published to Confluence.
+    
     Args:
-        mode (str): "cloud" or "onprem" (for future proofing).
-        run_id (str, optional): If provided, filters for single test run reports.
-            - If omitted, lists comparison reports from 'comparisons/'.
-        ctx (Context, optional): FastMCP context for caching or downstream use.
-
+        test_run_id: Optional test run ID for single-run reports. If omitted, lists comparison reports.
+        ctx: FastMCP context.
+    
     Returns:
-        List[dict]: Report file summaries with keys:
-            - 'filename': Exact file name to use with create_page.
-            - 'display_name': Suggested title (if parseable), else file name.
-            - 'report_type': "single" or "comparison".
-            - 'test_run_ids': List of involved test run IDs.
+        List of report metadata dicts with filename, type, and test run IDs.
     """
-    #from services.report_discovery import list_markdown_reports
-
-    #return await list_markdown_reports(mode, run_id, ctx)
+    return await list_available_reports(test_run_id, ctx)
 
 @mcp.tool()
-async def list_available_charts(mode: str, run_id: str = None, ctx: Context = None) -> list:
+async def get_available_charts(test_run_id: str = None, ctx: Context = None) -> list:
     """
-    Lists available PNG chart images for attachment to Confluence reports.
-
+    Lists available PNG chart images that can be attached to Confluence pages.
+    
     Args:
-        mode (str): "cloud" or "onprem".
-        run_id (str, optional): If provided, limits to charts generated for single run.
-            - If omitted, lists comparison/charts from "comparisons/" folder.
-        ctx (Context, optional): FastMCP context for caching/chart reuse.
-
+        test_run_id: Optional test run ID for single-run charts. If omitted, lists comparison charts.
+        ctx: FastMCP context.
+    
     Returns:
-        List[dict]: Chart files with keys:
-            - 'filename': PNG file name (for attach_file tool).
-            - 'description': Parsed from file name or default label.
-            - 'chart_type': e.g., "bar", "line", "comparison".
+        List of chart metadata dicts with filename, type, and description.
     """
-    #from services.report_discovery import list_chart_files
-
-    #return await list_chart_files(mode, run_id, ctx)
+    return await list_available_charts(test_run_id, ctx)
 
 @mcp.tool
 async def convert_markdown_to_confluence_xhtml(markdown_path: str):
