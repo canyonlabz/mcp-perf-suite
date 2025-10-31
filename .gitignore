@@ -249,6 +249,10 @@ artifacts/*
 # ignore Datadog environments
 datadog-mcp/environments.json
 
+# Ignore all files in perfreport-mcp/templates except the default templates
+perfreport-mcp/templates/*
+!perfreport-mcp/templates/default_*.md
+
 # Temp files
 docs/*
 test_datadog.py
