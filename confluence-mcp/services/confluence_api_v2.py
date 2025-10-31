@@ -2,6 +2,7 @@
 import os
 import json
 import httpx
+import base64
 from fastmcp import Context
 from dotenv import load_dotenv
 from utils.config import load_config
@@ -33,9 +34,8 @@ async def list_spaces_v2(ctx: Context) -> list:
     base_url = CONFLUENCE_V2_BASE_URL
     api_key = CONFLUENCE_V2_API_TOKEN
     url = f"{base_url}/wiki/api/v2/spaces"
-    headers = {"Authorization": f"Basic {api_key}", "Accept": "application/json"}
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers)
+        response = await client.get(url, headers=get_headers({"Accept": "application/json"}))
         data = response.json()
     spaces = []
     for item in data["results"]:
@@ -62,9 +62,8 @@ async def get_space_details_v2(space_ref: str, ctx: Context) -> dict:
     base_url = CONFLUENCE_V2_BASE_URL
     api_token = CONFLUENCE_V2_API_TOKEN
     url = f"{base_url}/wiki/api/v2/spaces/{space_ref}"
-    headers = {"Authorization": f"Basic {api_token}", "Accept": "application/json"}
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers)
+        response = await client.get(url, headers=get_headers({"Accept": "application/json"}))
         item = response.json()
     details = {
         "space_ref": item.get("id"),
@@ -80,3 +79,17 @@ async def get_space_details_v2(space_ref: str, ctx: Context) -> dict:
     }
     await ctx.info(f"Fetched details for space {space_ref} (v2).")
     return details
+
+# -----------------------------
+# Helper functions
+# -----------------------------
+
+def get_headers(extra: dict = None):
+    # Basic Auth header Confluence expects
+    auth = base64.b64encode(f"{CONFLUENCE_V2_USER}:{CONFLUENCE_V2_API_TOKEN}".encode()).decode()
+    h = {
+        "Authorization": f"Basic {auth}",
+    }
+    if extra:
+        h.update(extra)
+    return h

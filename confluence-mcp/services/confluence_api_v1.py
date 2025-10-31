@@ -2,6 +2,8 @@
 import os
 import json
 import httpx
+import base64
+from typing import Union
 from fastmcp import Context
 from dotenv import load_dotenv
 from utils.config import load_config
@@ -19,6 +21,9 @@ CONFLUENCE_V1_BASE_URL = os.getenv("CONFLUENCE_V1_BASE_URL")
 CONFLUENCE_V1_PAT = os.getenv("CONFLUENCE_V1_PAT")
 CONFLUENCE_V1_USER = os.getenv("CONFLUENCE_V1_USER")
 
+# CA bundle path for SSL verification
+CA_BUNDLE = os.getenv("REQUESTS_CA_BUNDLE") or os.getenv("SSL_CERT_FILE")
+
 # -----------------------------
 # Confluence v1 API functions
 # -----------------------------
@@ -32,12 +37,14 @@ async def list_spaces_v1(ctx: Context) -> list:
     """
     # Load environment/config as needed
     base_url = CONFLUENCE_V1_BASE_URL
-    api_token = CONFLUENCE_V1_PAT
     url = f"{base_url}/rest/api/space"
-    headers = {"Authorization": f"Bearer {api_token}", "Accept": "application/json"}
-    async with httpx.AsyncClient() as client:
+    headers = get_headers({"Accept": "application/json"})
+    verify_ssl = get_ssl_verify_setting()
+
+    async with httpx.AsyncClient(verify=verify_ssl) as client:
         response = await client.get(url, headers=headers)
         data = response.json()
+
     spaces = []
     for item in data["results"]:
         spaces.append({
@@ -60,12 +67,14 @@ async def get_space_details_v1(space_ref: str, ctx: Context) -> dict:
         dict: Space metadata including 'space_ref', 'name', 'type', 'description', 'status', and additional metadata.
     """
     base_url = CONFLUENCE_V1_BASE_URL
-    api_token = CONFLUENCE_V1_PAT
     url = f"{base_url}/rest/api/space/{space_ref}"
-    headers = {"Authorization": f"Bearer {api_token}", "Accept": "application/json"}
-    async with httpx.AsyncClient() as client:
+    headers = get_headers({"Accept": "application/json"})
+    verify_ssl = get_ssl_verify_setting()
+
+    async with httpx.AsyncClient(verify=verify_ssl) as client:
         response = await client.get(url, headers=headers)
         item = response.json()
+
     details = {
         "space_ref": item.get("key"),
         "id": item.get("id"),
@@ -82,3 +91,47 @@ async def get_space_details_v1(space_ref: str, ctx: Context) -> dict:
     }
     await ctx.info(f"Fetched details for space {space_ref} (v1).")
     return details
+
+# -----------------------------
+# Helper functions
+# -----------------------------
+
+def get_ssl_verify_setting() -> Union[str, bool]:
+    """
+    Determines SSL verification setting based on config.yaml.
+    
+    Returns:
+        Union[str, bool]: 
+            - Path to CA bundle (str) if ssl_verification is "ca_bundle" and certs are available
+            - False if ssl_verification is "disabled"
+            - True as fallback (use system certs)
+    """
+    ssl_verification = cnf_config.get('ssl_verification', 'ca_bundle').lower()
+    
+    if ssl_verification == 'disabled':
+        return False
+    elif ssl_verification == 'ca_bundle':
+        # Use CA bundle if available, otherwise default to True
+        return CA_BUNDLE or True
+    else:
+        # Default to system cert verification
+        return True
+
+
+def get_headers(extra: dict = None):
+    """
+    Generates authorization headers for Confluence on-prem (v1) API.
+    Uses Bearer token authentication.
+    
+    Args:
+        extra (dict, optional): Additional headers to include.
+    
+    Returns:
+        dict: Headers dictionary with Authorization and any extra headers.
+    """
+    h = {
+        "Authorization": f"Bearer {CONFLUENCE_V1_PAT}",
+    }
+    if extra:
+        h.update(extra)
+    return h
