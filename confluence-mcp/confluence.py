@@ -7,6 +7,7 @@ from services.confluence_api_v1 import (
     get_page_by_id_v1,
     get_page_content_v1,
     create_page_v1, 
+    search_content_v1,
     #attach_file_v1,
 )
 from services.confluence_api_v2 import (
@@ -16,6 +17,7 @@ from services.confluence_api_v2 import (
     get_page_by_id_v2,
     get_page_content_v2,
     create_page_v2,
+    search_content_v2,
     #attach_file_v2,
 )
 from services.artifact_manager import list_available_reports, list_available_charts
@@ -253,6 +255,38 @@ async def convert_markdown_to_xhtml(markdown_path: str, ctx: Context = None) -> 
              Returns error dict if conversion fails.
     """
     return await markdown_to_confluence_xhtml(markdown_path, ctx)
+
+@mcp.tool()
+async def search_pages(query: str, mode: str, ctx: Context, space_ref: str = None) -> list:
+    """
+    Searches for Confluence pages using CQL (Confluence Query Language).
+    
+    Both on-prem and cloud support powerful CQL queries for searching titles and content.
+    
+    Args:
+        query (str): Search term or phrase (e.g., "performance test", "QA Testing Process").
+        mode (str): "cloud" or "onprem".
+        ctx (Context): FastMCP context.
+        space_ref (str, optional): Limit search to specific space (space key for both v1 and cloud).
+    
+    Returns:
+        List of matching pages with:
+            - page_ref: Page ID
+            - title: Page title
+            - url: Page URL
+            - space_key: Space key
+            - space_name: Space name
+            - excerpt: Search result preview
+            - last_modified: Last modification date
+    
+    Examples:
+        - search_pages("performance test", "cloud")
+        - search_pages("QA Testing Process", "onprem", space_ref="NPQA")
+    """
+    if mode == "cloud":
+        return await search_content_v2(query, space_ref, ctx)
+    else:
+        return await search_content_v1(query, space_ref, ctx)
 
 # -----------------------------
 # Confluence MCP entry point

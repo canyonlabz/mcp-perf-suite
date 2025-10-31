@@ -270,6 +270,54 @@ async def create_page_v1(space_ref: str, title: str, storage_xhtml: str, ctx: Co
         await ctx.error(error_msg)
         return {"error": error_msg, "status": "error"}
 
+async def search_content_v1(query: str, space_key: str = None, ctx: Context = None) -> list:
+    """
+    Search Confluence content using CQL (v1 API for on-prem).
+    
+    Args:
+        query (str): Search query (will be used in title and text search).
+        space_key (str, optional): Limit search to specific space.
+        ctx (Context): FastMCP context.
+    
+    Returns:
+        List of matching pages with title, id, url, space, and excerpt.
+    """
+    base_url = CONFLUENCE_V1_BASE_URL
+    
+    # Build CQL query
+    cql_parts = [f'type=page AND (title~"{query}" OR text~"{query}")']
+    if space_key:
+        cql_parts.append(f'space={space_key}')
+    
+    cql = " AND ".join(cql_parts)
+    
+    url = f"{base_url}/rest/api/content/search"
+    params = {"cql": cql, "limit": 50}
+    headers = get_headers({"Accept": "application/json"})
+    verify_ssl = get_ssl_verify_setting()
+    
+    async with httpx.AsyncClient(verify=verify_ssl) as client:
+        response = await client.get(url, headers=headers, params=params)
+        data = response.json()
+    
+    results = []
+    for item in data.get("results", []):
+        results.append({
+            "page_ref": item.get("content", {}).get("id") or item.get("id"),
+            "title": item.get("title"),
+            "type": item.get("content", {}).get("type") or item.get("type"),
+            "space_key": item.get("space", {}).get("key"),
+            "space_name": item.get("space", {}).get("name"),
+            "url": item.get("url") or (base_url + item.get("content", {}).get("_links", {}).get("webui", "")),
+            "excerpt": item.get("excerpt", ""),
+            "last_modified": item.get("lastModified", ""),
+        })
+    
+    if ctx:
+        await ctx.info(f"Found {len(results)} results for query: {query}")
+    
+    return results
+
 
 # -----------------------------
 # Helper functions
