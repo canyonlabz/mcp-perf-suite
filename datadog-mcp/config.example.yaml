@@ -11,6 +11,7 @@ artifacts:
   artifacts_path: "/path_to_root/mcp-perf-suite/artifacts"  # Path for artifacts
 
 datadog:
+  ssl_verification: "disabled"     # Options: "ca_bundle" (use certs from env vars) or "disabled" (skip verification)
   time_zone: "America/New_York"  # Set the time zone
   environments_json_path: "/path_to_root/mcp-perf-suite/datadog-mcp/environments.json"
   log_page_limit: 1000  # Number of log entries to fetch per page

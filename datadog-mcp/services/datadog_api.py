@@ -5,7 +5,7 @@ import json
 import httpx
 import csv
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Union
 from dotenv import load_dotenv
 from fastmcp import FastMCP, Context    # ✅ FastMCP 2.x import
 from utils.config import load_config
@@ -15,6 +15,7 @@ from utils.config import load_config
 # -----------------------------------------------
 load_dotenv()   # Load environment variables from .env file such as API keys and secrets
 config = load_config()
+dd_config = config.get('datadog', {})
 artifacts_base = config["artifacts"]["artifacts_path"]
 environments_json_path = config["datadog"]["environments_json_path"]
 configured_tz = config.get("datadog", {}).get("time_zone", "UTC")
@@ -24,6 +25,9 @@ DD_APP_KEY = os.getenv("DD_APP_KEY")
 DD_API_BASE_URL = os.getenv("DD_API_BASE_URL", "https://api.datadoghq.com")
 V1_QUERY_URL = f"{DD_API_BASE_URL}/api/v1/query"
 V2_TIMESERIES_URL = f"{DD_API_BASE_URL}/api/v2/query/timeseries"
+
+# CA bundle path for SSL verification
+CA_BUNDLE = os.getenv("REQUESTS_CA_BUNDLE") or os.getenv("SSL_CERT_FILE")
 
 # -----------------------------------------------
 # Helpers
@@ -254,7 +258,8 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
 
     headers = {"DD-API-KEY": DD_API_KEY, "DD-APPLICATION-KEY": DD_APP_KEY}
 
-    async with httpx.AsyncClient() as client:
+    verify_ssl = get_ssl_verify_setting()
+    async with httpx.AsyncClient(verify=verify_ssl) as client:
         for h in hosts:
             hostname = h.get("hostname")
             if not hostname:
@@ -429,7 +434,8 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
         # Choose a common memory usage metric; adjust if your Datadog tenant uses a different one
         return f"avg:kubernetes.memory.usage{{env:{env_tag},service:{svc_filter}}} by {{kube_container_name}}"
 
-    async with httpx.AsyncClient() as client:
+    verify_ssl = get_ssl_verify_setting()
+    async with httpx.AsyncClient(verify=verify_ssl) as client:
         for svc in services:
             s_filter = svc.get("service_filter")
             if not s_filter:
@@ -596,3 +602,28 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
     }
 
     return {"files": files, "summary": summary}
+
+# -----------------------------
+# Helper functions
+# -----------------------------
+
+def get_ssl_verify_setting() -> Union[str, bool]:
+    """
+    Determines SSL verification setting based on config.yaml.
+    
+    Returns:
+        Union[str, bool]: 
+            - Path to CA bundle (str) if ssl_verification is "ca_bundle" and certs are available
+            - False if ssl_verification is "disabled"
+            - True as fallback (use system certs)
+    """
+    ssl_verification = dd_config.get('ssl_verification', 'ca_bundle').lower()
+    
+    if ssl_verification == 'disabled':
+        return False
+    elif ssl_verification == 'ca_bundle':
+        # Use CA bundle if available, otherwise default to True
+        return CA_BUNDLE or True
+    else:
+        # Default to system cert verification
+        return True

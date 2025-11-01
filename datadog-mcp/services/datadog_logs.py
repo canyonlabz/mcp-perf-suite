@@ -3,7 +3,7 @@ import json
 import csv
 import os
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 from dotenv import load_dotenv
 from pathlib import Path
 from fastmcp import FastMCP, Context    # ✅ FastMCP 2.x import
@@ -15,6 +15,7 @@ from services.datadog_api import load_environment_json
 # -----------------------------------------------
 load_dotenv()   # Load environment variables from .env file such as API keys and secrets
 config = load_config()
+dd_config = config.get('datadog', {})
 artifacts_base = config["artifacts"]["artifacts_path"]
 environments_json_path = config["datadog"]["environments_json_path"]
 configured_tz = config.get("datadog", {}).get("time_zone", "UTC")
@@ -24,6 +25,9 @@ DD_API_KEY = os.getenv("DD_API_KEY")
 DD_APP_KEY = os.getenv("DD_APP_KEY")
 DD_API_BASE_URL = os.getenv("DD_API_BASE_URL", "https://api.datadoghq.com")
 V2_LOGS_URL = f"{DD_API_BASE_URL}/api/v2/logs/events"
+
+# CA bundle path for SSL verification
+CA_BUNDLE = os.getenv("REQUESTS_CA_BUNDLE") or os.getenv("SSL_CERT_FILE")
 
 # -----------------------------------------------
 # Helpers
@@ -293,7 +297,8 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
         next_cursor = None
         page_count = 0
         
-        async with httpx.AsyncClient() as client:
+        verify_ssl = get_ssl_verify_setting()
+        async with httpx.AsyncClient(verify=verify_ssl) as client:
             while len(all_logs) < log_page_limit and page_count < 10:  # Safety limit on pages
                 if next_cursor:
                     params['page[cursor]'] = next_cursor
@@ -384,3 +389,28 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
     except Exception as e:
         await ctx.error(f"Error retrieving logs: {str(e)}")
         raise
+
+# -----------------------------
+# Helper functions
+# -----------------------------
+
+def get_ssl_verify_setting() -> Union[str, bool]:
+    """
+    Determines SSL verification setting based on config.yaml.
+    
+    Returns:
+        Union[str, bool]: 
+            - Path to CA bundle (str) if ssl_verification is "ca_bundle" and certs are available
+            - False if ssl_verification is "disabled"
+            - True as fallback (use system certs)
+    """
+    ssl_verification = dd_config.get('ssl_verification', 'ca_bundle').lower()
+    
+    if ssl_verification == 'disabled':
+        return False
+    elif ssl_verification == 'ca_bundle':
+        # Use CA bundle if available, otherwise default to True
+        return CA_BUNDLE or True
+    else:
+        # Default to system cert verification
+        return True
