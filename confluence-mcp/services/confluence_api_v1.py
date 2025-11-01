@@ -203,7 +203,7 @@ async def get_page_content_v1(page_ref: str, ctx: Context) -> dict:
     await ctx.info(f"Fetched content for page {page_ref} (v1). Content size: {len(content_data['storage_xhtml'])} chars.")
     return content_data
 
-async def create_page_v1(space_ref: str, title: str, storage_xhtml: str, ctx: Context, parent_id: str = None) -> dict:
+async def create_page_v1(space_ref: str, title: str, storage_xhtml: str, ctx: Context, parent_id: str) -> dict:
     """
     Creates a new Confluence page in on-prem instance.
     
@@ -212,7 +212,7 @@ async def create_page_v1(space_ref: str, title: str, storage_xhtml: str, ctx: Co
         title (str): Page title.
         storage_xhtml (str): Page content in Confluence storage format (XHTML).
         ctx (Context): FastMCP invocation context.
-        parent_id (str, optional): Parent page ID to nest this page under.
+        parent_id (str): Parent page ID to nest this page under.
     
     Returns:
         dict: Created page details including:
@@ -233,6 +233,7 @@ async def create_page_v1(space_ref: str, title: str, storage_xhtml: str, ctx: Co
         "space": {
             "key": space_ref
         },
+        "parentId": parent_id,
         "body": {
             "storage": {
                 "value": storage_xhtml,

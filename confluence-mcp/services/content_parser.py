@@ -13,7 +13,8 @@ async def markdown_to_confluence_xhtml(markdown_path: str, ctx: Context = None) 
         ctx: FastMCP context for logging.
     
     Returns:
-        str: Confluence-compatible XHTML markup, or error dict if conversion fails.
+        str: Flattened Confluence-compatible XHTML markup (newlines removed), 
+             or error dict if conversion fails.
     """
     # Check if file exists
     file_path = Path(markdown_path)
@@ -36,15 +37,47 @@ async def markdown_to_confluence_xhtml(markdown_path: str, ctx: Context = None) 
     # Convert markdown to XHTML
     try:
         xhtml = _markdown_to_confluence_storage_format(markdown_content)
+        
+        # Write human-readable XHTML to file (with newlines preserved)
+        xhtml_output_path = file_path.with_suffix('.xhtml')
+        try:
+            with open(xhtml_output_path, 'w', encoding='utf-8') as f:
+                f.write(xhtml)
+            if ctx:
+                await ctx.info(f"Wrote human-readable XHTML to: {xhtml_output_path}")
+        except Exception as e:
+            # Log warning but don't fail conversion
+            if ctx:
+                await ctx.warning(f"Failed to write XHTML file: {e}")
+        
+        # Flatten XHTML for API submission (remove newlines)
+        flattened_xhtml = _flatten_xhtml(xhtml)
+        
         if ctx:
-            await ctx.info(f"Successfully converted {file_path.name} to Confluence XHTML ({len(xhtml)} chars)")
-        return xhtml
+            await ctx.info(f"Successfully converted {file_path.name} to Confluence XHTML ({len(flattened_xhtml)} chars, flattened)")
+        
+        return flattened_xhtml
+        
     except Exception as e:
         error_msg = f"Markdown conversion failed: {e}"
         if ctx:
             await ctx.error(error_msg)
         return {"error": error_msg}
 
+def _flatten_xhtml(xhtml: str) -> str:
+    """
+    Flattens XHTML by removing all newline characters.
+    This is required for Confluence API submissions which fail with newlines in the payload.
+    
+    Args:
+        xhtml: XHTML string with newlines.
+    
+    Returns:
+        str: Flattened XHTML string with newlines removed.
+    """
+    # Remove all newline characters (\n, \r\n, \r)
+    flattened = xhtml.replace('\r\n', '').replace('\n', '').replace('\r', '')
+    return flattened
 
 def _markdown_to_confluence_storage_format(markdown: str) -> str:
     """
