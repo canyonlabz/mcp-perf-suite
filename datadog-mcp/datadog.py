@@ -66,8 +66,8 @@ async def get_logs(env_name: str, start_time: str, end_time: str, query_type: st
     
     Args:
         env_name: Environment name from environments.json
-        start_time: Start time (ISO 8601 format or epoch timestamp)
-        end_time: End time (ISO 8601 format or epoch timestamp)
+        start_time: Start time (epoch timestamp)
+        end_time: End time (epoch timestamp)
         query_type: Template types ("all_errors", "warnings", "http_errors", "api_errors", "service_errors", "host_errors", "kubernetes_errors", "custom")
         run_id: Optional run ID for organizing artifacts
         ctx: Workflow context for chaining state/status/errors

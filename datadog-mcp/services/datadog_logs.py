@@ -234,8 +234,8 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
     
     Args:
         env_name: Environment name
-        start_time: Start time (ISO 8601 or epoch)
-        end_time: End time (ISO 8601 or epoch)
+        start_time: Start time (epoch)
+        end_time: End time (epoch)
         query_type: Type of query template
         run_id: Run ID for artifacts organization
         ctx: Workflow context
