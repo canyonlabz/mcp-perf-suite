@@ -18,6 +18,7 @@ server:
 # Performance Analysis Settings  
 perf_analysis:
   response_time_sla: 5000  # milliseconds
+  load_tool: "blazemeter"  # Options: blazemeter, jmeter, gatling
   apm_tool: "datadog"  # Options: datadog, newrelic, appdynamics, dynatrace
   statistical_confidence: 0.95
   anomaly_sensitivity:

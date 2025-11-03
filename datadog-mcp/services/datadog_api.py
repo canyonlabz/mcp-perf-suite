@@ -156,7 +156,7 @@ def _write_csv_header(writer: csv.writer):
     """Write standard CSV header for output files."""
     writer.writerow([
         "env_name", "env_tag", "scope", "hostname", "service_filter", "container_or_pod",
-        "timestamp_utc", "metric", "value", "unit", "derived_pct",
+        "timestamp_utc", "metric", "value", "unit"
     ])
 
 # -----------------------------------------------
@@ -304,7 +304,7 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
                 def write_series(metric_name: str, unit: str = ""):
                     for ts_ms, val in series_map.get(metric_name, []):
                         dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                        w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, metric_name, val, unit, ""])  # derived_pct empty here
+                        w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, metric_name, val, unit])
 
                 write_series("system.cpu.user", "%")
                 write_series("system.cpu.system", "%")
@@ -321,7 +321,7 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
                         pct = (used / tot) * 100.0
                         mem_pct_vals.append(pct)
                         dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                        w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, "mem_used_pct", pct, "%", pct])
+                        w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, "mem_used_pct", pct, "%"])
 
                 # Derived CPU percent per timestamp (if CPU limit is configured)
                 if cpu_limit_cores > 0:
@@ -333,7 +333,7 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
                         cpu_total = (cpu_user.get(ts_ms, 0) or 0) + (cpu_sys.get(ts_ms, 0) or 0)
                         cpu_pct = (cpu_total / cpu_limit_cores) * 100.0
                         dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                        w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, "cpu_util_pct", cpu_pct, "%", cpu_pct])
+                        w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, "cpu_util_pct", cpu_pct, "%"])
 
             # Aggregates
             # CPU utilization ≈ avg(user + system) over overlapping timestamps
@@ -550,7 +550,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                     for cname, pts in per_container.items():
                         for ts_ms, val in pts:
                             dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                            w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, scope_metric, val, unit, ""])  # derived_pct empty for k8s
+                            w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, scope_metric, val, unit])
 
                 write_series("kubernetes.cpu.usage.total", "nanocores", cpu_series)
                 write_series("kubernetes.memory.usage", "bytes", mem_series)
@@ -561,7 +561,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                         for ts_ms, val in pts:
                             cpu_pct = _calculate_cpu_percentage(val, cpu_limit_cores)
                             dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                            w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, "cpu_util_pct", cpu_pct, "%", cpu_pct])
+                            w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, "cpu_util_pct", cpu_pct, "%"])
 
                 # Write Memory percentages (if Memory limit is configured)
                 if memory_limit_bytes > 0:
@@ -569,7 +569,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                         for ts_ms, val in pts:
                             mem_pct = _calculate_memory_percentage(val, memory_limit_bytes)
                             dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                            w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, "mem_util_pct", mem_pct, "%", mem_pct])
+                            w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, "mem_util_pct", mem_pct, "%"])
 
             # Aggregates (service-level): simple mean across all container values within window
             def flat_vals(d: Dict[str, List[Tuple[int, float]]]) -> List[float]:

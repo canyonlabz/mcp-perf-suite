@@ -13,6 +13,7 @@ from services.performance_analyzer import (
     generate_executive_summary,
     get_current_analysis_status
 )
+from services.log_analyzer import analyze_logs as analyze_logs_impl
 
 mcp = FastMCP(name="perfanalysis")
 
@@ -63,7 +64,7 @@ async def correlate_test_results(test_run_id: str, ctx: Context) -> Dict[str, An
     """
     return await correlate_performance_data(test_run_id, ctx)
 
-@mcp.tool()
+@mcp.tool(enabled=False)
 async def detect_anomalies(test_run_id: str, sensitivity: str = "medium", ctx: Context = None) -> Dict[str, Any]:
     """
     Detect statistical anomalies in performance and infrastructure metrics
@@ -78,7 +79,7 @@ async def detect_anomalies(test_run_id: str, sensitivity: str = "medium", ctx: C
     """
     return await detect_performance_anomalies(test_run_id, sensitivity, ctx)
 
-@mcp.tool()
+@mcp.tool(enabled=False)
 async def identify_bottlenecks(test_run_id: str, ctx: Context) -> Dict[str, Any]:
     """
     Identify performance bottlenecks and constraint points
@@ -107,7 +108,7 @@ async def compare_test_runs(test_run_ids: List[str], comparison_type: str = "per
     """
     return await compare_multiple_runs(test_run_ids, comparison_type, ctx)
 
-@mcp.tool()
+@mcp.tool(enabled=False)
 async def summary_analysis(test_run_id: str, include_recommendations: bool = True, ctx: Context = None) -> Dict[str, Any]:
     """
     Generate executive summary with AI-powered insights using OpenAI
@@ -135,6 +136,38 @@ async def get_analysis_status(test_run_id: str, ctx: Context) -> Dict[str, Any]:
         Dictionary containing analysis completion status
     """
     return await get_current_analysis_status(test_run_id, ctx)
+
+@mcp.tool()
+async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
+    """
+    Analyze log files from load testing and APM tools for errors and performance issues.
+    
+    Analyzes JMeter/BlazeMeter logs and Datadog APM logs, identifies errors grouped by
+    type and API, correlates with existing performance and infrastructure analyses.
+    
+    Args:
+        test_run_id: The unique test run identifier
+        ctx: FastMCP workflow context for chaining
+    
+    Returns:
+        Dictionary containing:
+            - success: Boolean indicating if analysis completed
+            - total_issues: Total number of log issues identified
+            - issues_by_source: Breakdown by source (jmeter, datadog)
+            - output_files: Paths to CSV, JSON, and Markdown files
+            - correlations_summary: Summary of correlations
+    
+    Note:
+        Required files:
+        - artifacts/{test_run_id}/blazemeter/jmeter.log (if load_tool is blazemeter)
+        - artifacts/{test_run_id}/datadog/logs_*.csv (if apm_tool is datadog)
+        
+        Outputs:
+        - artifacts/{test_run_id}/analysis/log_analysis.csv
+        - artifacts/{test_run_id}/analysis/log_analysis.json
+        - artifacts/{test_run_id}/analysis/log_analysis.md
+    """
+    return await analyze_logs_impl(test_run_id, ctx)
 
 if __name__ == "__main__":
     try:
