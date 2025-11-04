@@ -149,16 +149,17 @@ async def get_page_content(page_ref: str, mode: str, ctx: Context) -> dict:
         return await get_page_content_v1(page_ref, ctx)
 
 @mcp.tool
-async def create_page(space_ref: str, filename: str, mode: str, ctx: Context, parent_id: str = None) -> dict:
+async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str, ctx: Context, parent_id: str) -> dict:
     """
     Creates a new Confluence page by importing a Markdown performance report.
     
     Args:
         space_ref (str): Space identifier (space_id for cloud, space_key for on-prem) from list_spaces.
+        test_run_id (str): ID of the test run (used for artifact path).
         filename (str): Markdown report filename, as returned by list_available_reports.
         mode (str): "cloud" or "onprem".
         ctx (Context): FastMCP context for error/status reporting.
-        parent_id (str, optional): Parent page ID to nest the new page under.
+        parent_id (str): Parent page ID to nest the new page under.
     
     Returns:
         dict with:
@@ -168,7 +169,7 @@ async def create_page(space_ref: str, filename: str, mode: str, ctx: Context, pa
             - 'status': Result status ("created" or "error").
     """
     # Convert markdown to Confluence XHTML
-    xhtml_result = await convert_markdown_to_xhtml(filename, ctx)
+    xhtml_result = await markdown_to_confluence_xhtml(test_run_id, filename, ctx)
     
     # Check if conversion failed
     if isinstance(xhtml_result, dict) and "error" in xhtml_result:
@@ -242,19 +243,20 @@ async def get_available_charts(test_run_id: str = None, ctx: Context = None) -> 
     return await list_available_charts(test_run_id, ctx)
 
 @mcp.tool
-async def convert_markdown_to_xhtml(markdown_path: str, ctx: Context = None) -> str:
+async def convert_markdown_to_xhtml(test_run_id: str, filename: str, ctx: Context = None) -> str:
     """
     Converts a Markdown performance report to Confluence storage-format XHTML.
     
     Args:
-        markdown_path: Full path to the markdown report file.
+        test_run_id: ID of the test run (used for artifact path).
+        filename: Filename of the markdown report. NOTE: full path is constructed internally. Get list from get_available_reports.
         ctx: FastMCP context for error/status reporting.
     
     Returns:
         str: Confluence-compatible XHTML markup, ready for page creation or update.
              Returns error dict if conversion fails.
     """
-    return await markdown_to_confluence_xhtml(markdown_path, ctx)
+    return await markdown_to_confluence_xhtml(test_run_id, filename, ctx)
 
 @mcp.tool()
 async def search_pages(query: str, mode: str, ctx: Context, space_ref: str = None) -> list:

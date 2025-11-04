@@ -3,13 +3,21 @@ import re
 from typing import Union, Dict
 from pathlib import Path
 from fastmcp import Context
+from utils.config import load_config
 
-async def markdown_to_confluence_xhtml(markdown_path: str, ctx: Context = None) -> Union[str, Dict]:
+# Load the config.yaml which contains path folder settings. NOTE: OS specific yaml files will override default config.yaml
+CONFIG = load_config()
+CNF_CONFIG = CONFIG.get('confluence', {})
+ARTIFACTS_PATH = CONFIG['artifacts']['artifacts_path']
+
+
+async def markdown_to_confluence_xhtml(test_run_id: str, filename: str, ctx: Context = None) -> Union[str, Dict]:
     """
     Converts a Markdown performance report to Confluence storage-format XHTML.
     
     Args:
-        markdown_path: File path to the markdown report.
+        test_run_id: ID of the test run (used for artifact path).
+        filename: Filename of the markdown report.
         ctx: FastMCP context for logging.
     
     Returns:
@@ -17,6 +25,7 @@ async def markdown_to_confluence_xhtml(markdown_path: str, ctx: Context = None) 
              or error dict if conversion fails.
     """
     # Check if file exists
+    markdown_path = Path(ARTIFACTS_PATH) / test_run_id / "reports" / filename
     file_path = Path(markdown_path)
     if not file_path.exists():
         error_msg = f"Markdown file not found: {markdown_path}"
@@ -190,7 +199,6 @@ def _markdown_to_confluence_storage_format(markdown: str) -> str:
     
     return '\n'.join(xhtml_lines)
 
-
 def _apply_inline_formatting(text: str) -> str:
     """
     Applies inline markdown formatting (bold, italic, code, links) to text.
@@ -213,7 +221,6 @@ def _apply_inline_formatting(text: str) -> str:
     text = re.sub(r'$$([^$$]+)$$$$([^$$]+)$$', r'<a href="\2">\1</a>', text)
     
     return text
-
 
 def _escape_html(text: str) -> str:
     """
