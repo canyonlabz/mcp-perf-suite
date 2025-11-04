@@ -354,67 +354,117 @@ def analyze_host_system_metrics(host_data: pd.DataFrame, resource_allocation: Di
             "duration_minutes": calculate_duration_minutes(host_data['timestamp_utc'])
         }
     
-    # CPU Analysis (Host CPU already in percentages)
+    # CPU Analysis (Host CPU already in percentages); align by timestamp to avoid NaNs
     if not cpu_data.empty:
-        # Calculate total CPU utilization (sum of user + system if both present)
-        cpu_user = cpu_data[cpu_data['metric'] == 'system.cpu.user']['value']
-        cpu_system = cpu_data[cpu_data['metric'] == 'system.cpu.system']['value'] 
-        
-        if not cpu_user.empty and not cpu_system.empty:
-            total_cpu_pct = cpu_user + cpu_system
-        elif not cpu_user.empty:
-            total_cpu_pct = cpu_user
-        elif not cpu_system.empty:
-            total_cpu_pct = cpu_system
-        else:
-            total_cpu_pct = cpu_data['value']  # Fallback to any CPU metric
-        
-        if not total_cpu_pct.empty:
-            host_metrics["cpu_analysis"] = {
-                "allocated_cpus": resource_allocation['cpus'],
-                "peak_utilization_pct": float(total_cpu_pct.max()),
-                "avg_utilization_pct": float(total_cpu_pct.mean()),
-                "min_utilization_pct": float(total_cpu_pct.min()),
-                "samples_count": len(total_cpu_pct),
-                "metrics_included": cpu_data['metric'].unique().tolist()
-            }
+        try:
+            cpu_wide = (
+                cpu_data
+                .pivot_table(index='timestamp_utc', columns='metric', values='value', aggfunc='mean')
+                .sort_index()
+            )
+            user_series = cpu_wide.get('system.cpu.user')
+            system_series = cpu_wide.get('system.cpu.system')
+            if user_series is not None or system_series is not None:
+                user_filled = user_series.fillna(0) if user_series is not None else pd.Series(0, index=cpu_wide.index)
+                system_filled = system_series.fillna(0) if system_series is not None else pd.Series(0, index=cpu_wide.index)
+                total_cpu_pct = (user_filled + system_filled).fillna(0)
+            else:
+                # Fallback to any CPU metric available
+                any_cpu = cpu_wide.select_dtypes(include=[np.number]).sum(axis=1)
+                total_cpu_pct = any_cpu.fillna(0)
+
+            if not total_cpu_pct.empty:
+                host_metrics["cpu_analysis"] = {
+                    "allocated_cpus": resource_allocation['cpus'],
+                    "peak_utilization_pct": float(np.nanmax(total_cpu_pct.values) if len(total_cpu_pct.values) else 0.0),
+                    "avg_utilization_pct": float(np.nanmean(total_cpu_pct.values) if len(total_cpu_pct.values) else 0.0),
+                    "min_utilization_pct": float(np.nanmin(total_cpu_pct.values) if len(total_cpu_pct.values) else 0.0),
+                    "samples_count": int(total_cpu_pct.shape[0]),
+                    "metrics_included": cpu_data['metric'].unique().tolist()
+                }
+        except Exception:
+            # As a last resort, compute over the raw series without alignment
+            total_cpu_pct = cpu_data['value'].astype(float)
+            total_cpu_pct = total_cpu_pct.replace([np.inf, -np.inf], np.nan).fillna(0)
+            if not total_cpu_pct.empty:
+                host_metrics["cpu_analysis"] = {
+                    "allocated_cpus": resource_allocation['cpus'],
+                    "peak_utilization_pct": float(np.nanmax(total_cpu_pct.values)),
+                    "avg_utilization_pct": float(np.nanmean(total_cpu_pct.values)),
+                    "min_utilization_pct": float(np.nanmin(total_cpu_pct.values)),
+                    "samples_count": int(total_cpu_pct.shape[0]),
+                    "metrics_included": cpu_data['metric'].unique().tolist()
+                }
     
-    # Memory Analysis
+    # Memory Analysis (align by timestamp to avoid NaNs)
     if not memory_data.empty:
-        # Look for memory usage percentage or calculate from raw values
-        mem_used_pct = memory_data[memory_data['metric'] == 'mem_used_pct']['value']
-        
-        if not mem_used_pct.empty:
-            # Direct percentage available
-            host_metrics["memory_analysis"] = {
-                "allocated_gb": resource_allocation['memory_gb'],
-                "peak_utilization_pct": float(mem_used_pct.max()),
-                "avg_utilization_pct": float(mem_used_pct.mean()),
-                "min_utilization_pct": float(mem_used_pct.min()),
-                "samples_count": len(mem_used_pct),
-                "calculation_method": "direct_percentage"
-            }
-        else:
-            # Calculate from raw memory values if available
-            mem_used = memory_data[memory_data['metric'] == 'system.mem.used']['value']
-            mem_total = memory_data[memory_data['metric'] == 'system.mem.total']['value']
-            
-            if not mem_used.empty and not mem_total.empty:
-                # Convert to GB and calculate percentage
-                mem_used_gb = mem_used / 1e9
-                mem_total_gb = mem_total / 1e9
-                mem_util_pct = (mem_used_gb / mem_total_gb) * 100
-                
+        try:
+            mem_wide = (
+                memory_data
+                .pivot_table(index='timestamp_utc', columns='metric', values='value', aggfunc='mean')
+                .sort_index()
+            )
+            # Direct percentage if present (mem_util_pct or mem_used_pct)
+            direct_pct = None
+            if 'mem_util_pct' in mem_wide.columns:
+                direct_pct = mem_wide['mem_util_pct'].astype(float).replace([np.inf, -np.inf], np.nan)
+            elif 'mem_used_pct' in mem_wide.columns:
+                direct_pct = mem_wide['mem_used_pct'].astype(float).replace([np.inf, -np.inf], np.nan)
+
+            if direct_pct is not None:
+                pct_series = direct_pct.fillna(0)
                 host_metrics["memory_analysis"] = {
                     "allocated_gb": resource_allocation['memory_gb'],
-                    "peak_usage_gb": float(mem_used_gb.max()),
-                    "avg_usage_gb": float(mem_used_gb.mean()),
-                    "detected_total_gb": float(mem_total_gb.mean()),
-                    "peak_utilization_pct": float(mem_util_pct.max()),
-                    "avg_utilization_pct": float(mem_util_pct.mean()),
-                    "samples_count": len(mem_util_pct),
-                    "calculation_method": "calculated_from_raw"
+                    "peak_utilization_pct": float(np.nanmax(pct_series.values) if len(pct_series.values) else 0.0),
+                    "avg_utilization_pct": float(np.nanmean(pct_series.values) if len(pct_series.values) else 0.0),
+                    "min_utilization_pct": float(np.nanmin(pct_series.values) if len(pct_series.values) else 0.0),
+                    "samples_count": int(pct_series.shape[0]),
+                    "calculation_method": "direct_percentage"
                 }
+            else:
+                used = mem_wide.get('system.mem.used')
+                total = mem_wide.get('system.mem.total')
+                if used is not None and total is not None:
+                    used_gb = used.astype(float) / 1e9
+                    total_gb = total.astype(float) / 1e9
+                    # Avoid division misalignment and divide-by-zero
+                    total_gb_clean = total_gb.replace(0, np.nan)
+                    util_pct = (used_gb / total_gb_clean) * 100
+                    util_pct = util_pct.replace([np.inf, -np.inf], np.nan).fillna(0)
+                    host_metrics["memory_analysis"] = {
+                        "allocated_gb": resource_allocation['memory_gb'],
+                        "peak_usage_gb": float(np.nanmax(used_gb.values) if len(used_gb.values) else 0.0),
+                        "avg_usage_gb": float(np.nanmean(used_gb.values) if len(used_gb.values) else 0.0),
+                        "detected_total_gb": float(np.nanmean(total_gb.values) if len(total_gb.values) else 0.0),
+                        "peak_utilization_pct": float(np.nanmax(util_pct.values) if len(util_pct.values) else 0.0),
+                        "avg_utilization_pct": float(np.nanmean(util_pct.values) if len(util_pct.values) else 0.0),
+                        "samples_count": int(util_pct.shape[0]),
+                        "calculation_method": "calculated_from_raw"
+                    }
+        except Exception:
+            # Fallback: best-effort calculation over raw values
+            try:
+                used_raw = memory_data[memory_data['metric'] == 'system.mem.used']['value'].astype(float) / 1e9
+                total_raw = memory_data[memory_data['metric'] == 'system.mem.total']['value'].astype(float) / 1e9
+                min_len = min(len(used_raw), len(total_raw))
+                if min_len > 0:
+                    used_arr = used_raw.values[:min_len]
+                    total_arr = total_raw.values[:min_len]
+                    total_arr[total_arr == 0] = np.nan
+                    util_arr = (used_arr / total_arr) * 100
+                    util_arr = np.nan_to_num(util_arr, nan=0.0, posinf=0.0, neginf=0.0)
+                    host_metrics["memory_analysis"] = {
+                        "allocated_gb": resource_allocation['memory_gb'],
+                        "peak_usage_gb": float(np.nanmax(used_arr)),
+                        "avg_usage_gb": float(np.nanmean(used_arr)),
+                        "detected_total_gb": float(np.nanmean(total_arr[np.isfinite(total_arr)]) if np.isfinite(total_arr).any() else 0.0),
+                        "peak_utilization_pct": float(np.nanmax(util_arr)),
+                        "avg_utilization_pct": float(np.nanmean(util_arr)),
+                        "samples_count": int(min_len),
+                        "calculation_method": "calculated_from_raw_fallback"
+                    }
+            except Exception:
+                pass
     
     return host_metrics
 
