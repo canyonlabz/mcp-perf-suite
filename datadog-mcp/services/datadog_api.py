@@ -110,7 +110,15 @@ def _ensure_artifacts_dir(run_id: str) -> str:
     return base
 
 def _parse_to_utc(start_time: str, end_time: str) -> Tuple[int, int, int, int, str]:
-    """Parse input times (epoch or ISO) in configured timezone and convert to UTC.
+    """Parse input times (epoch or ISO) and convert to epoch timestamps.
+    
+    Accepts multiple input formats (all assumed to be in UTC):
+    - Epoch timestamp (e.g., "1761933994")
+    - ISO 8601 format (e.g., "2025-10-31T14:06:34Z" or "2025-10-31 14:06:34")
+    - Datetime string format (e.g., "2025-10-31 14:06:34")
+    
+    Note: All input timestamps are treated as UTC. No timezone conversion is performed.
+    The function only formats/parses the timestamp, it does not convert between timezones.
 
     Returns: (v1_from_s, v1_to_s, v2_from_ms, v2_to_ms, tz_label)
     """
@@ -122,26 +130,27 @@ def _parse_to_utc(start_time: str, end_time: str) -> Tuple[int, int, int, int, s
                 return datetime.fromtimestamp(int(val), tz=timezone.utc)
         except Exception:
             pass
-        # ISO-like formats; interpret in configured timezone then convert to UTC
+        # ISO-like formats; treat as UTC (no conversion)
         # We only rely on naive parsing here to stay dependency-free
+        # Handle ISO 8601 format with Z suffix (e.g., "2025-10-31T14:06:34Z")
+        # Note: All inputs are guaranteed to be UTC, so no timezone offset handling needed
         val_norm = val.replace("T", " ").strip()
+        # Strip Z suffix if present (all inputs are UTC)
+        val_norm = val_norm.rstrip("Z")
         # Try common formats
         fmts = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]
         for fmt in fmts:
             try:
                 dt_naive = datetime.strptime(val_norm, fmt)
-                # We do not have pytz; assume configured_tz is either "UTC" or ignored
-                if configured_tz.upper() == "UTC":
-                    return dt_naive.replace(tzinfo=timezone.utc)
-                # If non-UTC is configured, we still treat dt as local wall time and convert by assuming it was local
-                # Since we have no tz database here, we document that non-UTC offsets should be pre-adjusted by caller
+                # Mark as UTC without conversion - input is assumed to already be UTC
                 return dt_naive.replace(tzinfo=timezone.utc)
             except Exception:
                 continue
         raise ValueError(f"Unrecognized time format: {val}")
 
-    start_dt_utc = parse_one(start_time).astimezone(timezone.utc)
-    end_dt_utc = parse_one(end_time).astimezone(timezone.utc)
+    # Parse both times (already UTC, no conversion needed)
+    start_dt_utc = parse_one(start_time)
+    end_dt_utc = parse_one(end_time)
     if start_dt_utc >= end_dt_utc:
         raise ValueError("start_time must be before end_time")
 
@@ -206,7 +215,7 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
         env_name: Environment name to load (e.g., 'QA', 'UAT')
         start_time: Start timestamp (epoch or ISO8601)
         end_time: End timestamp (epoch or ISO8601)  
-        run_id: Optional test run identifier for artifacts
+        run_id: Test run identifier for artifacts
         ctx: FastMCP context for logging
 
     Returns:
@@ -379,7 +388,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
         env_name: Environment name to load (e.g., 'QA', 'UAT')
         start_time: Start timestamp (epoch or ISO8601)
         end_time: End timestamp (epoch or ISO8601)  
-        run_id: Optional test run identifier for artifacts
+        run_id: Test run identifier for artifacts
         ctx: FastMCP context for logging
 
     Returns:
@@ -468,7 +477,6 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                 r_cpu = await client.post(V2_TIMESERIES_URL, headers=headers, json=body_cpu, timeout=60.0)
                 r_cpu.raise_for_status()
                 j = r_cpu.json()
-                ##attrs = (j.get("data") or [{}])[0].get("attributes", {})
                 attrs = j.get("data", {}).get("attributes", {})
                 times = attrs.get("times", [])  # ms timestamps
                 series_list = attrs.get("series", [])

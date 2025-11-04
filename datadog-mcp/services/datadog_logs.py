@@ -2,7 +2,7 @@ import httpx
 import json
 import csv
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Tuple, Optional, Union
 from dotenv import load_dotenv
 from pathlib import Path
@@ -211,23 +211,46 @@ def _logs_to_csv(logs: List[dict], env_name: str, env_tag: str, query_type: str)
 def _normalize_timestamp(timestamp: str) -> str:
     """
     Convert timestamp to ISO 8601 format if needed.
+    Accepts multiple input formats (all assumed to be in UTC):
+    - Epoch timestamp (e.g., "1761933994")
+    - ISO 8601 format (e.g., "2025-10-31T14:06:34Z")
+    - Datetime string format (e.g., "2025-10-31 14:06:34")
+    
+    Note: All input timestamps are treated as UTC. No timezone conversion is performed.
+    
     Args:
-        timestamp (str): Input timestamp (epoch or ISO 8601).
+        timestamp (str): Input timestamp in any supported format (assumed to be UTC).
     Returns:
-        str: ISO 8601 formatted timestamp.
+        str: ISO 8601 formatted timestamp in UTC (e.g., "2025-10-31T14:06:34Z").
     """
     # If it's already in ISO format, return as-is
     if 'T' in timestamp and 'Z' in timestamp:
         return timestamp
     
-    # If it's epoch timestamp, convert
+    # Try to parse as epoch timestamp (assumed to be UTC)
     try:
         epoch_time = int(timestamp)
-        dt = datetime.fromtimestamp(epoch_time)
+        dt = datetime.fromtimestamp(epoch_time, tz=timezone.utc)
         return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
     except ValueError:
-        # Assume it's already in correct format
-        return timestamp
+        pass
+    
+    # Try to parse as datetime string (YYYY-MM-DD HH:MM:SS format)
+    # This matches the format used by get_host_metrics and get_kubernetes_metrics
+    # IMPORTANT: Treat the datetime string as already being in UTC - no conversion
+    val_norm = timestamp.replace("T", " ").strip()
+    fmts = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]
+    for fmt in fmts:
+        try:
+            dt_naive = datetime.strptime(val_norm, fmt)
+            # Mark as UTC without conversion - input is assumed to already be UTC
+            dt_utc = dt_naive.replace(tzinfo=timezone.utc)
+            return dt_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
+        except ValueError:
+            continue
+    
+    # If all parsing attempts fail, return as-is (may cause API error, but preserves original behavior)
+    return timestamp
 
 # -----------------------------------------------
 # Logs (v2) API - Search Logs

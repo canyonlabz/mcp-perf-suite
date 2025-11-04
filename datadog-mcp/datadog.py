@@ -26,7 +26,7 @@ async def load_environment(env_name: str, ctx: Context) -> Dict[str, Any]:
     return await load_environment_json(env_name, ctx)
 
 @mcp.tool()
-async def get_host_metrics(env_name: str, start_time: str, end_time: str, run_id: Optional[str], ctx: Context) -> Dict[str, Any]:
+async def get_host_metrics(env_name: str, start_time: str, end_time: str, run_id: str, ctx: Context) -> Dict[str, Any]:
     """
     Retrieves CPU and memory metrics for all Hosts in the specified environment.
     
@@ -34,7 +34,7 @@ async def get_host_metrics(env_name: str, start_time: str, end_time: str, run_id
         env_name (str): The environment short name to load (e.g., 'QA', 'UAT', etc.).
         start_time (str): Start timestamp in format "YYYY-MM-DD HH:MM:SS" (e.g., "2025-10-21 22:10:00").
         end_time (str): End timestamp in format "YYYY-MM-DD HH:MM:SS" (e.g., "2025-10-21 22:10:00").
-        run_id (Optional[str]): Optional test run identifier for artifacts (e.g., BlazeMeter run_id or timestamp '2023-01-01T00:00:00Z').
+        run_id (str): Test run identifier for artifacts (e.g., BlazeMeter run_id or timestamp '2023-01-01T00:00:00Z').
         ctx (Context, optional): Workflow context for chaining state/status/errors.
 
     Returns:
@@ -43,7 +43,7 @@ async def get_host_metrics(env_name: str, start_time: str, end_time: str, run_id
     return await collect_host_metrics(env_name, start_time, end_time, run_id, ctx)
 
 @mcp.tool()
-async def get_kubernetes_metrics(env_name: str, start_time: str, end_time: str, run_id: Optional[str], ctx: Context) -> Dict[str, Any]:
+async def get_kubernetes_metrics(env_name: str, start_time: str, end_time: str, run_id: str, ctx: Context) -> Dict[str, Any]:
     """
     Retrieves CPU and memory metrics for all Kubernetes services in the specified environment.
 
@@ -51,7 +51,7 @@ async def get_kubernetes_metrics(env_name: str, start_time: str, end_time: str, 
         env_name (str): The environment short name to load (e.g., 'QA', 'UAT', etc.).
         start_time (str): Start timestamp in format "YYYY-MM-DD HH:MM:SS" (e.g., "2025-10-21 22:10:00").
         end_time (str): End timestamp in format "YYYY-MM-DD HH:MM:SS" (e.g., "2025-10-21 22:10:00").
-        run_id (Optional[str]): Optional test run identifier for artifacts (e.g., BlazeMeter run_id or timestamp '2023-01-01T00:00:00Z').
+        run_id (str): Test run identifier for artifacts (e.g., BlazeMeter run_id or timestamp '2023-01-01T00:00:00Z').
         ctx (Context, optional): Workflow context for chaining state/status/errors.
 
     Returns:
@@ -60,7 +60,7 @@ async def get_kubernetes_metrics(env_name: str, start_time: str, end_time: str, 
     return await collect_kubernetes_metrics(env_name, start_time, end_time, run_id, ctx)
 
 @mcp.tool()
-async def get_logs(env_name: str, start_time: str, end_time: str, query_type: str, run_id: Optional[str], ctx: Context, custom_query: Optional[str] = None) -> dict:
+async def get_logs(env_name: str, start_time: str, end_time: str, query_type: str, run_id: str, ctx: Context, custom_query: Optional[str] = None) -> dict:
     """
     Retrieve logs from Datadog for a specific environment and time range.
     
@@ -69,7 +69,7 @@ async def get_logs(env_name: str, start_time: str, end_time: str, query_type: st
         start_time: Start time (epoch timestamp)
         end_time: End time (epoch timestamp)
         query_type: Template types ("all_errors", "warnings", "http_errors", "api_errors", "service_errors", "host_errors", "kubernetes_errors", "custom")
-        run_id: Optional run ID for organizing artifacts
+        run_id: Test run identifier for artifacts
         ctx: Workflow context for chaining state/status/errors
         custom_query: Custom Datadog query (required if query_type="custom")
         
