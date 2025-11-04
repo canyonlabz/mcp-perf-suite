@@ -32,8 +32,12 @@ async def get_host_metrics(env_name: str, start_time: str, end_time: str, run_id
     
     Args:
         env_name (str): The environment short name to load (e.g., 'QA', 'UAT', etc.).
-        start_time (str): Start timestamp in format "YYYY-MM-DD HH:MM:SS" (e.g., "2025-10-21 22:10:00").
-        end_time (str): End timestamp in format "YYYY-MM-DD HH:MM:SS" (e.g., "2025-10-21 22:10:00").
+        start_time (str): Start timestamp in UTC. Accepts multiple formats:
+            - Epoch timestamp (e.g., "1761933994")
+            - ISO 8601 format (e.g., "2025-10-31T14:06:34Z")
+            - Datetime string format (e.g., "2025-10-31 14:06:34")
+            All formats are treated as UTC - no timezone conversion is performed.
+        end_time (str): End timestamp in UTC. Accepts the same formats as start_time.
         run_id (str): Test run identifier for artifacts (e.g., BlazeMeter run_id or timestamp '2023-01-01T00:00:00Z').
         ctx (Context, optional): Workflow context for chaining state/status/errors.
 
@@ -49,8 +53,12 @@ async def get_kubernetes_metrics(env_name: str, start_time: str, end_time: str, 
 
     Args:
         env_name (str): The environment short name to load (e.g., 'QA', 'UAT', etc.).
-        start_time (str): Start timestamp in format "YYYY-MM-DD HH:MM:SS" (e.g., "2025-10-21 22:10:00").
-        end_time (str): End timestamp in format "YYYY-MM-DD HH:MM:SS" (e.g., "2025-10-21 22:10:00").
+        start_time (str): Start timestamp in UTC. Accepts multiple formats:
+            - Epoch timestamp (e.g., "1761933994")
+            - ISO 8601 format (e.g., "2025-10-31T14:06:34Z")
+            - Datetime string format (e.g., "2025-10-31 14:06:34")
+            All formats are treated as UTC - no timezone conversion is performed.
+        end_time (str): End timestamp in UTC. Accepts the same formats as start_time.
         run_id (str): Test run identifier for artifacts (e.g., BlazeMeter run_id or timestamp '2023-01-01T00:00:00Z').
         ctx (Context, optional): Workflow context for chaining state/status/errors.
 
@@ -66,8 +74,12 @@ async def get_logs(env_name: str, start_time: str, end_time: str, query_type: st
     
     Args:
         env_name: Environment name from environments.json
-        start_time: Start time (epoch timestamp)
-        end_time: End time (epoch timestamp)
+        start_time: Start timestamp in UTC. Accepts multiple formats:
+            - Epoch timestamp (e.g., "1761933994")
+            - ISO 8601 format (e.g., "2025-10-31T14:06:34Z")
+            - Datetime string format (e.g., "2025-10-31 14:06:34")
+            All formats are treated as UTC - no timezone conversion is performed.
+        end_time: End timestamp in UTC. Accepts the same formats as start_time.
         query_type: Template types ("all_errors", "warnings", "http_errors", "api_errors", "service_errors", "host_errors", "kubernetes_errors", "custom")
         run_id: Test run identifier for artifacts
         ctx: Workflow context for chaining state/status/errors
