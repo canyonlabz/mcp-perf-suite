@@ -330,7 +330,7 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
                         pct = (used / tot) * 100.0
                         mem_pct_vals.append(pct)
                         dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                        w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, "mem_used_pct", pct, "%"])
+                        w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, "mem_util_pct", pct, "%"])
 
                 # Derived CPU percent per timestamp (if CPU limit is configured)
                 if cpu_limit_cores > 0:
