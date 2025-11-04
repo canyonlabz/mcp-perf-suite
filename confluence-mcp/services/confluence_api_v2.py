@@ -254,7 +254,7 @@ async def create_page_v2(space_ref: str, title: str, storage_xhtml: str, ctx: Co
         await ctx.error(error_msg)
         return {"error": error_msg, "status": "error"}
 
-async def search_content_v2(query: str, space_key: str = None, ctx: Context = None) -> list:
+async def search_content_v2(query: str, space_key: str = None, ctx: Context = None, include_folders: bool = True) -> list:
     """
     Search Confluence Cloud content using CQL (v1 API endpoint).
     Note: Cloud uses the v1 /wiki/rest/api/search endpoint for CQL queries.
@@ -263,14 +263,16 @@ async def search_content_v2(query: str, space_key: str = None, ctx: Context = No
         query (str): Search query (will be used in title and text search).
         space_key (str, optional): Limit search to specific space key.
         ctx (Context): FastMCP context.
+        include_folders (bool): If True, includes folders in search results (default: True).
     
     Returns:
-        List of matching pages with title, id, url, space, and excerpt.
+        List of matching pages and folders with title, id, url, space, and excerpt.
     """
     base_url = CONFLUENCE_V2_BASE_URL
     
-    # Build CQL query
-    cql_parts = [f'type=page AND (title~"{query}" OR text~"{query}")']
+    # Build CQL query - include folders if requested
+    content_types = "page" if not include_folders else "(page, folder)"
+    cql_parts = [f'type in {content_types} AND (title~"{query}" OR text~"{query}")']
     if space_key:
         cql_parts.append(f'space={space_key}')
     
