@@ -107,6 +107,8 @@ async def get_metric_files(run_id: str, env_type: str, resources: List[str]) -> 
     Example:
         >>> await get_metric_files("run_12345", "k8s", ["nga-ai-autogen-app-api"])
         [Path("artifacts/run_12345/datadog/k8s_metrics_[nga-ai-autogen-app-api_].csv")]
+        >>> await get_metric_files("run_12345", "host", ["u2zqtwbpwdwv037"])
+        [Path("artifacts/run_12345/datadog/host_metrics_[u2zqtwbpwdwv037].csv")]
     """
     base_dir = ARTIFACTS_PATH / run_id / APM_TOOL
     print(f"DEBUG: base_dir={base_dir}, exists={base_dir.exists()}, APM_TOOL={APM_TOOL}")
@@ -117,7 +119,12 @@ async def get_metric_files(run_id: str, env_type: str, resources: List[str]) -> 
     discovered_files = []
     for resource in resources:
         # Build expected filename with brackets
-        expected_name = f"{env_type}_metrics_[{resource}_].csv"
+        # Note: Host files use format: host_metrics_[hostname].csv (no trailing underscore)
+        #       K8s files use format: k8s_metrics_[service_name_].csv (with trailing underscore)
+        if env_type == "host":
+            expected_name = f"{env_type}_metrics_[{resource}].csv"
+        else:  # k8s
+            expected_name = f"{env_type}_metrics_[{resource}_].csv"
         print(f"DEBUG: Looking for {expected_name} in {base_dir}")
         # Check all CSV files and match by expected filename prefix
         csv_files = list(base_dir.glob("*.csv"))

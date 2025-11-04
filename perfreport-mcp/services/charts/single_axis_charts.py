@@ -18,13 +18,14 @@ def resolve_color(color_name: str) -> str:
 # -----------------------------------------------
 # Single Axis Chart Generators
 # -----------------------------------------------
-async def generate_cpu_utilization_chart(df, chart_spec, resource_name, run_id):
+async def generate_cpu_utilization_chart(df, chart_spec, env_type, resource_name, run_id):
     """
     Generate and save a CPU Utilization line chart for a given resource.
 
     Args:
         df (pd.DataFrame): Full CSV data already loaded for this resource.
         chart_spec (dict): Chart configuration from YAML/schema.
+        env_type (str): Environment type ('host' or 'k8s').
         resource_name (str): Host or k8s service being charted.
         run_id (str): Test run identifier for output paths.
 
@@ -32,7 +33,8 @@ async def generate_cpu_utilization_chart(df, chart_spec, resource_name, run_id):
         dict: { "resource": ..., "path": ... }
     """
     # Filter for CPU metric and container_or_pod
-    df_filtered = df[(df["metric"] == "cpu_util_pct") & (df["container_or_pod"] == resource_name)].copy()
+    resource_column = "hostname" if env_type == "host" else "container_or_pod"
+    df_filtered = df[(df["metric"] == "cpu_util_pct") & (df[resource_column] == resource_name)].copy()
     if df_filtered.empty:
         return {"resource": resource_name, "error": "No CPU utilization data for resource."}
 
@@ -84,13 +86,14 @@ async def generate_cpu_utilization_chart(df, chart_spec, resource_name, run_id):
 
     return {"resource": resource_name, "path": str(chart_path)}
 
-async def generate_memory_utilization_chart(df, chart_spec, resource_name, run_id):
+async def generate_memory_utilization_chart(df, chart_spec, env_type, resource_name, run_id):
     """
     Generate and save a Memory Utilization line chart for a given resource.
 
     Args:
         df (pd.DataFrame): Full CSV data already loaded for this resource.
         chart_spec (dict): Chart configuration from YAML/schema.
+        env_type (str): Environment type ('host' or 'k8s').
         resource_name (str): Host or k8s service being charted.
         run_id (str): Test run identifier for output paths.
 
@@ -98,7 +101,8 @@ async def generate_memory_utilization_chart(df, chart_spec, resource_name, run_i
         dict: { "resource": ..., "path": ... }
     """
     # Filter for memory metric and container_or_pod
-    df_filtered = df[(df["metric"] == "mem_util_pct") & (df["container_or_pod"] == resource_name)].copy()
+    resource_column = "hostname" if env_type == "host" else "container_or_pod"
+    df_filtered = df[(df["metric"] == "mem_util_pct") & (df[resource_column] == resource_name)].copy()
     if df_filtered.empty:
         return {"resource": resource_name, "error": "No Memory utilization data for resource."}
 
