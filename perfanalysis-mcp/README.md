@@ -279,7 +279,8 @@ openai:
 
 ## 🚧 Future Enhancements
 
-- **Real-time Analysis**: Support for streaming analysis during test execution
+- **Temporal Correlation**: Per-identifier correlation (service/host) to preserve hot spot visibility
+- **Insight Enrichment**: Highlight top APIs per “interesting” window, summarize constraints, and surface actionable findings
 - **Custom Metrics**: Support for additional performance and infrastructure metrics
 - **Predictive Analysis**: Machine learning models for performance forecasting
 - **Dashboard Integration**: Export data optimized for reporting dashboards

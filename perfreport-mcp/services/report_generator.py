@@ -118,9 +118,6 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
                 "error": msg,
                 "generated_timestamp": generated_timestamp
             }
-        
-        # Debug logging
-        print(f"DEBUG: run_id={run_id}, environment_type={environment_type}")
 
         # Load markdown summaries (optional)
         perf_summary_md = await _load_text_safe(
@@ -157,8 +154,6 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             }
         
         template_content = await _load_text_file(template_path)
-
-        print(f"DEBUG: Found template at {template_path}")
         
         # Build context for template
         context = _build_report_context(
@@ -172,8 +167,6 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             infra_summary_md,
             corr_summary_md
         )
-        
-        print(f"DEBUG: Built report context: {context}")
 
         # Extract key metrics for metadata (needed for comparison reports)
         overall_stats = {}
@@ -221,9 +214,6 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
                     "cpu_cores": res_alloc.get("cpus", 0),
                     "memory_gb": res_alloc.get("memory_gb", 0)
                 })
-
-            # Print debug info
-            print(f"DEBUG: infra_entities={infra_entities}")    
 
         # Extract correlation insights
         correlation_insights = []
@@ -400,8 +390,6 @@ def _build_report_context(
         ])
         context["API_PERFORMANCE_TABLE"] = "No performance data available"
         context["SLA_SUMMARY"] = "No SLA data available"
-    
-    print(f"DEBUG: Built performance context successfully!")
 
     # Extract infrastructure data
     if infra_data:
@@ -421,13 +409,9 @@ def _build_report_context(
                 unique_envs.append(e)
                 seen.add(e)
         env_str = ", ".join(unique_envs) if unique_envs else "Unknown"
-
-        print(f"DEBUG: Found environments: {env_str}")
         
         # Find peak CPU/Memory from detailed metrics
         cpu_peak, cpu_avg, mem_peak, mem_avg, cpu_cores, mem_gb = _extract_infra_peaks(environment_type, infra_data)
-        
-        print(f"DEBUG: Found infrastructure peaks - CPU Peak: {cpu_peak}, CPU Avg: {cpu_avg}, Mem Peak: {mem_peak}, Mem Avg: {mem_avg}, CPU Cores: {cpu_cores}, Mem GB: {mem_gb}")
 
         context.update({
             "ENVIRONMENT": env_str,
@@ -440,7 +424,6 @@ def _build_report_context(
             "INFRASTRUCTURE_SUMMARY": infra_md or "No infrastructure summary available"
         })
 
-        print(f"DEBUG: Built infrastructure context successfully!")
     else:
         _set_na_values(context, [
             "PEAK_CPU_USAGE", "AVG_CPU_USAGE", "CPU_CORES_ALLOCATED",
@@ -451,12 +434,7 @@ def _build_report_context(
     # Extract correlation data
     if corr_data:
         correlation_summary = corr_md or _build_correlation_summary(corr_data)
-
-        print(f"DEBUG: Built correlation summary successfully!")
-
         correlation_details = _build_correlation_details(corr_data)
-
-        print(f"DEBUG: Built correlation details successfully!")
 
         context.update({
             "CORRELATION_SUMMARY": correlation_summary,
@@ -465,8 +443,6 @@ def _build_report_context(
     else:
         context["CORRELATION_SUMMARY"] = "No correlation analysis available"
         context["CORRELATION_DETAILS"] = ""
-    
-    print(f"DEBUG: Built correlation context successfully!")
 
     # Executive summary and other sections
     context["EXECUTIVE_SUMMARY"] = _build_executive_summary(perf_data, infra_data, corr_data)
@@ -582,12 +558,8 @@ def _build_correlation_summary(corr_data: Dict) -> str:
     
     summary = f"Found {len(correlations)} significant correlation(s):\n"
 
-    print(f"DEBUG: Correlations found with count - {len(correlations)}")
-
     for corr in correlations:
         summary += f"- {corr.get('type', 'Unknown')}: {corr.get('interpretation', 'N/A')}\n"
-    
-    print(f"DEBUG: Built correlation summary - {summary}")
 
     return summary
 
@@ -662,33 +634,17 @@ def _extract_infra_peaks(environment_type: str, infra_data: Dict) -> tuple:
     else:
         platform = detailed.get("hosts", {})
         entities = platform.get("hosts", {})
-    
-    print(f"DEBUG: Extracting infra peaks from entities: {entities.keys()}")
 
     for entity_data in entities.values():
         cpu_analysis = entity_data.get("cpu_analysis", {})
         mem_analysis = entity_data.get("memory_analysis", {})
-        
         cpu_peak = max(cpu_peak, cpu_analysis.get("peak_utilization_pct", 0))
-        print(f"DEBUG: Entity CPU Peak: {cpu_peak}")
-
         cpu_avg = max(cpu_avg, cpu_analysis.get("avg_utilization_pct", 0))
-        print(f"DEBUG: Entity CPU Avg: {cpu_avg}")
-
         mem_peak = max(mem_peak, mem_analysis.get("peak_utilization_pct", 0))
-        print(f"DEBUG: Entity Mem Peak: {mem_peak}")
-
         mem_avg = max(mem_avg, mem_analysis.get("avg_utilization_pct", 0))
-        print(f"DEBUG: Entity Mem Avg: {mem_avg}")
-        
         res_alloc = entity_data.get("resource_allocation", {})
-        print(f"DEBUG: Resource allocation: {res_alloc}")
-
         cpu_cores = max(cpu_cores, _parse_numeric(res_alloc.get("cpus", 0), default=0.0))
-        print(f"DEBUG: CPU Cores: {cpu_cores}")
-
         mem_gb = max(mem_gb, res_alloc.get("memory_gb", 0))
-        print(f"DEBUG: Memory GB: {mem_gb}")
     
     return cpu_peak, cpu_avg, mem_peak, mem_avg, cpu_cores, mem_gb
 

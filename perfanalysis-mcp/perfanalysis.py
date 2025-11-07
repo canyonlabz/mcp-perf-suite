@@ -93,7 +93,7 @@ async def identify_bottlenecks(test_run_id: str, ctx: Context) -> Dict[str, Any]
     """
     return await identify_system_bottlenecks(test_run_id, ctx)
 
-@mcp.tool()
+@mcp.tool(enabled=False)
 async def compare_test_runs(test_run_ids: List[str], comparison_type: str = "performance", ctx: Context = None) -> Dict[str, Any]:
     """
     Compare multiple test runs for trend analysis (max 5 runs)

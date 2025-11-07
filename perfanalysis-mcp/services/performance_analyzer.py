@@ -426,15 +426,16 @@ async def generate_executive_summary(test_run_id: str, include_recommendations: 
     Generate executive summary with AI-powered insights using OpenAI
     """
     try:
-        artifacts_path = Path(artifacts_base) / test_run_id
+        artifacts_path = Path(artifacts_base) / test_run_id / 'analysis'
         
         # Gather all analysis results
         analysis_files = [
-            ('performance_analysis', 'blazemeter/performance_analysis.json'),
-            ('infrastructure_analysis', 'datadog/infrastructure_analysis.json'),
+            ('performance_analysis', 'performance_analysis.json'),
+            ('infrastructure_analysis', 'infrastructure_analysis.json'),
             ('correlation_analysis', 'correlation_analysis.json'),
-            ('anomaly_detection', 'anomaly_detection.json'),
-            ('bottleneck_analysis', 'bottleneck_analysis.json')
+            ('log_analysis', 'log_analysis.json'),
+            #('anomaly_detection', 'anomaly_detection.json'),           # TODO: Enable when implemented
+            #('bottleneck_analysis', 'bottleneck_analysis.json')        # TODO: Enable when implemented
         ]
         
         combined_data = {"test_run_id": test_run_id}
@@ -507,16 +508,17 @@ async def get_current_analysis_status(test_run_id: str, ctx: Context) -> Dict[st
         }
         
         analysis_files = {
-            "performance_analysis": "blazemeter/performance_analysis.json",
-            "infrastructure_analysis": "datadog/infrastructure_analysis.json", 
+            "performance_analysis": "performance_analysis.json",
+            "infrastructure_analysis": "infrastructure_analysis.json", 
             "correlation_analysis": "correlation_analysis.json",
-            "anomaly_detection": "anomaly_detection.json",
-            "bottleneck_analysis": "bottleneck_analysis.json",
-            "executive_summary": "executive_summary.json"
+            "log_analysis": "log_analysis.json",
+            #"anomaly_detection": "anomaly_detection.json",         # TODO: Enable when implemented
+            #"bottleneck_analysis": "bottleneck_analysis.json",     # TODO: Enable when implemented
+            #"executive_summary": "executive_summary.json"          # TODO: Enable when implemented
         }
         
         for analysis_name, file_path in analysis_files.items():
-            full_path = artifacts_path / file_path
+            full_path = artifacts_path / test_run_id / "analysis" / file_path
             if full_path.exists():
                 status["completed_analyses"].append(analysis_name)
                 status["available_files"].append(str(full_path))

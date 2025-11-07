@@ -101,10 +101,11 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
         env_type = env_info['env_type']     # Environment type can be either 'host' or 'k8s'
         if not env_info:
             return {"error": f"Missing environment info for: {env_name}"}
+
         resources = env_info["resources"]
-        print(f"DEBUG: run_id={run_id}, env_type={env_type}, resources={resources}")
+
         metric_files = await get_metric_files(run_id, env_type, resources)
-        print(f"DEBUG: metric_files={metric_files}")
+
         for resource, metric_file in zip(resources, metric_files):
             try:
                 df = pd.read_csv(metric_file)

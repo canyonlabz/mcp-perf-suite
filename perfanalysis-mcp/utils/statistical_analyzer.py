@@ -220,8 +220,6 @@ def calculate_correlation_matrix(performance_data: Dict, infrastructure_data: Di
         
         has_k8s = k8s_summary.get('total_services', 0) > 0
         has_hosts = host_summary.get('total_hosts', 0) > 0
-        
-        print(f"DEBUG: has_k8s = {has_k8s}, has_hosts = {has_hosts}")
 
         if has_k8s and not has_hosts:
             correlations["environment_type"] = "kubernetes"
@@ -479,19 +477,14 @@ def analyze_temporal_kubernetes_correlations(correlations: Dict, performance_dat
     """Analyze temporal correlations for Kubernetes environments"""
     
     try:
-
-        print(f"DEBUG: ARTIFACTS_PATH = {ARTIFACTS_PATH}, test_run_id = {correlations['test_run_id']}")
-
         # Load raw data files for temporal analysis
         test_run_id = correlations["test_run_id"]
         artifacts_path = ARTIFACTS_PATH / test_run_id
-        
-        print(f"DEBUG: artifacts_path = {artifacts_path}")
 
         # Load BlazeMeter performance data
         blazemeter_file = artifacts_path / "blazemeter" / "test-results.csv"
         if not blazemeter_file.exists():
-            # Debug: check if the directory exists
+            # Check if the directory exists
             if not artifacts_path.exists():
                 correlations["error"] = f"Artifacts directory not found: {artifacts_path} (cwd: {Path.cwd()})"
             else:
@@ -507,15 +500,10 @@ def analyze_temporal_kubernetes_correlations(correlations: Dict, performance_dat
         if not datadog_files:
             correlations["error"] = f"Datadog data files not found in {artifacts_path / 'datadog'}"
             return correlations
-        
-        ##print(f"DEBUG: datadog_files = {datadog_files}")
 
         # Process the data
         perf_df = load_and_process_performance_data(blazemeter_file)
-        print(f"DEBUG: Loaded performance data with {len(perf_df)} records")
-
         infra_df = load_and_process_infrastructure_data(datadog_files, granularity_window)
-        print(f"DEBUG: Loaded infrastructure data with {len(infra_df)} records")
         
         if perf_df is None or infra_df is None:
             correlations["error"] = "Failed to load or process performance/infrastructure data"
@@ -568,7 +556,7 @@ def analyze_temporal_host_correlations(correlations: Dict, performance_data: Dic
         # Load BlazeMeter performance data
         blazemeter_file = artifacts_path / "blazemeter" / "test-results.csv"
         if not blazemeter_file.exists():
-            # Debug: check if the directory exists
+            # Check if the directory exists
             if not artifacts_path.exists():
                 correlations["error"] = f"Artifacts directory not found: {artifacts_path} (cwd: {Path.cwd()})"
             else:
@@ -639,7 +627,7 @@ def load_and_process_performance_data(file_path: Path) -> Optional[pd.DataFrame]
         df = df[required_cols].copy()
         
         # Add SLA compliance flag (vectorized)
-        df['sla_violation'] = df['elapsed'] > 5000  # Default SLA threshold
+        df['sla_violation'] = df['elapsed'] > 5000  # Default SLA threshold (TODO: pull sla threshold from config.yaml)
         
         return df
         
@@ -657,13 +645,9 @@ def load_and_process_infrastructure_data(infra_csv_files, granularity_window):
     """
     
     all_infra_data = []
-    
-    ##print(f"DEBUG: Loading infrastructure CSV files: {infra_csv_files}")
 
     for csv_file in infra_csv_files:
         try:
-            print(f"DEBUG: Loading single infrastructure CSV: {csv_file}")
-
             df = pd.read_csv(csv_file)
             
             # Filter for only the utilization percentage metrics
