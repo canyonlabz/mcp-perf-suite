@@ -9,6 +9,15 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from scipy.stats import pearsonr, spearmanr
 
+# Import config at module level (global)
+from utils.config import load_config
+
+# Load configuration globally
+CONFIG = load_config()
+ARTIFACTS_CONFIG = CONFIG.get('artifacts', {})
+ARTIFACTS_PATH = Path(ARTIFACTS_CONFIG.get('artifacts_path', './artifacts'))
+PFA_CONFIG = CONFIG.get('perf_analysis', {})
+
 # -----------------------------------------------
 # BlazeMeter/JMeter statistical analysis functions
 # -----------------------------------------------
@@ -212,6 +221,8 @@ def calculate_correlation_matrix(performance_data: Dict, infrastructure_data: Di
         has_k8s = k8s_summary.get('total_services', 0) > 0
         has_hosts = host_summary.get('total_hosts', 0) > 0
         
+        print(f"DEBUG: has_k8s = {has_k8s}, has_hosts = {has_hosts}")
+
         if has_k8s and not has_hosts:
             correlations["environment_type"] = "kubernetes"
             return analyze_temporal_kubernetes_correlations(correlations, performance_data, infrastructure_data, 
@@ -468,14 +479,15 @@ def analyze_temporal_kubernetes_correlations(correlations: Dict, performance_dat
     """Analyze temporal correlations for Kubernetes environments"""
     
     try:
+
+        print(f"DEBUG: ARTIFACTS_PATH = {ARTIFACTS_PATH}, test_run_id = {correlations['test_run_id']}")
+
         # Load raw data files for temporal analysis
         test_run_id = correlations["test_run_id"]
-        # Import artifacts_base from the config
-        from .config import load_config
-        config = load_config()
-        artifacts_base = config['artifacts']['artifacts_path']
-        artifacts_path = Path(artifacts_base) / test_run_id
+        artifacts_path = ARTIFACTS_PATH / test_run_id
         
+        print(f"DEBUG: artifacts_path = {artifacts_path}")
+
         # Load BlazeMeter performance data
         blazemeter_file = artifacts_path / "blazemeter" / "test-results.csv"
         if not blazemeter_file.exists():
@@ -486,23 +498,45 @@ def analyze_temporal_kubernetes_correlations(correlations: Dict, performance_dat
                 correlations["error"] = f"BlazeMeter data file not found: {blazemeter_file} (exists: {blazemeter_file.exists()})"
             return correlations
         
-        # Load Datadog infrastructure data
-        datadog_files = list(artifacts_path.glob("datadog/*.csv"))
+        # Load Datadog infrastructure data: only host/k8s metrics CSVs
+        datadog_dir = artifacts_path / "datadog"
+        datadog_files = []
+        for prefix in ("host", "k8s"):
+            datadog_files.extend(datadog_dir.glob(f"{prefix}_metrics_*.csv"))
+        datadog_files = list(sorted(datadog_files))
         if not datadog_files:
             correlations["error"] = f"Datadog data files not found in {artifacts_path / 'datadog'}"
             return correlations
         
+        ##print(f"DEBUG: datadog_files = {datadog_files}")
+
         # Process the data
         perf_df = load_and_process_performance_data(blazemeter_file)
-        infra_df = load_and_process_infrastructure_data(datadog_files[0])
+        print(f"DEBUG: Loaded performance data with {len(perf_df)} records")
+
+        infra_df = load_and_process_infrastructure_data(datadog_files, granularity_window)
+        print(f"DEBUG: Loaded infrastructure data with {len(infra_df)} records")
         
         if perf_df is None or infra_df is None:
             correlations["error"] = "Failed to load or process performance/infrastructure data"
             return correlations
-        
+
+        # Get service identifiers
+        services = infra_df['identifier'].unique()
+        num_services = len(services)
+        correlations["insights"].append(f"Analyzed {num_services} service(s) for performance correlation")
+        # Add kubernetes-specific context
+        correlations["infrastructure_scope"] = "kubernetes"
+        correlations["services_analyzed"] = num_services
+
         # Perform temporal correlation analysis
         temporal_results = perform_temporal_correlation_analysis(
-            perf_df, infra_df, granularity_window, sla_threshold, resource_thresholds
+            perf_df,
+            infra_df,
+            granularity_window,
+            sla_threshold,
+            resource_thresholds,
+            environment_type="k8s",
         )
         
         # Update correlations with temporal results
@@ -517,16 +551,80 @@ def analyze_temporal_kubernetes_correlations(correlations: Dict, performance_dat
         return correlations
         
     except Exception as e:
-        correlations["error"] = f"Temporal correlation analysis failed: {str(e)}"
+        correlations["error"] = f"Temporal Kubernetes correlation analysis failed: {str(e)}"
         return correlations
 
 def analyze_temporal_host_correlations(correlations: Dict, performance_data: Dict, infrastructure_data: Dict,
                                      granularity_window: int, sla_threshold: float, resource_thresholds: Dict) -> Dict:
-    """Analyze temporal correlations for Host environments"""
-    # Similar to Kubernetes but for host metrics
-    # For now, redirect to Kubernetes analysis with host detection
-    correlations["insights"].append("Host temporal correlation analysis not yet implemented - using basic analysis")
-    return analyze_kubernetes_correlations(correlations, performance_data, infrastructure_data)
+    """
+    Analyze temporal correlations for Host-based environments
+    """
+
+    try:
+        # Load raw data files for temporal analysis
+        test_run_id = correlations["test_run_id"]
+        artifacts_path = ARTIFACTS_PATH / test_run_id
+        
+        # Load BlazeMeter performance data
+        blazemeter_file = artifacts_path / "blazemeter" / "test-results.csv"
+        if not blazemeter_file.exists():
+            # Debug: check if the directory exists
+            if not artifacts_path.exists():
+                correlations["error"] = f"Artifacts directory not found: {artifacts_path} (cwd: {Path.cwd()})"
+            else:
+                correlations["error"] = f"BlazeMeter data file not found: {blazemeter_file} (exists: {blazemeter_file.exists()})"
+            return correlations
+        
+        # Load Datadog infrastructure data: only host/k8s metrics CSVs
+        datadog_dir = artifacts_path / "datadog"
+        datadog_files = []
+        for prefix in ("host", "k8s"):
+            datadog_files.extend(datadog_dir.glob(f"{prefix}_metrics_*.csv"))
+        datadog_files = list(sorted(datadog_files))
+        if not datadog_files:
+            correlations["error"] = f"Datadog data files not found in {artifacts_path / 'datadog'}"
+            return correlations    
+
+        # Process the data
+        perf_df = load_and_process_performance_data(blazemeter_file)
+        infra_df = load_and_process_infrastructure_data(datadog_files, granularity_window)
+
+        if perf_df is None or infra_df is None:
+            correlations["error"] = "Failed to load or process performance/infrastructure data"
+            return correlations
+
+        # Get host identifiers
+        hosts = infra_df['identifier'].unique()
+        num_hosts = len(hosts)
+        correlations["insights"].append(f"Analyzed {num_hosts} host(s) for performance correlation")
+        # Add host-specific context
+        correlations["infrastructure_scope"] = "host"
+        correlations["hosts_analyzed"] = num_hosts
+
+        # Perform temporal correlation analysis
+        temporal_results = perform_temporal_correlation_analysis(
+            perf_df,
+            infra_df,
+            granularity_window,
+            sla_threshold,
+            resource_thresholds,
+            environment_type="host",
+        )
+
+        # Update correlations with temporal results
+        correlations["temporal_analysis"] = temporal_results
+        correlations["correlation_matrix"] = temporal_results.get("correlation_matrix", {})
+        correlations["significant_correlations"] = temporal_results.get("significant_correlations", [])
+        correlations["insights"].extend(temporal_results.get("insights", []))
+        
+        # Generate summary
+        correlations["summary"] = generate_temporal_correlation_summary(temporal_results)
+        
+        return correlations
+        
+    except Exception as e:
+        correlations["error"] = f"Temporal Host correlation analysis failed: {str(e)}"
+        return correlations
 
 def load_and_process_performance_data(file_path: Path) -> Optional[pd.DataFrame]:
     """Load and process BlazeMeter performance data for temporal analysis - OPTIMIZED"""
@@ -549,48 +647,102 @@ def load_and_process_performance_data(file_path: Path) -> Optional[pd.DataFrame]
         print(f"Error loading performance data: {e}")
         return None
 
-def load_and_process_infrastructure_data(file_path: Path) -> Optional[pd.DataFrame]:
-    """Load and process Datadog infrastructure data for temporal analysis - OPTIMIZED"""
-    try:
-        df = pd.read_csv(file_path)
-        
-        # Convert ISO timestamp to datetime with UTC
-        df['timestamp'] = pd.to_datetime(df['timestamp_utc'], utc=True)
-        
-        # Filter for CPU and memory metrics only
-        df = df[df['metric'].isin(['kubernetes.cpu.usage.total', 'kubernetes.memory.usage'])].copy()
-        
-        # Convert values based on metric type (vectorized)
-        df['value_pct'] = 0.0
-        cpu_mask = df['metric'] == 'kubernetes.cpu.usage.total'
-        memory_mask = df['metric'] == 'kubernetes.memory.usage'
-        
-        # CPU: nanocores to percentage
-        df.loc[cpu_mask, 'value_pct'] = (df.loc[cpu_mask, 'value'] / 1e9) / 4.05 * 100
-        
-        # Memory: bytes to percentage  
-        df.loc[memory_mask, 'value_pct'] = (df.loc[memory_mask, 'value'] / (16 * 1024**3)) * 100
-        
-        # Create simplified metric names for unstacking
-        df['metric_type'] = df['metric'].map({
-            'kubernetes.cpu.usage.total': 'cpu',
-            'kubernetes.memory.usage': 'memory'
-        })
-        
-        # Group by timestamp and metric, take mean across containers (simpler than pivot)
-        infra_agg = df.groupby(['timestamp', 'metric_type'])['value_pct'].mean().unstack(fill_value=0)
-        infra_agg.columns = [f'{col}_utilization_pct' for col in infra_agg.columns]
-        infra_agg = infra_agg.reset_index()
-        
-        return infra_agg
-        
-    except Exception as e:
-        print(f"Error loading infrastructure data: {e}")
-        return None
+def load_and_process_infrastructure_data(infra_csv_files, granularity_window):
+    """
+    Unified loader for both K8s and Host infrastructure metrics
+    Works with identical CSV schema from Datadog MCP
+    
+    Returns DataFrame with columns: timestamp, cpu_util_pct, mem_util_pct, identifier
+    Where identifier is either service_filter (k8s) or hostname (host)
+    """
+    
+    all_infra_data = []
+    
+    ##print(f"DEBUG: Loading infrastructure CSV files: {infra_csv_files}")
+
+    for csv_file in infra_csv_files:
+        try:
+            print(f"DEBUG: Loading single infrastructure CSV: {csv_file}")
+
+            df = pd.read_csv(csv_file)
+            
+            # Filter for only the utilization percentage metrics
+            cpu_df = df[df['metric'] == 'cpu_util_pct'].copy()
+            mem_df = df[df['metric'] == 'mem_util_pct'].copy()
+            
+            if cpu_df.empty and mem_df.empty:
+                continue
+            
+            # Detect environment type from 'scope' column
+            if not df.empty:
+                scope = df['scope'].iloc[0]
+                env_type = 'k8s' if scope == 'k8s' else 'host'
+            else:
+                continue
+            
+            # Process CPU data
+            if not cpu_df.empty:
+                cpu_processed = cpu_df[['timestamp_utc', 'value']].copy()
+                cpu_processed.columns = ['timestamp', 'cpu_util_pct']
+                cpu_processed['timestamp'] = pd.to_datetime(cpu_processed['timestamp'], utc=True)
+                
+                # Add identifier based on environment type
+                if env_type == 'k8s':
+                    cpu_processed['identifier'] = cpu_df['service_filter'].values
+                else:  # host
+                    cpu_processed['identifier'] = cpu_df['hostname'].values
+                
+                all_infra_data.append(cpu_processed)
+            
+            # Process Memory data
+            if not mem_df.empty:
+                mem_processed = mem_df[['timestamp_utc', 'value']].copy()
+                mem_processed.columns = ['timestamp', 'mem_util_pct']
+                mem_processed['timestamp'] = pd.to_datetime(mem_processed['timestamp'], utc=True)
+                
+                # Add identifier based on environment type
+                if env_type == 'k8s':
+                    mem_processed['identifier'] = mem_df['service_filter'].values
+                else:  # host
+                    mem_processed['identifier'] = mem_df['hostname'].values
+                
+                all_infra_data.append(mem_processed)
+                
+        except Exception as e:
+            print(f"Error processing infrastructure CSV {csv_file}: {e}")
+            continue
+    
+    if not all_infra_data:
+        return pd.DataFrame()
+    
+    # Combine all data
+    combined_df = pd.concat(all_infra_data, ignore_index=True)
+    
+    # Merge CPU and Memory data on timestamp and identifier
+    cpu_data = combined_df[combined_df['cpu_util_pct'].notna()][['timestamp', 'identifier', 'cpu_util_pct']]
+    mem_data = combined_df[combined_df['mem_util_pct'].notna()][['timestamp', 'identifier', 'mem_util_pct']]
+    
+    # Merge on timestamp and identifier
+    merged_df = pd.merge(
+        cpu_data, 
+        mem_data, 
+        on=['timestamp', 'identifier'], 
+        how='outer'
+    )
+    
+    # Sort by timestamp
+    merged_df = merged_df.sort_values('timestamp').reset_index(drop=True)
+    
+    # Create time windows
+    if not merged_df.empty:
+        merged_df['time_window'] = merged_df['timestamp'].dt.floor(f'{granularity_window}min')
+    
+    return merged_df
 
 def perform_temporal_correlation_analysis(perf_df: pd.DataFrame, infra_df: pd.DataFrame, 
                                         granularity_window: int, sla_threshold: float, 
-                                        resource_thresholds: Dict) -> Dict:
+                                        resource_thresholds: Dict,
+                                        environment_type: str = "k8s") -> Dict:
     """Perform temporal correlation analysis - OPTIMIZED with pandas vectorization"""
     
     results = {
@@ -623,14 +775,14 @@ def perform_temporal_correlation_analysis(perf_df: pd.DataFrame, infra_df: pd.Da
         infra_indexed = infra_df.set_index('timestamp')
         
         # Resample performance data to time windows (vectorized aggregation)
-        perf_resampled = perf_indexed.resample(f'{granularity_window}S').agg({
+        perf_resampled = perf_indexed.resample(f'{granularity_window}s').agg({
             'elapsed': ['mean', 'max', 'count'],
             'sla_violation': 'sum'
         })
         perf_resampled.columns = ['avg_response_time', 'max_response_time', 'request_count', 'sla_violations']
         
         # Resample infrastructure data to same windows (vectorized aggregation)
-        infra_resampled = infra_indexed.resample(f'{granularity_window}S').mean()
+        infra_resampled = infra_indexed.resample(f'{granularity_window}s').mean(numeric_only=True)
         
         # Merge on timestamp index (single operation)
         merged = pd.merge(
@@ -649,8 +801,8 @@ def perform_temporal_correlation_analysis(perf_df: pd.DataFrame, infra_df: pd.Da
             return results
         
         # Add flags for constraints (vectorized boolean operations)
-        merged['cpu_constraint'] = merged['cpu_utilization_pct'] > cpu_high_threshold
-        merged['memory_constraint'] = merged['memory_utilization_pct'] > memory_high_threshold
+        merged['cpu_constraint'] = merged['cpu_util_pct'] > cpu_high_threshold
+        merged['memory_constraint'] = merged['mem_util_pct'] > memory_high_threshold
         merged['performance_degradation'] = merged['avg_response_time'] > sla_threshold
         
         # Filter to interesting periods (performance issues OR high resource usage)
@@ -705,8 +857,8 @@ def perform_temporal_correlation_analysis(perf_df: pd.DataFrame, infra_df: pd.Da
                     "sla_violation_rate": float((row['sla_violations'] / row['request_count']) * 100) if row['request_count'] > 0 else 0
                 },
                 "infrastructure_metrics": {
-                    "avg_cpu": float(row['cpu_utilization_pct']),
-                    "avg_memory": float(row['memory_utilization_pct'])
+                    "avg_cpu": float(row['cpu_util_pct']),
+                    "avg_memory": float(row['mem_util_pct'])
                 },
                 "correlation_analysis": {
                     "cpu_constraint": bool(row['cpu_constraint']),
@@ -718,10 +870,10 @@ def perform_temporal_correlation_analysis(perf_df: pd.DataFrame, infra_df: pd.Da
         
         # === CALCULATE CORRELATIONS (vectorized) ===
         # Use all windows (not just interesting ones) for correlation
-        cpu_rt_corr = merged['cpu_utilization_pct'].corr(merged['avg_response_time'])
-        memory_rt_corr = merged['memory_utilization_pct'].corr(merged['avg_response_time'])
-        cpu_sla_corr = merged['cpu_utilization_pct'].corr(merged['sla_violations'])
-        memory_sla_corr = merged['memory_utilization_pct'].corr(merged['sla_violations'])
+        cpu_rt_corr = merged['cpu_util_pct'].corr(merged['avg_response_time'])
+        memory_rt_corr = merged['mem_util_pct'].corr(merged['avg_response_time'])
+        cpu_sla_corr = merged['cpu_util_pct'].corr(merged['sla_violations'])
+        memory_sla_corr = merged['mem_util_pct'].corr(merged['sla_violations'])
         
         # Handle NaN correlations (happens when all values are constant)
         cpu_rt_corr = 0.0 if pd.isna(cpu_rt_corr) else float(cpu_rt_corr)
@@ -759,8 +911,34 @@ def perform_temporal_correlation_analysis(perf_df: pd.DataFrame, infra_df: pd.Da
                 "interpretation": f"Memory utilization {'increases' if memory_rt_corr > 0 else 'decreases'} with response time"
             })
         
+        # CPU-SLA Violations correlation
+        if abs(cpu_sla_corr) >= threshold:
+            results["significant_correlations"].append({
+                "type": "cpu_sla_violations",
+                "correlation_coefficient": cpu_sla_corr,
+                "strength": "strong" if abs(cpu_sla_corr) > 0.7 else "moderate",
+                "direction": "positive" if cpu_sla_corr > 0 else "negative",
+                "interpretation": f"Host CPU utilization correlates with SLA violations"
+            })
+        
+        # Memory-SLA Violations correlation
+        if abs(memory_sla_corr) >= threshold:
+            results["significant_correlations"].append({
+                "type": "memory_sla_violations",
+                "correlation_coefficient": memory_sla_corr,
+                "strength": "strong" if abs(memory_sla_corr) > 0.7 else "moderate",
+                "direction": "positive" if memory_sla_corr > 0 else "negative",
+                "interpretation": f"Host memory utilization correlates with SLA violations"
+            })
+
         # Generate insights
-        results["insights"].extend(generate_temporal_insights(results))
+        results["insights"].extend(
+            generate_temporal_insights(
+                results,
+                results.get("significant_correlations", []),
+                environment_type,
+            )
+        )
         
         return results
         
@@ -788,10 +966,10 @@ def analyze_time_window(window_perf: pd.DataFrame, window_infra: pd.DataFrame,
         
         # Infrastructure analysis
         infra_metrics = {
-            "avg_cpu": window_infra['cpu_utilization_pct'].mean(),
-            "peak_cpu": window_infra['cpu_utilization_pct'].max(),
-            "avg_memory": window_infra['memory_utilization_pct'].mean(),
-            "peak_memory": window_infra['memory_utilization_pct'].max()
+            "avg_cpu": window_infra['cpu_util_pct'].mean(),
+            "peak_cpu": window_infra['cpu_util_pct'].max(),
+            "avg_memory": window_infra['mem_util_pct'].mean(),
+            "peak_memory": window_infra['mem_util_pct'].max()
         }
         
         # Only include windows with performance issues or high resource usage
@@ -818,45 +996,115 @@ def analyze_time_window(window_perf: pd.DataFrame, window_infra: pd.DataFrame,
         print(f"Error analyzing time window: {e}")
         return None
 
-def generate_temporal_insights(results: Dict) -> List[str]:
-    """Generate insights from temporal correlation analysis"""
+def generate_temporal_insights(correlation_results, significant_correlations, environment_type: str) -> List[str]:
+    """
+    Generate actionable insights from temporal correlation analysis
+    Tailored for Performance Test Engineers
+    """
+    
     insights = []
     
-    analysis_periods = results.get("analysis_periods", [])
-    correlation_matrix = results.get("correlation_matrix", {})
+    # Resource type terminology
+    resource_label = "service" if environment_type == 'k8s' else "host"
+    resources_label = "services" if environment_type == 'k8s' else "hosts"
     
-    if not analysis_periods:
-        insights.append("No significant performance issues or resource constraints detected during test")
-        return insights
+    # Overall correlation strength insights
+    strong_corrs = [c for c in significant_correlations if c.get('strength') == 'strong']
+    moderate_corrs = [c for c in significant_correlations if c.get('strength') == 'moderate']
     
-    # Count periods with different types of issues
-    cpu_constrained_periods = sum(1 for period in analysis_periods 
-                                if period["correlation_analysis"]["cpu_constraint"])
-    memory_constrained_periods = sum(1 for period in analysis_periods 
-                                   if period["correlation_analysis"]["memory_constraint"])
-    performance_degraded_periods = sum(1 for period in analysis_periods 
-                                     if period["correlation_analysis"]["performance_degradation"])
+    if strong_corrs:
+        insights.append(
+            f"Found {len(strong_corrs)} strong correlation(s) between {resource_label} resources and performance - "
+            f"these are primary optimization targets"
+        )
     
-    insights.append(f"Analyzed {len(analysis_periods)} time periods with performance or resource issues")
+    if moderate_corrs:
+        insights.append(
+            f"Found {len(moderate_corrs)} moderate correlation(s) - "
+            f"consider investigating these as secondary optimization opportunities"
+        )
     
-    if cpu_constrained_periods > 0:
-        insights.append(f"{cpu_constrained_periods} periods showed CPU constraints (>80% utilization)")
+    # CPU-specific insights
+    cpu_corrs = [c for c in significant_correlations if 'cpu' in c.get('type', '')]
+    if cpu_corrs:
+        cpu_rt = next((c for c in cpu_corrs if 'response_time' in c.get('type', '')), None)
+        if cpu_rt and cpu_rt.get('direction') == 'positive':
+            strength = cpu_rt.get('strength')
+            if strength == 'strong':
+                insights.append(
+                    f"Strong CPU-performance correlation detected: {resource_label.capitalize()} CPU utilization "
+                    f"directly impacts response times - recommend CPU scaling or optimization"
+                )
+            else:
+                insights.append(
+                    f"Moderate CPU-performance correlation: Monitor {resource_label} CPU usage during peak loads"
+                )
     
-    if memory_constrained_periods > 0:
-        insights.append(f"{memory_constrained_periods} periods showed memory constraints (>85% utilization)")
+    # Memory-specific insights
+    mem_corrs = [c for c in significant_correlations if 'memory' in c.get('type', '')]
+    if mem_corrs:
+        mem_rt = next((c for c in mem_corrs if 'response_time' in c.get('type', '')), None)
+        if mem_rt and mem_rt.get('direction') == 'positive':
+            strength = mem_rt.get('strength')
+            if strength == 'strong':
+                insights.append(
+                    f"Strong memory-performance correlation detected: {resource_label.capitalize()} memory pressure "
+                    f"affecting response times - recommend memory allocation review"
+                )
+            else:
+                insights.append(
+                    f"Moderate memory-performance correlation: {resource_label.capitalize()} memory usage "
+                    f"may contribute to performance variability"
+                )
     
-    if performance_degraded_periods > 0:
-        insights.append(f"{performance_degraded_periods} periods showed performance degradation")
+    # SLA violation insights
+    sla_corrs = [c for c in significant_correlations if 'sla_violations' in c.get('type', '')]
+    if sla_corrs:
+        cpu_sla = next((c for c in sla_corrs if 'cpu' in c.get('type', '')), None)
+        mem_sla = next((c for c in sla_corrs if 'memory' in c.get('type', '')), None)
+        
+        if cpu_sla and cpu_sla.get('strength') == 'strong':
+            insights.append(
+                f"Critical: High CPU utilization on {resources_label} strongly correlates with SLA violations - "
+                f"immediate action recommended"
+            )
+        
+        if mem_sla and mem_sla.get('strength') == 'strong':
+            insights.append(
+                f"Critical: High memory utilization on {resources_label} strongly correlates with SLA violations - "
+                f"investigate memory leaks or sizing issues"
+            )
     
-    # Correlation insights
-    cpu_corr = correlation_matrix.get("cpu_response_time_correlation", 0)
-    memory_corr = correlation_matrix.get("memory_response_time_correlation", 0)
+    # Temporal pattern insights
+    interesting_periods = correlation_results.get('interesting_periods', 0)
+    total_windows = correlation_results.get('total_windows', 0)
     
-    if abs(cpu_corr) > 0.3:
-        insights.append(f"CPU utilization shows {'strong' if abs(cpu_corr) > 0.7 else 'moderate'} correlation with response time (r={cpu_corr:.3f})")
+    if total_windows > 0:
+        interesting_pct = (interesting_periods / total_windows) * 100
+        if interesting_pct > 30:
+            insights.append(
+                f"High variability detected: {interesting_pct:.1f}% of time windows show concerning patterns - "
+                f"system stability may be at risk"
+            )
+        elif interesting_pct > 10:
+            insights.append(
+                f"Moderate variability: {interesting_pct:.1f}% of time windows show elevated resource usage or response times"
+            )
+        else:
+            insights.append(
+                f"Stable performance: Only {interesting_pct:.1f}% of time windows show elevated metrics - "
+                f"system performing within expected parameters"
+            )
     
-    if abs(memory_corr) > 0.3:
-        insights.append(f"Memory utilization shows {'strong' if abs(memory_corr) > 0.7 else 'moderate'} correlation with response time (r={memory_corr:.3f})")
+    # No significant correlations case
+    if not significant_correlations:
+        insights.append(
+            f"No significant correlations found between {resource_label} resources and performance metrics - "
+            f"{resource_label} infrastructure appears adequately sized for current load"
+        )
+        insights.append(
+            "Performance bottlenecks may be in application code, database, or external dependencies rather than infrastructure"
+        )
     
     return insights
 
@@ -878,6 +1126,96 @@ def generate_temporal_correlation_summary(results: Dict) -> Dict:
         "negative_correlations": len([c for c in significant_correlations if c.get("direction") == "negative"]),
         "correlation_samples": correlation_matrix.get("total_correlation_samples", 0)
     }
+
+def generate_temporal_analysis_breakdown(merged_df, correlation_results, sla_threshold, 
+                                        resource_thresholds, environment_type='k8s'):
+    """
+    Generate detailed temporal analysis breakdown with per-window API stats
+    Works for both K8s and Host environments
+    """
+    
+    temporal_analysis = {
+        "analysis_periods": [],
+        "summary": {
+            "total_periods": 0,
+            "high_utilization_periods": 0,
+            "high_response_time_periods": 0,
+            "sla_violation_periods": 0
+        }
+    }
+    
+    if merged_df.empty:
+        return temporal_analysis
+    
+    # Group by time window
+    grouped = merged_df.groupby('time_window')
+    
+    cpu_threshold = resource_thresholds.get('cpu', {}).get('high', 80)
+    mem_threshold = resource_thresholds.get('memory', {}).get('high', 85)
+    
+    for time_window, window_data in grouped:
+        
+        # Calculate window statistics
+        avg_cpu = window_data['cpu_util_pct'].mean() if 'cpu_util_pct' in window_data else 0
+        avg_memory = window_data['mem_util_pct'].mean() if 'mem_util_pct' in window_data else 0
+        avg_response_time = window_data['elapsed'].mean() if 'elapsed' in window_data else 0
+        
+        # Count SLA violations
+        sla_violations = (window_data['elapsed'] > sla_threshold).sum() if 'elapsed' in window_data else 0
+        total_requests = len(window_data)
+        
+        # Identify interesting period
+        is_high_cpu = avg_cpu > cpu_threshold
+        is_high_memory = avg_memory > mem_threshold
+        is_high_response = avg_response_time > sla_threshold
+        has_sla_violations = sla_violations > 0
+        
+        is_interesting = is_high_cpu or is_high_memory or is_high_response or has_sla_violations
+        
+        # Get API breakdown for this window
+        api_breakdown = []
+        if 'label' in window_data.columns:
+            api_groups = window_data.groupby('label')
+            for api_name, api_data in api_groups:
+                api_breakdown.append({
+                    "api_name": api_name,
+                    "request_count": len(api_data),
+                    "avg_response_time": float(api_data['elapsed'].mean()),
+                    "max_response_time": float(api_data['elapsed'].max()),
+                    "sla_violations": int((api_data['elapsed'] > sla_threshold).sum())
+                })
+        
+        period_data = {
+            "timestamp": time_window.isoformat(),
+            "avg_cpu_utilization": round(float(avg_cpu), 2),
+            "avg_memory_utilization": round(float(avg_memory), 2),
+            "avg_response_time": round(float(avg_response_time), 2),
+            "total_requests": int(total_requests),
+            "sla_violations": int(sla_violations),
+            "sla_violation_rate": round(float(sla_violations / total_requests * 100), 2) if total_requests > 0 else 0,
+            "is_interesting_period": is_interesting,
+            "flags": {
+                "high_cpu": is_high_cpu,
+                "high_memory": is_high_memory,
+                "high_response_time": is_high_response,
+                "has_sla_violations": has_sla_violations
+            },
+            "api_breakdown": api_breakdown
+        }
+        
+        temporal_analysis["analysis_periods"].append(period_data)
+        
+        # Update summary counts
+        if is_interesting:
+            temporal_analysis["summary"]["high_utilization_periods"] += 1
+        if is_high_response:
+            temporal_analysis["summary"]["high_response_time_periods"] += 1
+        if has_sla_violations:
+            temporal_analysis["summary"]["sla_violation_periods"] += 1
+    
+    temporal_analysis["summary"]["total_periods"] = len(temporal_analysis["analysis_periods"])
+    
+    return temporal_analysis
 
 # -----------------------------------------------
 # Statistical analysis functions

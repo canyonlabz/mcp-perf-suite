@@ -259,3 +259,9 @@ test_datadog.py
 test_blazemeter.py
 test_perfanalysis.py
 simple_test.py
+
+# Ignore test folders and scripts in perfanalysis-mcp and perfreport-mcp
+perfanalysis-mcp/test/**
+perfanalysis-mcp/tests/**
+perfreport-mcp/test/**
+perfreport-mcp/tests/**
