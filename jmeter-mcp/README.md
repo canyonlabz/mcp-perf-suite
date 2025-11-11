@@ -1,0 +1,252 @@
+# JMeter MCP Server
+
+Welcome to the JMeter MCP Server! 🎉
+This is a Python-based MCP server built with **FastMCP** to automate JMeter-based performance testing workflows — including execution, monitoring, artifact capture, and analysis.
+
+---
+
+## ✨ Features
+
+* **Run JMeter tests directly**: Execute JMeter test plans (`.jmx` files) locally or remotely.
+* **Stop active JMeter tests**: Gracefully terminate test executions in progress.
+* **Capture network traffic**: Record live network traffic via browser automation or proxy tools.
+* **Analyze captured traffic**: Inspect requests/responses to identify potential bottlenecks or anomalies.
+* **Convert traffic to HAR or JSON**: Standardize captured network traffic for analysis or JMeter script creation.
+* **Generate JMeter scripts**: Convert HAR or JSON traffic into executable JMX test scripts.
+* **Aggregate post-test results**: Parse JMeter JTL output to generate summary reports and KPIs.
+* **Configurable and extensible**: Manage all paths and parameters through `config.yaml` and `.env` files.
+* **Browser integration (Cursor 2.0)**: Utilize Cursor’s browser agent for web traffic capture and playback.
+
+🧩 Future tools under consideration:
+
+* `get_jmeter_logs` – Retrieve logs and errors after execution
+* `validate_jmx` – Validate JMX syntax and embedded variables
+* `generate_summary_report` – Produce a summarized Markdown report for quick insights
+* `compare_runs` – Compare two or more JMeter test results (for regression or trend analysis)
+
+---
+
+## 🏁 Prerequisites
+
+* Python 3.12.4 or higher
+* JMeter installed and added to your system `PATH`
+* Configured `config.yaml` for server and environment settings
+* Optional `.env` for credentials and local paths
+
+---
+
+## 🚀 Getting Started
+
+### 1. Clone the Repository
+
+```bash
+git clone <your-repo-url>
+cd jmeter-mcp
+```
+
+### 2. Create & Activate a Python Virtual Environment
+
+#### macOS / Linux
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+#### Windows (PowerShell)
+
+```bash
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+---
+
+### 3. Configure Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+JMETER_HOME=/path/to/your/apache-jmeter
+JMETER_RESULTS_PATH=/path/to/results
+BROWSER_PROXY_PORT=8888
+```
+
+---
+
+### 4. Configure the MCP Server
+
+Define key paths and parameters in `config.yaml`:
+
+```yaml
+jmeter:
+  jmx_template_path: "templates/test-plan-template.jmx"
+  jmeter_home: "/usr/local/bin/apache-jmeter"
+  results_dir: "artifacts/jmeter-results"
+  timeout_minutes: 60
+  remote_execution: false
+
+network_capture:
+  enabled: true
+  output_format: "har"
+  proxy_port: 8888
+
+analysis:
+  generate_summary: true
+  output_csv: "aggregate_results.csv"
+```
+
+---
+
+## ▶️ Running the MCP Server
+
+### Option 1: Run with Python
+
+```bash
+python jmeter.py
+```
+
+Runs with default `stdio` transport — ideal for local runs or Cursor integration.
+
+---
+
+### Option 2: Run Using `uv` (Recommended) ⚡️
+
+#### Install `uv`
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+#### Run the MCP Server
+
+```bash
+uv run jmeter.py
+```
+
+---
+
+## ⚙️ MCP Server Configuration (`mcp.json`)
+
+Example setup for Cursor or compatible MCP hosts:
+
+```json
+{
+  "mcpServers": {
+    "jmeter": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/path/to/your/jmeter-mcp",
+        "run",
+        "jmeter.py"
+      ]
+    }
+  }
+}
+```
+
+---
+
+## 🛠️ Tools
+
+Your MCP server exposes the following tools for agents, Cursor, or automation pipelines:
+
+| Tool                        | Description                                                         |
+| :-------------------------- | :------------------------------------------------------------------ |
+| `run_jmeter_test`           | Executes a JMeter test based on configuration or provided JMX file  |
+| `stop_jmeter_test`          | Gracefully stops an ongoing JMeter test run                         |
+| `capture_network_traffic`   | Starts capturing live browser or proxy-based network traffic        |
+| `analyze_network_traffic`   | Analyzes network traffic to extract request metadata and statistics |
+| `convert_traffic_to_har`    | Converts captured network data to HAR or JSON                       |
+| `create_jmx_from_har`       | Converts HAR or JSON network traffic into a JMeter JMX script       |
+| `generate_aggregate_report` | Parses JMeter JTL results to produce KPI summaries                  |
+| `validate_jmx`              | Validates JMX script structure and variable references              |
+| `get_jmeter_logs`           | Retrieves JMeter console/log output for debugging                   |
+| `compare_runs`              | Compares performance results across two or more test runs           |
+
+---
+
+## 🔁 Typical Workflow
+
+1. **Prepare Test**
+
+   * Load configuration and environment variables.
+   * Ensure JMX test plan is ready or generate from HAR.
+
+2. **Run Test**
+
+   * `run_jmeter_test` executes the JMeter test.
+   * Logs and results stored in artifacts directory.
+
+3. **Monitor / Stop Test (Optional)**
+
+   * `stop_jmeter_test` terminates the test gracefully if required.
+
+4. **Post-Processing**
+
+   * `generate_aggregate_report` extracts KPIs from JTL.
+   * `analyze_network_traffic` reviews captured HTTP data.
+
+5. **Optional Conversion**
+
+   * `convert_traffic_to_har` → `create_jmx_from_har` for iterative script refinement.
+
+6. **Reporting**
+
+   * Output results as CSV, JSON, or Markdown for downstream MCP analysis.
+
+---
+
+## 📁 Project Structure
+
+```
+jmeter-mcp/
+├── jmeter.py                     # MCP server entrypoint (FastMCP)
+├── services/
+│   ├── jmeter_runner.py          # Handles JMeter execution and control
+│   ├── network_capture.py        # Captures and processes network traffic
+│   ├── har_converter.py          # Converts traffic to/from HAR or JSON
+│   ├── report_aggregator.py      # Aggregates and analyzes JTL results
+│   └── script_generator.py       # Generates JMX scripts from HAR
+├── utils/
+│   ├── config.py                 # Loads and validates config.yaml
+│   ├── file_utils.py             # File handling utilities
+│   └── logger.py                 # Logging helper
+├── config.yaml                   # Centralized configuration
+├── .env                          # Environment variables
+├── requirements.txt              # Dependencies
+├── pyproject.toml                # Project metadata
+├── README.md                     # This file
+└── test-specs/
+    ├── web-flows/
+    │   ├── blazedemo_product_purchase.md
+    │   └── <other_web_flow>.md
+    ├── api-flows/
+    │   ├── user_login_flow.md
+    │   └── <other_api_flow>.md
+    └── examples/
+        └── sample_template.md
+```
+
+---
+
+## 🚧 Future Enhancements
+
+* **Integration with BlazeMeter and Datadog MCPs** for unified execution and monitoring
+* **Real-time metric streaming** to Datadog or Prometheus
+* **Auto-scaling JMeter clusters** (K8s-based execution)
+* **LLM-based test analysis** using PerfAnalysis MCP
+* **Report generation via PerfReport MCP**
+
+---
+
+## 🤝 Contributing
+
+Feel free to open issues or submit pull requests to enhance functionality, add new tools, or improve documentation!
+
+---
+
+Created with ❤️ using FastMCP, JMeter, and the MCP Perf Suite architecture.

@@ -1,0 +1,8 @@
+jmeter:
+  jmeter_home: "/path/to/apache-jmeter"
+  results_dir: "artifacts/jmeter-results"
+
+test_specs:
+  root_path: "test-specs"
+  web_flows_path: "test-specs/web-flows"
+  api_flows_path: "test-specs/api-flows"
