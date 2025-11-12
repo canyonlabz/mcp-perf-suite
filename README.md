@@ -38,6 +38,8 @@ mcp-perf-suite/
 ├── blazemeter-mcp/          # BlazeMeter MCP server (current)
 ├── confluence-mcp/          # Confluence MCP server (current)
 ├── datadog-mcp/             # Datadog MCP server (current)
+├── jmeter-mcp/              # JMeter MCP server (future)
+├── msgraph-mcp/             # Microsoft Graph MCP server (future)
 ├── perfanalysis-mcp/        # LLM-powered test analysis MCP (current)
 ├── perfreport-mcp/          # Reporting and formatting MCP (current)
 ├── README.md                # This file: repo overview and guidance

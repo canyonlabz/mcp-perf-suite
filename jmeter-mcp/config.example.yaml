@@ -1,8 +1,36 @@
+general:
+  enable_debug: False   # Enable/disable debug mode
+  enable_logging: True  # Enable/disable logging
+
+logging:
+  log_level: "INFO"     # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  verbose_mode: False   # Enable verbose logging for debugging
+  log_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\tmp\\logs"  # Update with the actual path
+
+artifacts:
+  artifacts_path: "C:\\<path_to_repo_root>\\mcp-perf-suite\\artifacts"  # Path for artifacts, output files (e.g. JMX files, JTL files, reports, logs, HAR files, etc.)
+
 jmeter:
-  jmeter_home: "/path/to/apache-jmeter"
-  results_dir: "artifacts/jmeter-results"
+  jmeter_home: "C:\\<path_to_jmeter>\\apache-jmeter"
+  jmeter_bin_path: "C:\\<path_to_jmeter>\\apache-jmeter\\bin\\jmeter.bat"  # Update with the actual path
 
 test_specs:
-  root_path: "test-specs"
-  web_flows_path: "test-specs/web-flows"
-  api_flows_path: "test-specs/api-flows"
+  root_path: "C:\\<path_to_repo_root>\\mcp-perf-suite\\jmeter-mcp\\test-specs"  # Path to the test specifications folder for human-readable test scenarios
+  web_flows_path: "test-specs\\web-flows"
+  api_flows_path: "test-specs\\api-flows"
+  examples_path: "test-specs\\examples"
+
+browser:
+  browser_type: "chrome"               # Options: "chrome", "firefox", "edge"
+  headless_mode: True                  # Run browser in headless mode
+  window_size: "1920,1080"             # Browser window size
+  implicit_wait: 10                    # Implicit wait time in seconds
+  page_load_timeout: 60                # Page load timeout in seconds
+
+network_capture:
+  capture_api_requests: True          # Always true – critical for JMeter
+  capture_static_assets: False        # CSS, JS, PNG, JPG, etc.
+  capture_fonts: False                # WOFF, WOFF2, TTF, etc.
+  capture_third_party: True           # Google Fonts, CDN, Ads
+  capture_cookies: True               # Always true – critical for JMeter
+  capture_domain: ""                  # Domain to capture network traffic from (e.g., example.com). Leave empty to capture all domains.
