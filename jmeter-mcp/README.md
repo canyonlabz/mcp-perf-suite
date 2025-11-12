@@ -208,9 +208,16 @@ jmeter-mcp/
 ├── services/
 │   ├── jmeter_runner.py          # Handles JMeter execution and control
 │   ├── network_capture.py        # Captures and processes network traffic
+│   ├── spec_parser.py            # parse Markdown -> structured steps
 │   ├── har_converter.py          # Converts traffic to/from HAR or JSON
 │   ├── report_aggregator.py      # Aggregates and analyzes JTL results
-│   └── script_generator.py       # Generates JMX scripts from HAR
+│   ├── script_generator.py       # Generates JMX scripts from HAR
+│   └── jmx/                          # <<< JMX builder DSL lives here
+│       ├── config_elements.py        # JMeter config elements such as User Defined Variables, CSV Data Sets, etc.
+│       ├── controllers.py            # JMeter Controllers (e.g. Simple, Transaction, etc.)
+│       ├── listeners.py              # JMeter Listeners (e.g. View Results Tree, Aggregate Report, etc.)
+│       ├── samplers.py               # JMeter Samplers (e.g. HTTP Request for GET/POST/PUT/DELETE, etc.)
+│       └── plan.py                   # JMeter Test Plan and Thread Groups
 ├── utils/
 │   ├── config.py                 # Loads and validates config.yaml
 │   ├── file_utils.py             # File handling utilities
