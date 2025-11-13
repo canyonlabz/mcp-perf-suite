@@ -1,0 +1,29 @@
+general:
+  enable_debug: False   # Enable/disable debug mode
+  enable_logging: True  # Enable/disable logging
+
+logging:
+  log_level: "INFO"     # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  verbose_mode: False   # Enable verbose logging for debugging
+  log_path: "C:\\<path_to_repo_root>\\mcp-perf-suite\\tmp\\logs"  # Update with the actual path
+
+artifacts:
+  artifacts_path: "C:\\<path_to_repo_root>\\mcp-perf-suite\\artifacts"  # Path for artifacts, output files (e.g. JMX files, JTL files, reports, logs, HAR files, etc.)
+
+msgraph:
+  ssl_verification: "disabled"     # Options: "ca_bundle" (use certs from env vars) or "disabled" (skip verification)
+  time_zone: "America/New_York"    # Set the time zone
+
+sharepoint:
+  site_id: "<site-id>"
+  drive_id: "<document-library-id>"
+  include_subfolders: ["report", "analysis", "charts"]
+  include_extensions: [".md", ".csv", ".png", ".json"]
+
+teams:
+  team_id: "<team-id>"
+  channel_id: "<channel-id>"
+  notify_on_start: true
+  notify_on_complete: true
+  notify_on_failure: true
+

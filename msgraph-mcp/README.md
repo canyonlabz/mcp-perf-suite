@@ -195,7 +195,7 @@ P90: 480ms | Error Rate: 0.2%
 msgraph-mcp/
 ├── msgraph.py                    # MCP server entrypoint (FastMCP)
 ├── services/
-│   ├── graph_client.py           # Microsoft Graph client utilities
+│   ├── msgraph_api.py            # Microsoft Graph client utilities
 │   ├── teams_notifier.py         # Send messages to Teams channels
 │   └── sharepoint_uploader.py    # Upload artifacts to SharePoint
 ├── utils/
