@@ -29,6 +29,22 @@ def load_config():
     
     raise FileNotFoundError("No valid configuration file found (checked platform-specific and default).")
 
+def load_jmeter_config():
+    """
+    Loads the JMeter-specific configuration from 'jmeter_config.yaml'.
+    """
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    config_path = os.path.join(repo_root, 'jmeter_config.yaml')
+    
+    if not os.path.exists(config_path):
+        raise FileNotFoundError("JMeter configuration file 'jmeter_config.yaml' not found.")
+    
+    with open(config_path, 'r') as file:
+        try:
+            return yaml.safe_load(file)
+        except yaml.YAMLError as e:
+            raise Exception(f"Error parsing 'jmeter_config.yaml': {e}")
+
 if __name__ == '__main__':
     # For testing purposes, print both configurations.
     config = load_config()

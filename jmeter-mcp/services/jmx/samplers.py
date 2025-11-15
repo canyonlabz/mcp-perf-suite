@@ -1,5 +1,5 @@
 """
-jmeter_samplers.py
+services/jmx/samplers.py
 
 This module contains functions to create JMeter Sampler components.
 For example, it includes functions to generate "HTTP Request", "Flow Control Action" components, etc.
@@ -11,7 +11,7 @@ import datetime
 import os
 import urllib.parse
 from xml.dom import minidom
-from src.tools.jmeter_config_elements import (
+from services.jmx.config_elements import (
     create_header_manager
 )
 

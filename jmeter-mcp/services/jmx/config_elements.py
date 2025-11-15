@@ -1,5 +1,5 @@
 """
-jmeter_config_elements.py
+services/jmx/config_elements.py
 
 This module contains functions to create JMeter config elements.
 For example, it includes functions to generate "User Defined Variables", "CSV Data Set Config" elements, etc.

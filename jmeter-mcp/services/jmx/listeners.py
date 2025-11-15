@@ -1,5 +1,5 @@
 """
-jmeter_listeners.py
+services/jmx/listeners.py
 
 This module contains functions to create JMeter Listener components.
 For example, it includes the function to generate a "View Results Tree" listener.

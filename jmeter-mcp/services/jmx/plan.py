@@ -1,5 +1,5 @@
 """
-jmeter_utils.py
+services/jmx/plan.py
 
 This module contains functions to create the main JMeter core components.
 For example, it includes functions to generate "Test Plan", "Thread Group" components, etc.
@@ -70,20 +70,3 @@ def create_thread_group(thread_group_name="Thread Group", num_threads="1", ramp_
     thread_group_hash_tree = ET.Element("hashTree")
     return thread_group, thread_group_hash_tree
 
-# === Save JMX File ===
-def save_jmx_file(root_element, output_dir="generated_jmx"):
-    """
-    Saves the given XML tree (root_element) as a pretty-printed JMX file.
-    The filename will include a timestamp for uniqueness.
-    Returns the output file path.
-    """
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = os.path.join(output_dir, f"generated_test_plan_{timestamp}.jmx")
-    xml_string = ET.tostring(root_element, encoding="utf-8")
-    pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(pretty_xml)
-    print(f"JMX file generated successfully: {output_file}")
-    return output_file

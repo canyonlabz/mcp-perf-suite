@@ -5,28 +5,31 @@ from typing import Callable
 
 # Import necessary modules for JMeter JMX generation
 import xml.etree.ElementTree as ET  # Needed for creating empty hashTree elements
-from src.utils.config import load_config, load_jmeter_config
-from src.tools.jmeter_utils import (
+from utils.config import load_config, load_jmeter_config
+from services.jmx.plan import (
     create_test_plan,
-    create_thread_group,
-    save_jmx_file 
+    create_thread_group
 )
-from src.tools.jmeter_controllers import (
+from services.jmx.controllers import (
     create_simple_controller,
     create_transaction_controller,
     # …add more factory functions as you build them…
 )
-from src.tools.jmeter_samplers import (
+from services.jmx.samplers import (
     create_http_sampler_get,
     create_http_sampler_with_body,
     append_sampler
 )
-from src.tools.jmeter_config_elements import (
+from services.jmx.config_elements import (
     create_cookie_manager,
     create_user_defined_variables,
     create_csv_data_set_config
 )
-from src.tools import jmeter_listeners  # Import listeners module
+from services.jmx.listeners import (
+    create_view_results_tree,
+    create_aggregate_report
+)
+from utils.file_utils import save_jmx_file
 
 # === Main JMeter JMX Generator function ===
 def run_jmx_generator(json_file: str, log_callback: Callable[[str], None] = print) -> str:
@@ -149,14 +152,14 @@ def run_jmx_generator(json_file: str, log_callback: Callable[[str], None] = prin
     # Add View Results Tree if enabled.
     if results_cfg.get("view_results_tree", True):
         view_results_tree_settings = results_cfg.get("view_results_tree_settings", {})
-        vrt_elem, vrt_hash_tree = jmeter_listeners.create_view_results_tree(view_results_tree_settings)
+        vrt_elem, vrt_hash_tree = create_view_results_tree(view_results_tree_settings)
         test_plan_hash_tree.append(vrt_elem)
         test_plan_hash_tree.append(vrt_hash_tree)
 
     # Add Aggregate Report if enabled.
     if results_cfg.get("aggregate_report", True):
         aggregate_report_settings = results_cfg.get("aggregate_report_settings", {})
-        ar_elem, ar_hash_tree = jmeter_listeners.create_aggregate_report(aggregate_report_settings)
+        ar_elem, ar_hash_tree = create_aggregate_report(aggregate_report_settings)
         test_plan_hash_tree.append(ar_elem)
         test_plan_hash_tree.append(ar_hash_tree)
 
