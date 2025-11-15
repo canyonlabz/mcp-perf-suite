@@ -32,7 +32,7 @@ from services.jmx.listeners import (
 from utils.file_utils import save_jmx_file
 
 # === Main JMeter JMX Generator function ===
-def run_jmx_generator(json_file: str, log_callback: Callable[[str], None] = print) -> str:
+def generate_jmeter_jmx(json_file: str, log_callback: Callable[[str], None] = print) -> str:
     """
     Generate a JMeter JMX file from a network capture JSON file.
     """

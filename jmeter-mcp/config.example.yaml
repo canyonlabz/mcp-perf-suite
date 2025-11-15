@@ -15,7 +15,6 @@ jmeter:
   jmeter_bin_path: "C:\\<path_to_jmeter>\\apache-jmeter\\bin\\jmeter.bat"  # Update with the actual path
 
 test_specs:
-  root_path: "C:\\<path_to_repo_root>\\mcp-perf-suite\\jmeter-mcp\\test-specs"  # Path to the test specifications folder for human-readable test scenarios
   web_flows_path: "test-specs\\web-flows"
   api_flows_path: "test-specs\\api-flows"
   examples_path: "test-specs\\examples"

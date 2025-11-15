@@ -160,8 +160,8 @@ Your MCP server exposes the following tools for agents, Cursor, or automation pi
 | `stop_jmeter_test`          | Gracefully stops an ongoing JMeter test run                         |
 | `capture_network_traffic`   | Starts capturing live browser or proxy-based network traffic        |
 | `analyze_network_traffic`   | Analyzes network traffic to extract request metadata and statistics |
-| `convert_traffic_to_har`    | Converts captured network data to HAR or JSON                       |
-| `create_jmx_from_har`       | Converts HAR or JSON network traffic into a JMeter JMX script       |
+| `capture_network_traffic`   | Converts captured network data to HAR or JSON                       |
+| `generate_jmeter_script`    | Converts HAR or JSON network traffic into a JMeter JMX script       |
 | `generate_aggregate_report` | Parses JMeter JTL results to produce KPI summaries                  |
 | `validate_jmx`              | Validates JMX script structure and variable references              |
 | `get_jmeter_logs`           | Retrieves JMeter console/log output for debugging                   |
@@ -192,7 +192,7 @@ Your MCP server exposes the following tools for agents, Cursor, or automation pi
 
 5. **Optional Conversion**
 
-   * `convert_traffic_to_har` → `create_jmx_from_har` for iterative script refinement.
+   * `capture_network_traffic` → `generate_jmeter_script` for iterative script refinement.
 
 6. **Reporting**
 
