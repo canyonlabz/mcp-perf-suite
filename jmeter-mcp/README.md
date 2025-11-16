@@ -154,18 +154,18 @@ Example setup for Cursor or compatible MCP hosts:
 
 Your MCP server exposes the following tools for agents, Cursor, or automation pipelines:
 
-| Tool                        | Description                                                         |
-| :-------------------------- | :------------------------------------------------------------------ |
-| `run_jmeter_test`           | Executes a JMeter test based on configuration or provided JMX file  |
-| `stop_jmeter_test`          | Gracefully stops an ongoing JMeter test run                         |
-| `capture_network_traffic`   | Starts capturing live browser or proxy-based network traffic        |
-| `analyze_network_traffic`   | Analyzes network traffic to extract request metadata and statistics |
-| `capture_network_traffic`   | Converts captured network data to HAR or JSON                       |
-| `generate_jmeter_script`    | Converts HAR or JSON network traffic into a JMeter JMX script       |
-| `generate_aggregate_report` | Parses JMeter JTL results to produce KPI summaries                  |
-| `validate_jmx`              | Validates JMX script structure and variable references              |
-| `get_jmeter_logs`           | Retrieves JMeter console/log output for debugging                   |
-| `compare_runs`              | Compares performance results across two or more test runs           |
+| Tool                        | Description                                                            |
+| :-------------------------- | :--------------------------------------------------------------------- |
+| `list_test_specs`           | Discover available Markdown browser automation specs in `test-specs/`. |
+| `load_browser_steps`        | Loads a given Markdown file with browser automation test steps         | 
+| `capture_network_traffic`   | Captures network traffic data and converts to HAR or JSON file         |
+| `analyze_network_traffic`   | Analyzes network traffic to extract request metadata and statistics    |
+| `generate_jmeter_script`    | Converts HAR or JSON network traffic into a JMeter JMX script          |
+| `validate_jmx`              | Validates JMX script structure and variable references                 |
+| `run_jmeter_test`           | Executes a JMeter test based on configuration or provided JMX file     |
+| `stop_jmeter_test`          | Gracefully stops an ongoing JMeter test run                            |
+| `get_jmeter_run_summary`    | Analyzes the test run results and provides high-level summary          |
+| `generate_aggregate_report` | Parses JMeter JTL results to produce KPI summaries                     |
 
 ---
 
@@ -187,6 +187,7 @@ Your MCP server exposes the following tools for agents, Cursor, or automation pi
 
 4. **Post-Processing**
 
+   * `get_jmeter_run_summary` generates high-level summary of test run.
    * `generate_aggregate_report` extracts KPIs from JTL.
    * `analyze_network_traffic` reviews captured HTTP data.
 
@@ -209,7 +210,6 @@ jmeter-mcp/
 │   ├── jmeter_runner.py          # Handles JMeter execution and control
 │   ├── network_capture.py        # Captures and processes network traffic
 │   ├── spec_parser.py            # parse Markdown -> structured steps
-│   ├── har_converter.py          # Converts traffic to/from HAR or JSON
 │   ├── report_aggregator.py      # Aggregates and analyzes JTL results
 │   ├── script_generator.py       # Generates JMX scripts from HAR
 │   └── jmx/                          # <<< JMX builder DSL lives here
@@ -219,9 +219,9 @@ jmeter-mcp/
 │       ├── samplers.py               # JMeter Samplers (e.g. HTTP Request for GET/POST/PUT/DELETE, etc.)
 │       └── plan.py                   # JMeter Test Plan and Thread Groups
 ├── utils/
-│   ├── config.py                 # Loads and validates config.yaml
-│   ├── file_utils.py             # File handling utilities
-│   └── logger.py                 # Logging helper
+│   ├── browser_utils.py          # Defines the output paths for browser automation from Playwright MCP (e.g. recording path, trace path, etc.)
+│   ├── config.py                 # Loads configuration YAML files (e.g. config.yaml, jmeter_config.yaml)
+│   └── file_utils.py             # File handling utilities
 ├── config.yaml                   # Centralized configuration
 ├── .env                          # Environment variables
 ├── requirements.txt              # Dependencies
