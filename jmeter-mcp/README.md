@@ -40,7 +40,7 @@ This is a Python-based MCP server built with **FastMCP** to automate JMeter-base
 ### 1. Clone the Repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/canyonlabz/mcp-perf-suite.git
 cd jmeter-mcp
 ```
 
