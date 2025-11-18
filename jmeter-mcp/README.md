@@ -156,13 +156,13 @@ Your MCP server exposes the following tools for agents, Cursor, or automation pi
 
 | Tool                        | Description                                                            |
 | :-------------------------- | :--------------------------------------------------------------------- |
-| `list_test_specs`           | Discover available Markdown browser automation specs in `test-specs/`. |
-| `load_browser_steps`        | Loads a given Markdown file with browser automation test steps         | 
+| `get_test_specs`            | Discover available Markdown browser automation specs in `test-specs/`. |
+| `get_browser_steps`         | Loads a given Markdown file with browser automation test steps         | 
 | `capture_network_traffic`   | Captures network traffic data and converts to HAR or JSON file         |
 | `analyze_network_traffic`   | Analyzes network traffic to extract request metadata and statistics    |
 | `generate_jmeter_script`    | Converts HAR or JSON network traffic into a JMeter JMX script          |
 | `validate_jmx`              | Validates JMX script structure and variable references                 |
-| `run_jmeter_test`           | Executes a JMeter test based on configuration or provided JMX file     |
+| `start_jmeter_test`         | Executes a JMeter test based on configuration or provided JMX file     |
 | `stop_jmeter_test`          | Gracefully stops an ongoing JMeter test run                            |
 | `get_jmeter_run_summary`    | Analyzes the test run results and provides high-level summary          |
 | `generate_aggregate_report` | Parses JMeter JTL results to produce KPI summaries                     |

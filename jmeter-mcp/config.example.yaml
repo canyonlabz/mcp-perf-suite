@@ -12,7 +12,9 @@ artifacts:
 
 jmeter:
   jmeter_home: "C:\\<path_to_jmeter>\\apache-jmeter"
-  jmeter_bin_path: "C:\\<path_to_jmeter>\\apache-jmeter\\bin\\jmeter.bat"  # Update with the actual path
+  jmeter_bin_path: "C:\\<path_to_jmeter>\\apache-jmeter\\bin"           # Update with the actual path
+  jmeter_start_exe: "jmeter.bat"                                        # Command to start JMeter (e.g., jmeter.bat for Windows, jmeter for Linux/Mac)
+  jmeter_stop_exe: "stoptest.cmd"                                       # Command to stop JMeter (e.g., stoptest.cmd for Windows, stoptest.sh for Linux/Mac)
 
 test_specs:
   web_flows_path: "test-specs\\web-flows"
