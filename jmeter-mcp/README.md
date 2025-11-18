@@ -64,38 +64,35 @@ pip install -r requirements.txt
 
 ---
 
-### 3. Configure Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-JMETER_HOME=/path/to/your/apache-jmeter
-JMETER_RESULTS_PATH=/path/to/results
-BROWSER_PROXY_PORT=8888
-```
-
----
-
-### 4. Configure the MCP Server
+### 3. Configure the MCP Server
 
 Define key paths and parameters in `config.yaml`:
 
 ```yaml
 jmeter:
-  jmx_template_path: "templates/test-plan-template.jmx"
-  jmeter_home: "/usr/local/bin/apache-jmeter"
-  results_dir: "artifacts/jmeter-results"
-  timeout_minutes: 60
-  remote_execution: false
+  jmeter_home: "C:\\<path_to_jmeter>\\apache-jmeter"
+  jmeter_bin_path: "C:\\<path_to_jmeter>\\apache-jmeter\\bin" 
+  jmeter_start_exe: "jmeter.bat" 
+  jmeter_stop_exe: "stoptest.cmd" 
+
+test_specs:
+  web_flows_path: "test-specs\\web-flows"   # Browser web automation flow definition files
+  api_flows_path: "test-specs\\api-flows"   # API automation flow definition files
+
+browser:
+  browser_type: "chrome"               # Options: "chrome", "firefox", "edge"
+  headless_mode: True                  # Run browser in headless mode
+  window_size: "1920,1080"             # Browser window size
+  implicit_wait: 10                    # Implicit wait time in seconds
+  page_load_timeout: 60                # Page load timeout in seconds
 
 network_capture:
-  enabled: true
-  output_format: "har"
-  proxy_port: 8888
-
-analysis:
-  generate_summary: true
-  output_csv: "aggregate_results.csv"
+  capture_api_requests: True          # Always true – critical for JMeter
+  capture_static_assets: False        # CSS, JS, PNG, JPG, etc.
+  capture_fonts: False                # WOFF, WOFF2, TTF, etc.
+  capture_third_party: True           # Google Fonts, CDN, Ads
+  capture_cookies: True               # Always true – critical for JMeter
+  capture_domain: ""                  
 ```
 
 ---
@@ -178,7 +175,7 @@ Your MCP server exposes the following tools for agents, Cursor, or automation pi
 
 2. **Run Test**
 
-   * `run_jmeter_test` executes the JMeter test.
+   * `start_jmeter_test` executes the JMeter test.
    * Logs and results stored in artifacts directory.
 
 3. **Monitor / Stop Test (Optional)**
