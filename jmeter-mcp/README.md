@@ -151,18 +151,20 @@ Example setup for Cursor or compatible MCP hosts:
 
 Your MCP server exposes the following tools for agents, Cursor, or automation pipelines:
 
-| Tool                        | Description                                                            |
-| :-------------------------- | :--------------------------------------------------------------------- |
-| `get_test_specs`            | Discover available Markdown browser automation specs in `test-specs/`. |
-| `get_browser_steps`         | Loads a given Markdown file with browser automation test steps         | 
-| `capture_network_traffic`   | Captures network traffic data and converts to HAR or JSON file         |
-| `analyze_network_traffic`   | Analyzes network traffic to extract request metadata and statistics    |
-| `generate_jmeter_script`    | Converts HAR or JSON network traffic into a JMeter JMX script          |
-| `validate_jmx`              | Validates JMX script structure and variable references                 |
-| `start_jmeter_test`         | Executes a JMeter test based on configuration or provided JMX file     |
-| `stop_jmeter_test`          | Gracefully stops an ongoing JMeter test run                            |
-| `get_jmeter_run_summary`    | Analyzes the test run results and provides high-level summary          |
-| `generate_aggregate_report` | Parses JMeter JTL results to produce KPI summaries                     |
+| Tool                        | Description                                                                |
+| :-------------------------- | :------------------------------------------------------------------------- |
+| `get_test_specs`            | Discover available Markdown browser automation specs in `test-specs/`.     |
+| `get_browser_steps`         | Loads a given Markdown file with browser automation test steps             | 
+| `capture_network_traffic`   | Captures network traffic data and converts to HAR or JSON file             |
+| `analyze_network_traffic`   | Analyzes network traffic to extract request metadata and statistics        |
+| `generate_jmeter_script`    | Converts HAR or JSON network traffic into a JMeter JMX script              |
+| `validate_jmx`              | Validates JMX script structure and variable references                     |
+| `list_jmeter_scripts`       | Lists the current JMX scripts available for a given run_id                 |
+| `start_jmeter_test`         | Executes a JMeter test based on configuration or provided JMX file         |
+| `get_jmeter_run_status`     | Checks the current status of a running JMeter test and returns run details |
+| `stop_jmeter_test`          | Gracefully stops an ongoing JMeter test run                                |
+| `get_jmeter_run_summary`    | Analyzes the test run results and provides high-level summary              |
+| `generate_aggregate_report` | Parses JMeter JTL results to produce KPI summaries                         |
 
 ---
 
