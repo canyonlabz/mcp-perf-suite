@@ -4,6 +4,8 @@ import os
 import subprocess
 import uuid
 import time
+import csv
+import math
 from dotenv import load_dotenv
 from utils.config import load_config, load_jmeter_config
 
@@ -46,6 +48,14 @@ def _make_log_path(test_run_id):
 def _make_summary_path(test_run_id):
     return os.path.join(_get_artifact_dir(test_run_id), f'{test_run_id}_summary.json')
 
+def _percentile(values, pct):
+    """Simple percentile helper used for p90, etc."""
+    if not values:
+        return None
+    vals = sorted(values)
+    idx = max(0, min(len(vals) - 1, int(math.ceil(pct / 100.0 * len(vals)) - 1)))
+    return vals[idx]
+
 # ----------------------------------------------------------
 # Main JMeter Runner Functions
 # ----------------------------------------------------------
@@ -76,10 +86,36 @@ async def run_jmeter_test(test_run_id, jmx_path, ctx):
 
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        status = "STARTED"
         run_id = str(uuid.uuid4())
+
+        # Give JMeter a moment to fail fast if something is wrong
+        time.sleep(1.0)
+        return_code = process.poll()
+
+        if return_code is not None:
+            # JMeter already exited – capture output and surface as error
+            out, err = process.communicate(timeout=5)
+            status = "FAILED_TO_START"
+            ctx.set_state("run_status", status)
+            ctx.set_state("error", err.decode(errors="ignore"))
+            return {
+                "run_id": None,
+                "status": status,
+                "test_run_id": test_run_id,
+                "cmd": " ".join(cmd),
+                "jtl_path": jtl_output,
+                "log_path": log_output,
+                "summary_path": summary_output,
+                "stdout": out.decode(errors="ignore"),
+                "stderr": err.decode(errors="ignore"),
+            }
+
+        # Otherwise we assume it is now running
+        status = "RUNNING"
         ctx.set_state("last_run_id", run_id)
         ctx.set_state("run_status", status)
+        ctx.set_state("jmeter_pid", process.pid)
+
         return {
             "run_id": run_id,
             "status": status,
@@ -88,6 +124,7 @@ async def run_jmeter_test(test_run_id, jmx_path, ctx):
             "jtl_path": jtl_output,
             "log_path": log_output,
             "summary_path": summary_output,
+            "pid": process.pid,
             "start_time": time.time()
         }
     except Exception as e:
@@ -208,6 +245,116 @@ def list_jmeter_scripts_for_run(test_run_id: str) -> dict:
         "count": len(scripts),
         "status": status,
         "message": message,
+    }
+
+def get_jmeter_realtime_status(test_run_id: str, expected_samples: int | None = None) -> dict:
+    """
+    Compute 'live' smoke-test metrics by reading the JTL for a given test_run_id.
+
+    This is intentionally simple and intended for:
+      - Sanity checks that the generated JMX works
+      - Light smoke tests before uploading to BlazeMeter
+
+    Metrics:
+      - total_samples
+      - error_count, error_rate, success_rate
+      - avg_response_time_ms
+      - p90_response_time_ms
+      - per-label summaries (count, errors, avg, p90)
+      - optional percent_complete if expected_samples is provided
+    """
+    jtl_path = _make_jtl_path(test_run_id)
+
+    if not os.path.exists(jtl_path):
+        return {
+            "test_run_id": test_run_id,
+            "status": "NO_JTL",
+            "message": "No JTL file exists yet for this test_run_id.",
+        }
+
+    total = 0
+    error_count = 0
+    elapsed_all: list[int] = []
+    per_label: dict[str, dict] = {}
+
+    with open(jtl_path, newline="", encoding="utf-8", errors="ignore") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            # JMeter CSV headers match what your sample JTL uses:
+            # timeStamp, elapsed, label, responseCode, ...
+            try:
+                elapsed = int(row.get("elapsed") or 0)
+            except ValueError:
+                continue
+
+            label = row.get("label", "UNKNOWN")
+            rc = (row.get("responseCode") or "").strip()
+
+            total += 1
+            elapsed_all.append(elapsed)
+
+            if label not in per_label:
+                per_label[label] = {"count": 0, "errors": 0, "elapsed": []}
+
+            per_label[label]["count"] += 1
+            per_label[label]["elapsed"].append(elapsed)
+
+            # simple rule: non-2xx/3xx = error
+            if not (rc.startswith("2") or rc.startswith("3")):
+                error_count += 1
+                per_label[label]["errors"] += 1
+
+    if total == 0:
+        return {
+            "test_run_id": test_run_id,
+            "status": "EMPTY_JTL",
+            "message": "JTL file exists but has no samples yet.",
+            "jtl_path": jtl_path,
+        }
+
+    avg = sum(elapsed_all) / total
+    p90 = _percentile(elapsed_all, 90)
+    error_rate = error_count / total if total else 0.0
+
+    label_summaries = {}
+    for label, stats in per_label.items():
+        c = stats["count"]
+        if c == 0:
+            continue
+        avg_l = sum(stats["elapsed"]) / c
+        p90_l = _percentile(stats["elapsed"], 90)
+        label_summaries[label] = {
+            "count": c,
+            "errors": stats.get("errors", 0),
+            "error_rate": (stats.get("errors", 0) / c) if c else 0.0,
+            "avg_ms": avg_l,
+            "p90_ms": p90_l,
+        }
+
+    percent_complete = None
+    if expected_samples:
+        percent_complete = min(1.0, total / expected_samples)
+
+    last_updated = time.strftime(
+        "%Y-%m-%dT%H:%M:%SZ",
+        time.gmtime(os.path.getmtime(jtl_path)),
+    )
+
+    return {
+        "test_run_id": test_run_id,
+        "status": "OK",   # JTL exists and has samples; we don't distinguish running vs complete here
+        "metrics": {
+            "total_samples": total,
+            "error_count": error_count,
+            "error_rate": error_rate,
+            "success_rate": 1.0 - error_rate,
+            "avg_response_time_ms": avg,
+            "p90_response_time_ms": p90,
+            "per_label": label_summaries,
+            "percent_complete": percent_complete,
+        },
+        "jtl_path": jtl_path,
+        "last_updated_utc": last_updated,
     }
 
 def get_artifact_paths(test_run_id):

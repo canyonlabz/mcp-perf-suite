@@ -13,7 +13,8 @@ from services.script_generator import generate_jmeter_jmx #validate_jmeter_scrip
 from services.jmeter_runner import (
     run_jmeter_test, 
     stop_running_test,
-    list_jmeter_scripts_for_run 
+    list_jmeter_scripts_for_run,
+    get_jmeter_realtime_status, 
     #summarize_test_run
 )
 #from services.report_aggregator import aggregate_kpi_report
@@ -159,6 +160,24 @@ async def stop_jmeter_test(test_run_id: str, ctx: Context) -> dict:
         dict: Stop status, error (if any), and timestamps.
     """
     return await stop_running_test(test_run_id, ctx)
+
+@mcp.tool()
+async def get_jmeter_run_status(test_run_id: str, ctx: Context) -> dict:
+    """
+    Return current smoke-test metrics for the given test_run_id by reading its JTL file.
+
+    Intended usage:
+      1. Call start_jmeter_test(...)
+      2. Poll this tool every few seconds while the smoke test runs
+      3. Inspect total samples, error rate, avg, p90, etc.
+
+    Args:
+        test_run_id (str): Unique identifier for the test run.
+        ctx (Context, optional): FastMCP context for tracking state, status, or error reporting.
+    Returns:
+        dict: Real-time test run metrics and status.
+    """
+    return get_jmeter_realtime_status(test_run_id)
 
 @mcp.tool(enabled=False)
 async def get_jmeter_run_summary(test_run_id: str, ctx: Context) -> dict:
