@@ -50,7 +50,7 @@ def _make_summary_path(test_run_id):
 # Main JMeter Runner Functions
 # ----------------------------------------------------------
 
-async def run_jmeter_execution(test_run_id, jmx_path, ctx):
+async def run_jmeter_test(test_run_id, jmx_path, ctx):
     """
     Starts a new JMeter test execution.
     Args:
@@ -135,6 +135,81 @@ async def stop_running_test(test_run_id, ctx):
         }
 
 # Additional helpers (if you want run status, artifact validation, etc.)
+def list_jmeter_scripts_for_run(test_run_id: str) -> dict:
+    """
+    Lists existing JMeter .jmx scripts for a given test_run_id under:
+        <ARTIFACTS_PATH>/<test_run_id>/jmeter
+
+    Does NOT create the directory if it doesn't exist.
+    Returns:
+        dict: {
+            "test_run_id": str,
+            "artifact_dir": str,
+            "scripts": [
+                {
+                    "filename": str,
+                    "full_path": str,
+                    "size_bytes": int,
+                    "modified_time_utc": str
+                },
+                ...
+            ],
+            "count": int,
+            "status": "OK" | "NOT_FOUND" | "EMPTY",
+            "message": str
+        }
+    """
+    artifact_dir = os.path.join(ARTIFACTS_PATH, str(test_run_id), "jmeter")
+
+    if not os.path.isdir(artifact_dir):
+        return {
+            "test_run_id": str(test_run_id),
+            "artifact_dir": artifact_dir,
+            "scripts": [],
+            "count": 0,
+            "status": "NOT_FOUND",
+            "message": "No JMeter artifact directory found for this test_run_id."
+        }
+
+    scripts = []
+    for name in os.listdir(artifact_dir):
+        if not name.lower().endswith(".jmx"):
+            continue
+
+        full_path = os.path.join(artifact_dir, name)
+        try:
+            size_bytes = os.path.getsize(full_path)
+            mtime = os.path.getmtime(full_path)
+            modified_time_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime))
+        except OSError:
+            size_bytes = None
+            modified_time_utc = None
+
+        scripts.append(
+            {
+                "filename": name,
+                "full_path": full_path,
+                "size_bytes": size_bytes,
+                "modified_time_utc": modified_time_utc,
+            }
+        )
+
+    status = "OK" if scripts else "EMPTY"
+    message = (
+        "JMeter scripts found."
+        if scripts
+        else "Artifact directory exists but contains no .jmx files."
+    )
+
+    return {
+        "test_run_id": str(test_run_id),
+        "artifact_dir": artifact_dir,
+        "scripts": scripts,
+        "count": len(scripts),
+        "status": status,
+        "message": message,
+    }
+
 def get_artifact_paths(test_run_id):
     """Returns all artifact paths for this run."""
     return {

@@ -4,14 +4,19 @@ from fastmcp import FastMCP, Context  # ✅ FastMCP 2.x import
 from typing import Optional, Dict, Any
 
 mcp = FastMCP(
-    name="jmeter-mcp",
+    name="jmeter",
 )
 
-from services.spec_parser import list_test_specs, load_browser_steps
-from services.network_capture import capture_traffic, analyze_traffic
-from services.script_generator import generate_jmeter_jmx, validate_jmeter_script
-from services.jmeter_runner import run_jmeter_test, stop_running_test, summarize_test_run
-from services.report_aggregator import aggregate_kpi_report
+#from services.spec_parser import list_test_specs, load_browser_steps
+#from services.network_capture import capture_traffic, analyze_traffic
+from services.script_generator import generate_jmeter_jmx #validate_jmeter_script
+from services.jmeter_runner import (
+    run_jmeter_test, 
+    stop_running_test,
+    list_jmeter_scripts_for_run 
+    #summarize_test_run
+)
+#from services.report_aggregator import aggregate_kpi_report
 
 # ----------------------------------------------------------
 # Browser Automation Helper Tools
@@ -27,7 +32,7 @@ async def get_test_specs(test_run_id: str, ctx: Context) -> dict:
 
     Returns: dict of spec file names and metadata.
     """
-    return await list_test_specs(test_run_id, ctx)
+    ##return await list_test_specs(test_run_id, ctx)
 
 @mcp.tool(enabled=False)
 async def get_browser_steps(test_run_id: str, filename: str, ctx: Context) -> dict:
@@ -40,7 +45,7 @@ async def get_browser_steps(test_run_id: str, filename: str, ctx: Context) -> di
     
     Returns: dict of loaded steps, structure format, and validation info.
     """
-    return await load_browser_steps(test_run_id, filename, ctx)
+    ##return await load_browser_steps(test_run_id, filename, ctx)
 
 @mcp.tool(enabled=False)
 async def capture_network_traffic(test_run_id: str, output_format: str, ctx: Context) -> dict:
@@ -53,7 +58,7 @@ async def capture_network_traffic(test_run_id: str, output_format: str, ctx: Con
     
     Returns: dict with artifact path(s), status, and any errors.
     """
-    return await capture_traffic(test_run_id, output_format, ctx)
+    ##return await capture_traffic(test_run_id, output_format, ctx)
 
 @mcp.tool(enabled=False)
 async def analyze_network_traffic(test_run_id: str, ctx: Context) -> dict:
@@ -65,10 +70,10 @@ async def analyze_network_traffic(test_run_id: str, ctx: Context) -> dict:
         
     Returns: dict with extracted stats, request/response mappings, discovered correlations.
     """
-    return await analyze_traffic(test_run_id, ctx)
+    ##return await analyze_traffic(test_run_id, ctx)
 
 # ----------------------------------------------------------
-# JMeter JMX Generation and Test Execution Tools
+# JMeter JMX Generation
 # ----------------------------------------------------------
 
 @mcp.tool(enabled=False)
@@ -97,7 +102,36 @@ async def validate_jmx(test_run_id: str, jmx_path: str, ctx: Context) -> dict:
     Returns:
         dict: Validation results, including errors, warnings, and status.
     """
-    return await validate_jmeter_script(test_run_id, jmx_path, ctx)
+    ##return await validate_jmeter_script(test_run_id, jmx_path, ctx)
+
+# ----------------------------------------------------------
+# JMeter Test Execution Tools
+# ----------------------------------------------------------
+
+@mcp.tool()
+async def list_jmeter_scripts(test_run_id: str, ctx: Context) -> dict:
+    """
+    List existing JMeter .jmx scripts for the given test_run_id.
+
+    Looks under:
+        <artifacts_root>/<test_run_id>/jmeter
+
+    Args:
+        test_run_id (str): Unique identifier for the test run.
+        ctx (Context, optional): FastMCP context (currently unused, but reserved).
+
+    Returns:
+        dict: {
+            "test_run_id": str,
+            "artifact_dir": str,
+            "scripts": [...],
+            "count": int,
+            "status": "OK" | "NOT_FOUND" | "EMPTY",
+            "message": str
+        }
+    """
+    # Currently no need to use ctx, but we accept it for consistency
+    return list_jmeter_scripts_for_run(test_run_id)
 
 @mcp.tool()
 async def start_jmeter_test(test_run_id: str, jmx_path: str, ctx: Context) -> dict:
@@ -136,7 +170,7 @@ async def get_jmeter_run_summary(test_run_id: str, ctx: Context) -> dict:
     Returns:
         dict: Summary of test run results, KPIs, and any errors/warnings.
     """
-    return await summarize_test_run(test_run_id, ctx)
+    ##return await summarize_test_run(test_run_id, ctx)
 
 @mcp.tool(enabled=False)
 async def generate_aggregate_report(test_run_id: str, ctx: Context) -> dict:
@@ -148,4 +182,13 @@ async def generate_aggregate_report(test_run_id: str, ctx: Context) -> dict:
     Returns:
         dict: Aggregate KPI report data, charts, and any errors/warnings.
     """
-    return await aggregate_kpi_report(test_run_id, ctx)
+    ##return await aggregate_kpi_report(test_run_id, ctx)
+
+# -----------------------------
+# JMeter MCP entry point
+# -----------------------------
+if __name__ == "__main__":
+    try:
+        mcp.run("stdio")
+    except KeyboardInterrupt:
+        print("Shutting down JMeter MCP…")
