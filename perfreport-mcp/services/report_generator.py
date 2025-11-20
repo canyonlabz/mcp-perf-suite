@@ -466,16 +466,19 @@ def _render_template(template: str, context: Dict) -> str:
     return rendered
 
 def _build_api_table(api_analysis: Dict) -> str:
-    """Build Markdown table for API performance"""
+    """Build Markdown table for API performance, sorted by API name."""
     if not api_analysis:
         return "No API data available"
     
+    # Sort API names alphabetically to respect TCxx_TSxx natural ordering
+    sorted_items = sorted(api_analysis.items(), key=lambda x: x[0])
+
     lines = [
         "| API Name | Samples | Avg (ms) | Min (ms) | Max (ms) | 95th (ms) | Error Rate | SLA Met |",
         "|----------|---------|----------|----------|----------|-----------|------------|---------|"
     ]
     
-    for api_name, stats in api_analysis.items():
+    for api_name, stats in sorted_items:
         line = (
             f"| {api_name} | "
             f"{stats.get('samples', 0)} | "
