@@ -29,7 +29,7 @@ This Python-based MCP server is built using FastMCP to generate easy-to-share, s
 ### 1. Clone the repository
 
 ```
-git clone <your-repo-url>
+git clone https://github.com/canyonlabz/mcp-perf-suite.git
 cd perfreport-mcp
 ```
 

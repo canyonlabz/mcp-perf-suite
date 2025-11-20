@@ -29,7 +29,7 @@ Welcome to the Datadog MCP Server! 🎉 This is a Python-based MCP server built 
 ### 1. Clone the Repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/canyonlabz/mcp-perf-suite.git
 cd datadog-mcp
 ```
 

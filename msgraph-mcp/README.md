@@ -40,7 +40,7 @@ It automates artifact uploads, test notifications, and collaboration workflows â
 ### 1. Clone the Repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/canyonlabz/mcp-perf-suite.git
 cd msgraph-mcp
 ```
 

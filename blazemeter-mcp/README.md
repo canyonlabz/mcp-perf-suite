@@ -28,7 +28,7 @@ Welcome to the BlazeMeter MCP Server! 🎉 This is a Python-based MCP server bui
 ### 1. Clone the Repository
 
 ```
-git clone <your-repo-url>
+git clone https://github.com/canyonlabz/mcp-perf-suite.git
 cd blazemeter_mcp_server
 ```
 

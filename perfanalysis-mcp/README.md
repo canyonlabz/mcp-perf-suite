@@ -32,7 +32,7 @@ Welcome to the Performance Analysis MCP Server! 🎉 This Python-based MCP serve
 ### 1. Clone the Repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/canyonlabz/mcp-perf-suite.git
 cd perfanalysis-mcp
 ```
 
