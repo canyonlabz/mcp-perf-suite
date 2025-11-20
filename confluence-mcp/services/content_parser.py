@@ -206,13 +206,18 @@ def _apply_inline_formatting(text: str) -> str:
     # Escape HTML first
     text = _escape_html(text)
     
-    # Bold (**text** or __text__)
+    # Inline code (`code`) - do this first so we don't treat markers inside code as formatting
+    text = re.sub(r'`([^`]+?)`', r'<code>\1</code>', text)
+
+    # Bold (**text**) - asterisk-based only
     text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
-    text = re.sub(r'__(.+?)__', r'<strong>\1</strong>', text)
+    # REMOVE this line if underscore-bold is not needed
+    #text = re.sub(r'__(.+?)__', r'<strong>\1</strong>', text)
     
-    # Italic (*text* or _text_)
+    # Italic (*text*) - asterisk-based only
     text = re.sub(r'\*([^\*]+?)\*', r'<em>\1</em>', text)
-    text = re.sub(r'_([^_]+?)_', r'<em>\1</em>', text)
+    # REMOVE this line to avoid eating underscores in identifiers
+    #text = re.sub(r'_([^_]+?)_', r'<em>\1</em>', text)
     
     # Inline code (`code`)
     text = re.sub(r'`([^`]+?)`', r'<code>\1</code>', text)
