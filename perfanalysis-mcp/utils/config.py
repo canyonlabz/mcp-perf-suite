@@ -44,8 +44,9 @@ def load_environments_config(environment: str) -> Dict:
     }
     """
     try:
-        # Path should be relative to project root, not artifacts
-        env_file = Path("../datadog-mcp/environments.json")
+        # Path should be relative to project root
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        env_file = Path(repo_root) / "datadog-mcp" / "environments.json"    # TODO: Later update to pull 'apm_tool' from config.yaml.
         if not env_file.exists():
             # Fallback - look in current directory
             env_file = Path("environments.json")
