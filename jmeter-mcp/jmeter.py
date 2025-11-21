@@ -15,6 +15,7 @@ from services.jmeter_runner import (
     stop_running_test,
     list_jmeter_scripts_for_run,
     get_jmeter_realtime_status, 
+    generate_aggregate_report_csv,
     #summarize_test_run
 )
 #from services.report_aggregator import aggregate_kpi_report
@@ -192,17 +193,26 @@ async def get_jmeter_run_summary(test_run_id: str, ctx: Context) -> dict:
     """
     ##return await summarize_test_run(test_run_id, ctx)
 
-@mcp.tool(enabled=False)
+@mcp.tool()
 async def generate_aggregate_report(test_run_id: str, ctx: Context) -> dict:
     """
-    Parses JMeter JTL results to produce KPI summaries.
-    Args:
-        test_run_id (str): Unique identifier for the test run.
-        ctx (Context, optional): FastMCP context for tracking state, status, or error reporting.
+    Generate a BlazeMeter-style Aggregate Performance Report CSV
+    for the given test_run_id.
+
+    This reads the JTL located under:
+        <artifacts_root>/<test_run_id>/jmeter/<test_run_id>.jtl
+    and writes:
+        <artifacts_root>/<test_run_id>/jmeter/<test_run_id>_aggregate_report.csv
+
     Returns:
-        dict: Aggregate KPI report data, charts, and any errors/warnings.
+        dict with:
+          - test_run_id
+          - status: "OK" | "NO_JTL"
+          - aggregate_report_path
+          - label_count
     """
-    ##return await aggregate_kpi_report(test_run_id, ctx)
+    _ = ctx  # currently unused, reserved for future context/state
+    return generate_aggregate_report_csv(test_run_id)
 
 # -----------------------------
 # JMeter MCP entry point
