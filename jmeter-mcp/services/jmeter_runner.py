@@ -1,11 +1,14 @@
 # services/jmeter_runner.py
 
+from fastmcp import Context  # ✅ FastMCP 2.x import
 import os
 import subprocess
 import uuid
 import time
 import csv
 import math
+import signal
+import sys
 from dotenv import load_dotenv
 from utils.config import load_config, load_jmeter_config
 
@@ -55,6 +58,128 @@ def _percentile(values, pct):
     vals = sorted(values)
     idx = max(0, min(len(vals) - 1, int(math.ceil(pct / 100.0 * len(vals)) - 1)))
     return vals[idx]
+
+def parse_jtl_live(jtl_path: str) -> dict:
+    """
+    Parse a JMeter JTL (CSV) file and compute live smoke-test metrics.
+
+    Returns:
+        dict with keys:
+          - total_samples
+          - error_count, error_rate, success_rate
+          - avg_response_time_ms, p90_response_time_ms
+          - per_label: { label: { count, errors, error_rate, avg_ms, p90_ms } }
+          - start_time_utc, end_time_utc, duration_ms, duration_seconds
+    """
+    total = 0
+    error_count = 0
+    elapsed_all: list[int] = []
+    per_label: dict[str, dict] = {}
+
+    first_ts = None  # earliest timeStamp (ms since epoch)
+    last_ts = None   # latest timeStamp (ms since epoch)
+
+    with open(jtl_path, newline="", encoding="utf-8", errors="ignore") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            # Parse elapsed
+            try:
+                elapsed = int(row.get("elapsed") or 0)
+            except ValueError:
+                continue
+
+            # Parse timestamp (JMeter uses epoch ms)
+            ts_raw = row.get("timeStamp")
+            try:
+                ts_val = int(ts_raw) if ts_raw is not None else None
+            except ValueError:
+                ts_val = None
+
+            label = row.get("label", "UNKNOWN")
+            rc = (row.get("responseCode") or "").strip()
+
+            total += 1
+            elapsed_all.append(elapsed)
+
+            if ts_val is not None:
+                if first_ts is None or ts_val < first_ts:
+                    first_ts = ts_val
+                if last_ts is None or ts_val > last_ts:
+                    last_ts = ts_val
+
+            if label not in per_label:
+                per_label[label] = {"count": 0, "errors": 0, "elapsed": []}
+
+            per_label[label]["count"] += 1
+            per_label[label]["elapsed"].append(elapsed)
+
+            # simple rule: non-2xx/3xx = error
+            if not (rc.startswith("2") or rc.startswith("3")):
+                error_count += 1
+                per_label[label]["errors"] += 1
+
+    # If no samples, return an empty-ish metrics struct
+    if total == 0:
+        return {
+            "total_samples": 0,
+            "error_count": 0,
+            "error_rate": 0.0,
+            "success_rate": 1.0,
+            "avg_response_time_ms": None,
+            "p90_response_time_ms": None,
+            "per_label": {},
+            "start_time_utc": None,
+            "end_time_utc": None,
+            "duration_ms": None,
+            "duration_seconds": None,
+        }
+
+    avg = sum(elapsed_all) / total
+    p90 = _percentile(elapsed_all, 90)
+    error_rate = error_count / total if total else 0.0
+
+    label_summaries = {}
+    for label, stats in per_label.items():
+        c = stats["count"]
+        if c == 0:
+            continue
+        avg_l = sum(stats["elapsed"]) / c
+        p90_l = _percentile(stats["elapsed"], 90)
+        label_summaries[label] = {
+            "count": c,
+            "errors": stats.get("errors", 0),
+            "error_rate": (stats.get("errors", 0) / c) if c else 0.0,
+            "avg_ms": avg_l,
+            "p90_ms": p90_l,
+        }
+
+    # Derive start/end/duration from timestamps (epoch ms)
+    if first_ts is not None and last_ts is not None and last_ts >= first_ts:
+        duration_ms = last_ts - first_ts
+        start_time_utc = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(first_ts / 1000.0)
+        )
+        end_time_utc = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(last_ts / 1000.0)
+        )
+    else:
+        duration_ms = None
+        start_time_utc = None
+        end_time_utc = None
+
+    return {
+        "total_samples": total,
+        "error_count": error_count,
+        "error_rate": error_rate,
+        "success_rate": 1.0 - error_rate,
+        "avg_response_time_ms": avg,
+        "p90_response_time_ms": p90,
+        "per_label": label_summaries,
+        "start_time_utc": start_time_utc,
+        "end_time_utc": end_time_utc,
+        "duration_ms": duration_ms,
+        "duration_seconds": (duration_ms / 1000.0) if duration_ms is not None else None,
+    }
 
 # ----------------------------------------------------------
 # Main JMeter Runner Functions
@@ -247,115 +372,108 @@ def list_jmeter_scripts_for_run(test_run_id: str) -> dict:
         "message": message,
     }
 
-def get_jmeter_realtime_status(test_run_id: str, expected_samples: int | None = None) -> dict:
+def get_jmeter_realtime_status(test_run_id: str, pid: int | None = None) -> dict:
     """
-    Compute 'live' smoke-test metrics by reading the JTL for a given test_run_id.
+    Unified JMeter status checker.
 
-    This is intentionally simple and intended for:
-      - Sanity checks that the generated JMX works
-      - Light smoke tests before uploading to BlazeMeter
+    Combines:
+      - PID check (is the JMeter process still running?)
+      - JTL existence check
+      - Live smoke-test metrics parsed from the JTL
 
-    Metrics:
-      - total_samples
-      - error_count, error_rate, success_rate
-      - avg_response_time_ms
-      - p90_response_time_ms
-      - per-label summaries (count, errors, avg, p90)
-      - optional percent_complete if expected_samples is provided
+    Returns a dict with:
+      - test_run_id
+      - pid, pid_running
+      - jtl_exists
+      - status: "RUNNING" | "STARTING" | "COMPLETE" | "FAILED_TO_START" | "NO_SAMPLES" | "NO_JTL" | "UNKNOWN"
+      - metrics: parsed JTL metrics (may be empty if JTL missing/empty)
+      - jtl_path
+      - last_updated_utc (filesystem mtime of JTL, if available)
     """
     jtl_path = _make_jtl_path(test_run_id)
 
-    if not os.path.exists(jtl_path):
-        return {
-            "test_run_id": test_run_id,
-            "status": "NO_JTL",
-            "message": "No JTL file exists yet for this test_run_id.",
-        }
+    # 1) PID check
+    pid_running = is_pid_running(pid) if pid else False
 
-    total = 0
-    error_count = 0
-    elapsed_all: list[int] = []
-    per_label: dict[str, dict] = {}
+    # 2) JTL existence
+    jtl_exists = os.path.exists(jtl_path)
 
-    with open(jtl_path, newline="", encoding="utf-8", errors="ignore") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            # JMeter CSV headers match what your sample JTL uses:
-            # timeStamp, elapsed, label, responseCode, ...
-            try:
-                elapsed = int(row.get("elapsed") or 0)
-            except ValueError:
-                continue
+    metrics: dict = {}
+    last_updated = None
 
-            label = row.get("label", "UNKNOWN")
-            rc = (row.get("responseCode") or "").strip()
+    if jtl_exists:
+        try:
+            metrics = parse_jtl_live(jtl_path)
+            # Last updated based on JTL file modification time
+            last_updated = time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ",
+                time.gmtime(os.path.getmtime(jtl_path)),
+            )
+        except Exception as e:
+            metrics = {
+                "error": f"Failed to parse JTL: {str(e)}",
+                "total_samples": metrics.get("total_samples", 0) if isinstance(metrics, dict) else 0,
+            }
 
-            total += 1
-            elapsed_all.append(elapsed)
+    total_samples = metrics.get("total_samples", 0) if isinstance(metrics, dict) else 0
 
-            if label not in per_label:
-                per_label[label] = {"count": 0, "errors": 0, "elapsed": []}
-
-            per_label[label]["count"] += 1
-            per_label[label]["elapsed"].append(elapsed)
-
-            # simple rule: non-2xx/3xx = error
-            if not (rc.startswith("2") or rc.startswith("3")):
-                error_count += 1
-                per_label[label]["errors"] += 1
-
-    if total == 0:
-        return {
-            "test_run_id": test_run_id,
-            "status": "EMPTY_JTL",
-            "message": "JTL file exists but has no samples yet.",
-            "jtl_path": jtl_path,
-        }
-
-    avg = sum(elapsed_all) / total
-    p90 = _percentile(elapsed_all, 90)
-    error_rate = error_count / total if total else 0.0
-
-    label_summaries = {}
-    for label, stats in per_label.items():
-        c = stats["count"]
-        if c == 0:
-            continue
-        avg_l = sum(stats["elapsed"]) / c
-        p90_l = _percentile(stats["elapsed"], 90)
-        label_summaries[label] = {
-            "count": c,
-            "errors": stats.get("errors", 0),
-            "error_rate": (stats.get("errors", 0) / c) if c else 0.0,
-            "avg_ms": avg_l,
-            "p90_ms": p90_l,
-        }
-
-    percent_complete = None
-    if expected_samples:
-        percent_complete = min(1.0, total / expected_samples)
-
-    last_updated = time.strftime(
-        "%Y-%m-%dT%H:%M:%SZ",
-        time.gmtime(os.path.getmtime(jtl_path)),
-    )
+    # 3) Infer high-level status
+    if not jtl_exists:
+        # If there's no JTL at all yet
+        if pid_running:
+            status = "STARTING"
+        else:
+            status = "NO_JTL"
+    else:
+        # JTL exists
+        if pid_running and total_samples > 0:
+            status = "RUNNING"
+        elif pid_running and total_samples == 0:
+            status = "STARTING"
+        elif not pid_running and total_samples > 0:
+            status = "COMPLETE"
+        elif not pid_running and total_samples == 0:
+            status = "NO_SAMPLES"
+        else:
+            status = "UNKNOWN"
 
     return {
         "test_run_id": test_run_id,
-        "status": "OK",   # JTL exists and has samples; we don't distinguish running vs complete here
-        "metrics": {
-            "total_samples": total,
-            "error_count": error_count,
-            "error_rate": error_rate,
-            "success_rate": 1.0 - error_rate,
-            "avg_response_time_ms": avg,
-            "p90_response_time_ms": p90,
-            "per_label": label_summaries,
-            "percent_complete": percent_complete,
-        },
+        "pid": pid,
+        "pid_running": pid_running,
+        "jtl_exists": jtl_exists,
+        "status": status,
+        "metrics": metrics,
         "jtl_path": jtl_path,
         "last_updated_utc": last_updated,
     }
+
+def is_pid_running(pid: int) -> bool:
+    """Check whether a process with given PID is still running on any OS."""
+    if pid is None:
+        return False
+
+    try:
+        if sys.platform.startswith("win"):
+            # Windows: os.kill with signal 0 works but behaves differently
+            # So we use this method:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+            )
+            if handle == 0:
+                return False
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+
+        else:
+            # Mac/Linux: signal 0 doesn't kill the process
+            os.kill(pid, 0)
+            return True
+
+    except OSError:
+        return False
 
 def get_artifact_paths(test_run_id):
     """Returns all artifact paths for this run."""

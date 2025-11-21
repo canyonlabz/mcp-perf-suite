@@ -253,12 +253,16 @@ datadog-mcp/environments.json
 perfreport-mcp/templates/*
 !perfreport-mcp/templates/default_*.md
 
-# Temp files
-docs/*
+# Temp test files
 test_datadog.py
 test_blazemeter.py
 test_perfanalysis.py
 simple_test.py
+
+# ignore temp documentation files
+docs/*
+!docs/template_guidelines.md
+!docs/README.md
 
 # Ignore test folders and scripts in perfanalysis-mcp and perfreport-mcp
 perfanalysis-mcp/test/**

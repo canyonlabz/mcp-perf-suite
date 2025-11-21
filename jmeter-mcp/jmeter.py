@@ -162,7 +162,7 @@ async def stop_jmeter_test(test_run_id: str, ctx: Context) -> dict:
     return await stop_running_test(test_run_id, ctx)
 
 @mcp.tool()
-async def get_jmeter_run_status(test_run_id: str, ctx: Context) -> dict:
+async def get_jmeter_run_status(test_run_id: str, pid: int, ctx: Context) -> dict:
     """
     Return current smoke-test metrics for the given test_run_id by reading its JTL file.
 
@@ -173,11 +173,12 @@ async def get_jmeter_run_status(test_run_id: str, ctx: Context) -> dict:
 
     Args:
         test_run_id (str): Unique identifier for the test run.
+        pid (int): Process ID of the running JMeter test.
         ctx (Context, optional): FastMCP context for tracking state, status, or error reporting.
     Returns:
         dict: Real-time test run metrics and status.
     """
-    return get_jmeter_realtime_status(test_run_id)
+    return get_jmeter_realtime_status(test_run_id, pid)
 
 @mcp.tool(enabled=False)
 async def get_jmeter_run_summary(test_run_id: str, ctx: Context) -> dict:
