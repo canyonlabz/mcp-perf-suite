@@ -27,6 +27,7 @@ browser:
   window_size: "1920,1080"             # Browser window size
   implicit_wait: 10                    # Implicit wait time in seconds
   page_load_timeout: 60                # Page load timeout in seconds
+  think_time: 5000                     # Interaction time between browser steps (in milliseconds)
 
 network_capture:
   capture_api_requests: True          # Always true – critical for JMeter
