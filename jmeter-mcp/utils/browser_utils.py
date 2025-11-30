@@ -5,6 +5,12 @@ import os
 import re
 from urllib.parse import urlparse
 
+from utils.config import load_config
+
+# === Global configuration ===
+CONFIG = load_config()
+ARTIFACTS_PATH = CONFIG["artifacts"]["artifacts_path"]
+
 # === Set up logging ===
 def setup_logging(log_level_str="INFO"):
     # Convert string to logging level (default to INFO if invalid)
@@ -31,68 +37,26 @@ def setup_logging(log_level_str="INFO"):
     
     return logger
 
-# === Define where the recordings will be saved ===
-def get_recording_path(config):
-    # Check if recording is enabled in the config
-    if not config.get("enable_recording", False):
-        return None
+LOGGER = setup_logging(CONFIG.get("logging", {}).get("level", "INFO"))
 
-    # Get the path from the config or use a default path
-    recording_path = config.get("save_recording_path", "./tmp/recordings")
-    
-    # Ensure the directory exists
-    os.makedirs(recording_path, exist_ok=True)
-    
-    return recording_path
-
-# === Define the trace path ===
-def get_trace_path(config):
-    # Check if tracing is enabled in the config
-    if not config.get("enable_trace", False):
-        return None
-
-    # Check if tracing is set to False in the config
-    if config.get("enable_trace") is False:
-        return None
-
-    # Get the path from the config or use a default path
-    trace_path = config.get("trace_path", "./tmp/trace")
-    
-    # Ensure the directory exists
-    os.makedirs(trace_path, exist_ok=True)
-    
-    return trace_path
-
-# === Define the conversation path ===
-def get_conversation_path(config):
-    # Check if conversation saving is enabled in the config
-    if not config.get("enable_conversation", False):
-        return None
-
-    # Check if conversation saving is set to False in the config
-    if config.get("enable_conversation") is False:
-        return None
-
-    # Get the path from the config or use a default path
-    conversation_path = config.get("save_conversation_path", "./tmp/conversations/")
-    
-    # Ensure the directory exists
-    os.makedirs(conversation_path, exist_ok=True)
-    
-    return conversation_path
-
-# === Extract the apex domain from a task ===
-def extract_apex_domain_from_task(task_text: str) -> str:
+# === Apex domain extraction ===
+def extract_apex_domain_from_task(task_text: str) -> str | None:
     """
-    Scans the task text for the first http(s) URL and returns its apex domain
-    (the last two labels), e.g. example.com. Strips any port number.
-    If none found, returns an empty string.
+    Parse the provided task/spec text and return the *apex* domain of the
+    first HTTP/HTTPS URL that appears.
+
+    Example:
+      "Open https://demoblaze.com/ and click Laptops"
+        -> "demoblaze.com"
     """
-    # find any http(s) URLs
-    urls = re.findall(r"https?://[^\s,;]+", task_text)
-    if not urls:
-        return ""
-    parsed = urlparse(urls[0])
+    url_pattern = re.compile(r"https?://[^\s)']+")
+    match = url_pattern.search(task_text)
+    if not match:
+        return None
+
+    url = match.group(0)
+    parsed = urlparse(url)
+
     # remove port if present
     host = parsed.netloc.split(":", 1)[0]
     parts = host.split(".")
@@ -100,10 +64,16 @@ def extract_apex_domain_from_task(task_text: str) -> str:
         return ".".join(parts[-2:])
     return host
 
+
 # === Run an async coroutine with a timeout ===
-async def run_with_timeout(coro, timeout_seconds):
+async def run_with_timeout(coro, timeout_seconds: float):
+    """
+    Run the given coroutine with an overall timeout in seconds.
+    Returns the result of the coroutine if it completes in time,
+    otherwise returns None and logs a timeout message.
+    """
     try:
         return await asyncio.wait_for(coro, timeout=timeout_seconds)
     except asyncio.TimeoutError:
-        print(f"⏰ Step timed out after {timeout_seconds} seconds.")
+        LOGGER.warning("⏰ Operation timed out after %s seconds.", timeout_seconds)
         return None

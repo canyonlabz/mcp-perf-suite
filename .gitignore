@@ -269,3 +269,6 @@ perfanalysis-mcp/test/**
 perfanalysis-mcp/tests/**
 perfreport-mcp/test/**
 perfreport-mcp/tests/**
+
+# Ignore all Playwright output files
+.playwright-mcp/*

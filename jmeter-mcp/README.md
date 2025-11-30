@@ -206,10 +206,11 @@ Your MCP server exposes the following tools for agents, Cursor, or automation pi
 jmeter-mcp/
 ├── jmeter.py                     # MCP server entrypoint (FastMCP)
 ├── services/
-│   ├── jmeter_runner.py          # Handles JMeter execution and control
+│   ├── browser_automation.py     # OLD jmeter-ai-studio code that uses browser-use to iterate over the "STEPS", then gradually appended network captured data to JSON output file. This file may not be requied for the JMeter MCP.
+│   ├── jmeter_runner.py          # Handles JMeter execution and control, plus creating a test summary & aggregate report
+│   ├── log_analyzer.py           # Analyzes the JMeter log for errors, warnings, and other potential issues
 │   ├── network_capture.py        # Captures and processes network traffic
 │   ├── spec_parser.py            # parse Markdown -> structured steps
-│   ├── report_aggregator.py      # Aggregates and analyzes JTL results
 │   ├── script_generator.py       # Generates JMX scripts from HAR
 │   └── jmx/                          # <<< JMX builder DSL lives here
 │       ├── config_elements.py        # JMeter config elements such as User Defined Variables, CSV Data Sets, etc.

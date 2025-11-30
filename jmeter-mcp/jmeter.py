@@ -10,6 +10,7 @@ mcp = FastMCP(
 #from services.spec_parser import list_test_specs, load_browser_steps
 #from services.network_capture import capture_traffic, analyze_traffic
 from services.script_generator import generate_jmeter_jmx #validate_jmeter_script
+from services.spec_parser import list_test_specs, load_browser_steps  # Load spec files and parse steps
 from services.jmeter_runner import (
     run_jmeter_test, 
     stop_running_test,
@@ -18,13 +19,14 @@ from services.jmeter_runner import (
     generate_aggregate_report_csv,
     #summarize_test_run
 )
-#from services.report_aggregator import aggregate_kpi_report
+
+from services.playwright_adapter import run_playwright_capture_pipeline
 
 # ----------------------------------------------------------
 # Browser Automation Helper Tools
 # ----------------------------------------------------------
 
-@mcp.tool(enabled=False)
+@mcp.tool()
 async def get_test_specs(test_run_id: str, ctx: Context) -> dict:
     """
     Discovers available Markdown browser automation specs in the 'test-specs/' directory.
@@ -34,10 +36,21 @@ async def get_test_specs(test_run_id: str, ctx: Context) -> dict:
 
     Returns: dict of spec file names and metadata.
     """
-    ##return await list_test_specs(test_run_id, ctx)
+    _ = ctx  # reserved for future context usage
+    try:
+        result = list_test_specs(test_run_id)
+        return result
+    except Exception as exc:
+        return {
+            "status": "ERROR",
+            "message": str(exc),
+            "count": 0,
+            "specs": [],
+            "roots_scanned": [],
+        }
 
-@mcp.tool(enabled=False)
-async def get_browser_steps(test_run_id: str, filename: str, ctx: Context) -> dict:
+@mcp.tool()
+async def get_browser_steps(test_run_id: str, filename: str, ctx: Context) -> list:
     """
     Loads a given Markdown file containing browser automation test steps (supports 'Steps' and 'Test Cases / Test Steps').
     Args:
@@ -45,22 +58,54 @@ async def get_browser_steps(test_run_id: str, filename: str, ctx: Context) -> di
         filename (str): Relative path to a test-specs Markdown file.
         ctx (Context, optional): FastMCP context for state/error details.
     
-    Returns: dict of loaded steps, structure format, and validation info.
+    Returns: List of browser automation steps parsed from the spec file.
     """
-    ##return await load_browser_steps(test_run_id, filename, ctx)
+    return load_browser_steps(test_run_id, filename, ctx)
 
-@mcp.tool(enabled=False)
-async def capture_network_traffic(test_run_id: str, output_format: str, ctx: Context) -> dict:
+@mcp.tool()
+async def capture_network_traffic(test_run_id: str, spec_file: str, ctx: Context) -> dict:
     """
-    Runs and captures backend network traffic. Outputs to HAR or extended JSON format.
+    Parses Playwright network traces and maps them to test steps from a spec file.
+    
+    This tool reads the latest Playwright trace from .playwright-mcp/traces/,
+    correlates network requests with steps defined in the spec file, and outputs
+    a structured JSON file for JMeter script generation.
+    
     Args:
-        test_run_id (str): Unique identifier for the test run.
-        output_format (str): 'har' or 'json'
+        test_run_id (str): Unique identifier for the test run (used for output path).
+        spec_file (str): Full path to the spec file.
         ctx (Context, optional): FastMCP context for state/error details.
     
     Returns: dict with artifact path(s), status, and any errors.
     """
-    ##return await capture_traffic(test_run_id, output_format, ctx)
+    try:
+        output_path = run_playwright_capture_pipeline(spec_file, test_run_id)
+        return {
+            "status": "OK",
+            "message": f"Network capture saved to: {output_path}",
+            "test_run_id": test_run_id,
+            "spec_file": spec_file,
+            "output_path": output_path,
+            "error": None
+        }
+    except FileNotFoundError as e:
+        return {
+            "status": "ERROR",
+            "message": str(e),
+            "test_run_id": test_run_id,
+            "spec_file": spec_file,
+            "output_path": None,
+            "error": str(e)
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "message": f"Error during network capture: {e}",
+            "test_run_id": test_run_id,
+            "spec_file": spec_file,
+            "output_path": None,
+            "error": str(e)
+        }
 
 @mcp.tool(enabled=False)
 async def analyze_network_traffic(test_run_id: str, ctx: Context) -> dict:
@@ -78,7 +123,7 @@ async def analyze_network_traffic(test_run_id: str, ctx: Context) -> dict:
 # JMeter JMX Generation
 # ----------------------------------------------------------
 
-@mcp.tool(enabled=False)
+@mcp.tool()
 async def generate_jmeter_script(test_run_id: str, json_path: str, ctx: Context) -> dict:
     """
     Generate a JMeter JMX script from the structured JSON or HAR output.

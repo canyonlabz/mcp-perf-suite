@@ -1,0 +1,65 @@
+---
+description: Rules for Playwright browser automation with JMeter MCP performance testing workflow
+globs:
+  - "jmeter-mcp/**"
+  - "test-specs/**"
+alwaysApply: false
+---
+
+# Playwright Browser Automation Rules
+
+## Overview
+
+These rules govern how the AI agent should execute browser automation steps for performance testing workflows. The goal is to simulate realistic end-user behavior for network traffic capture.
+
+## Browser Automation Workflow
+
+1. **Get test specs** using `mcp_jmeter_get_test_specs`
+2. **Present specs** to user and let them choose
+3. **Get browser steps** using `mcp_jmeter_get_browser_steps` with the selected spec
+4. **Execute each step** using Playwright browser tools
+5. **Capture network traffic** using `mcp_jmeter_capture_network_traffic` after completion
+
+## Think Time Between Steps
+
+**Critical**: Apply a wait between browser automation steps to simulate realistic user behavior.
+
+- Read `think_time` from `jmeter-mcp/config.windows.yaml` (or `config.yaml`) under `browser.think_time`
+- Default: 5000 milliseconds (5 seconds)
+- Apply wait using `browser_wait_for` with `time` parameter (in seconds)
+- Apply think time **after each step completes**, except after the final step
+- Convert milliseconds to seconds: `think_time_seconds = think_time_ms / 1000`
+
+Example:
+```
+After completing Step 1 → wait 5 seconds → proceed to Step 2
+After completing Step 2 → wait 5 seconds → proceed to Step 3
+...
+After completing final step → do NOT wait
+```
+
+## Step Execution Guidelines
+
+1. **Wait for page loads** before interacting with elements
+2. **Use `browser_snapshot`** to get current page state and element references
+3. **Handle dialogs/pop-ups** immediately when they appear using `browser_handle_dialog`
+4. **Use exact element refs** from the snapshot - do not guess
+5. **For forms**, use `browser_fill_form` to fill multiple fields efficiently
+
+## Error Handling
+
+- If an element is not found, take a new snapshot and retry once
+- If a step cannot be completed, report the failure and continue to the next step
+- Do not close the browser on errors - leave it open for manual inspection
+
+## End of Automation
+
+- After the final step, confirm the flow is complete
+- **Keep the browser open** for manual inspection unless explicitly told to close
+- Notify the user that Playwright has captured network traffic to `~/.playwright-mcp/traces/`
+
+## Network Capture Notes
+
+- Playwright automatically captures network traffic when `--save-trace` is enabled
+- Traces are saved to `~/.playwright-mcp/traces/`
+- Use `mcp_jmeter_capture_network_traffic` to parse traces and map to spec steps
