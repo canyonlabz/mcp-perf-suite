@@ -50,6 +50,11 @@ def should_capture_url(url, config):
         if path.endswith((".woff", ".woff2", ".ttf", ".otf", ".eot")):
             return False
 
+    # Exclude video/streaming files
+    if not config.get("capture_video_streams", False):
+        if path.endswith((".m3u8", ".m3u", ".ts", ".mp4", ".webm", ".ogg")):
+            return False
+
     # Always capture APIs or requests with /api/ or .json
     if "/api/" in path or path.endswith(".json"):
         return True

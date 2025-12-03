@@ -33,6 +33,7 @@ network_capture:
   capture_api_requests: True          # Always true – critical for JMeter
   capture_static_assets: False        # CSS, JS, PNG, JPG, etc.
   capture_fonts: False                # WOFF, WOFF2, TTF, etc.
+  capture_video_streams: False        # Exclude HLS/video streaming files
   capture_third_party: True           # Google Fonts, CDN, Ads
   capture_cookies: True               # Always true – critical for JMeter
   capture_domain: ""                  # Domain to capture network traffic from (e.g., example.com). Leave empty to capture all domains.
