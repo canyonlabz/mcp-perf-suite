@@ -27,11 +27,11 @@ from services.playwright_adapter import run_playwright_capture_pipeline
 # ----------------------------------------------------------
 
 @mcp.tool()
-async def get_test_specs(test_run_id: str, ctx: Context) -> dict:
+async def get_test_specs(ctx: Context, test_run_id: Optional[str] = None) -> dict:
     """
     Discovers available Markdown browser automation specs in the 'test-specs/' directory.
     Args:
-        test_run_id (str): Unique identifier for the test run.
+        test_run_id (Optional[str]): Unique identifier for the test run. If provided, also searches artifacts/<test_run_id>/test-specs/.
         ctx (Context, optional): FastMCP context for state/error details.
 
     Returns: dict of spec file names and metadata.

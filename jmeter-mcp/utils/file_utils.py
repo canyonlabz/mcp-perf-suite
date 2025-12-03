@@ -53,5 +53,4 @@ def save_jmx_file(root_element: ET.Element, run_id: str) -> str:
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(pretty_xml)
 
-    print(f"✅ JMX file generated successfully: {output_file}")
     return output_file

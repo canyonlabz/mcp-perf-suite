@@ -1,11 +1,18 @@
 import sys
 import json
 import os
-from typing import Callable
+from typing import Callable, Optional, Dict, Any
+from fastmcp import Context  # ✅ FastMCP 2.x import
+
+from utils.config import load_config, load_jmeter_config
+
+# === Global configuration ===
+CONFIG = load_config()
+ARTIFACTS_PATH = CONFIG["artifacts"]["artifacts_path"]
+JMETER_CONFIG = load_jmeter_config()
 
 # Import necessary modules for JMeter JMX generation
 import xml.etree.ElementTree as ET  # Needed for creating empty hashTree elements
-from utils.config import load_config, load_jmeter_config
 from services.jmx.plan import (
     create_test_plan,
     create_thread_group
@@ -31,33 +38,51 @@ from services.jmx.listeners import (
 )
 from utils.file_utils import save_jmx_file
 
-# === Main JMeter JMX Generator function ===
-def generate_jmeter_jmx(json_file: str, log_callback: Callable[[str], None] = print) -> str:
-    """
-    Generate a JMeter JMX file from a network capture JSON file.
-    """
-    # === Load Configuration Files ===
-    config = load_config()
-    jmeter_config = load_jmeter_config()
+# ============================================================
+# Helper Functions
+# ============================================================
 
+
+
+# ============================================================
+# Main JMeter JMX Generator function
+# ============================================================
+
+async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) -> Dict[str, Any]:
+    """
+    Generate a JMeter JMX script from a network capture JSON file.
+
+    This version is MCP-friendly and matches the JMeter MCP tool signature:
+
+      - test_run_id: used to resolve output path: artifacts/<test_run_id>/jmeter/
+      - json_path: full path to the network capture JSON
+      - ctx: FastMCP Context object for logging (ctx.info / ctx.error, etc.)
+
+    Returns:
+      {
+        "status": "success" | "error",
+        "jmx_path": "<full path to .jmx file (if success)>",
+        "message": "<human readable status>",
+      }
+    """
     # === Network Capture File ===
     # Check if the provided JSON file exists and is valid.
-    if not json_file or not os.path.isfile(json_file):
+    if not json_path or not os.path.isfile(json_path):
         # If the file path is empty or does not exist, print an error message and exit.
-        log_callback(f"Error: No JSON file provided or file does not exist for given: '{json_file}'")
-        raise ValueError(f"No JSON file provided or file does not exist for given: '{json_file}'")
+        ctx.error(f"Error: No JSON file provided or file does not exist for given: '{json_path}'")
+        raise ValueError(f"No JSON file provided or file does not exist for given: '{json_path}'")
     # Check if the file is a valid JSON file.
-    if not json_file.endswith('.json'):
+    if not json_path.endswith('.json'):
         # If the file is not a JSON file, print an error message and exit.
-        log_callback(f"Error: File '{json_file}' is not a valid JSON file.")
-        raise ValueError(f"File '{json_file}' is not a valid JSON file.")
+        ctx.error(f"Error: File '{json_path}' is not a valid JSON file.")
+        raise ValueError(f"File '{json_path}' is not a valid JSON file.")
     
     # Load the network capture JSON file.
-    with open(json_file, "r", encoding="utf-8") as f:
+    with open(json_path, "r", encoding="utf-8") as f:
         network_data = json.load(f)
 
-    log_callback(f"✅ Loaded network capture JSON file: {json_file}")
-    log_callback(f"Network data contains {len(network_data)} entries.")
+    ctx.info(f"✅ Loaded network capture JSON file: {json_path}")
+    ctx.info(f"Network data contains {len(network_data)} entries.")
     
     # ============================================================
     # === JMeter JMX File Configurations ===
@@ -69,21 +94,21 @@ def generate_jmeter_jmx(json_file: str, log_callback: Callable[[str], None] = pr
 
     # === Add Optional Test Plan Elements ===
     # Add Cookie Manager if enabled.
-    cookie_mgr_cfg = jmeter_config.get("cookie_manager", {"enabled": False})
+    cookie_mgr_cfg = JMETER_CONFIG.get("cookie_manager", {"enabled": False})
     if cookie_mgr_cfg.get("enabled", False):
         cookie_manager_elem = create_cookie_manager()
         test_plan_hash_tree.append(cookie_manager_elem)
         test_plan_hash_tree.append(ET.Element("hashTree"))
     
     # Add User Defined Variables if enabled.
-    udv_cfg = jmeter_config.get("user_defined_variables", {"enabled": False})
+    udv_cfg = JMETER_CONFIG.get("user_defined_variables", {"enabled": False})
     udv_elem = create_user_defined_variables(udv_cfg)
     if udv_elem is not None:
         test_plan_hash_tree.append(udv_elem)
         test_plan_hash_tree.append(ET.Element("hashTree"))
     
     # Add CSV Data Set Config if enabled.
-    csv_cfg = jmeter_config.get("csv_dataset_config", {"enabled": False})
+    csv_cfg = JMETER_CONFIG.get("csv_dataset_config", {"enabled": False})
     csv_elem = create_csv_data_set_config(csv_cfg)
     if csv_elem is not None:
         test_plan_hash_tree.append(csv_elem)
@@ -91,7 +116,7 @@ def generate_jmeter_jmx(json_file: str, log_callback: Callable[[str], None] = pr
 
     # === Create Thread Group ===
     # Create a single Thread Group using defaults from jmeter_config.
-    tg_config = jmeter_config.get("thread_group", {})
+    tg_config = JMETER_CONFIG.get("thread_group", {})
     num_threads = str(tg_config.get("num_threads", 1))
     ramp_time = str(tg_config.get("ramp_time", 1))
     loops = str(tg_config.get("loops", 1))
@@ -103,7 +128,7 @@ def generate_jmeter_jmx(json_file: str, log_callback: Callable[[str], None] = pr
     test_plan_hash_tree.append(thread_group_hash_tree)
     
     # === Create HTTP Request Samplers (possibly grouped in Controllers) ===
-    ctrl_cfg = jmeter_config.get("controller_config", {})
+    ctrl_cfg = JMETER_CONFIG.get("controller_config", {})
     use_controllers = ctrl_cfg.get("enabled", False)
 
     if use_controllers:
@@ -147,7 +172,7 @@ def generate_jmeter_jmx(json_file: str, log_callback: Callable[[str], None] = pr
             append_sampler(thread_group_hash_tree, sampler, header_manager)
 
     # === Add Listeners (outside the Thread Group) ===
-    results_cfg = jmeter_config.get("results_collector_config", {})
+    results_cfg = JMETER_CONFIG.get("results_collector_config", {})
     
     # Add View Results Tree if enabled.
     if results_cfg.get("view_results_tree", True):
@@ -165,15 +190,33 @@ def generate_jmeter_jmx(json_file: str, log_callback: Callable[[str], None] = pr
 
     # (You can add additional listeners here, e.g., Aggregate Report, Response Time Graph, etc.)
 
-    # Determine the output directory from the general config (jmeter section).
-    jmx_output_path = config.get("jmeter", {}).get("jmx_output_path", "generated_jmx")
-    
-    # Save the complete JMX file to the output directory.
-    # Saves the JMX file in the format: /{jmx_output_path}/generated_test_plan_{timestamp}.jmx
-    jmx_file = save_jmx_file(test_plan, output_dir=jmx_output_path)
-    if not jmx_file:
-        log_callback("❌ Failed to generate JMX file.")
-        raise RuntimeError("Failed to generate JMX file.")
-    log_callback(f"✅ JMX file generated successfully at: {jmx_file}")
-    return jmx_file
+    try:
+   	    # Save the complete JMX file to the output directory.
+        # Write to artifacts/<test_run_id>/jmeter/.
+        jmx_path = save_jmx_file(test_plan, test_run_id)
 
+        if not jmx_path:
+            msg = "❌ Failed to generate JMX file."
+            ctx.error(msg)
+            return {
+	        	"status": "error",
+	        	"jmx_path": "",
+	        	"message": msg
+	        }
+
+        msg = f"JMX script generated successfully: {jmx_path}"
+        ctx.info(msg)
+        return {
+            "status": "success",
+            "jmx_path": jmx_path,
+            "message": msg
+        }
+
+    except Exception as e:
+        msg = f"Failed to save JMX script: {e}"
+        ctx.error(msg)
+        return {
+            "status": "error",
+            "jmx_path": "",
+            "message": msg,
+        }

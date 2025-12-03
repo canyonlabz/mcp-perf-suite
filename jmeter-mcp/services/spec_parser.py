@@ -15,14 +15,9 @@ BROWSER_CONFIG = CONFIG.get("browser", {})
 ARTIFACTS_PATH = CONFIG["artifacts"]["artifacts_path"]
 THINK_TIME = BROWSER_CONFIG.get("think_time", 5000)  # milliseconds
 
-def load_browser_steps(test_run_id: str, spec_path: str, ctx: Optional[Any] = None) -> List[str]:
-    """
-    Load the Markdown spec / Task file and return a list of step text blocks.
-    """
-    task_text = generate_task(spec_path)
-    steps = parse_task_to_steps(task_text)
-    return steps
-
+# ===================================================================================
+# MCP Tool (get_test_specs): Discover available test spec files
+# ===================================================================================
 
 def list_test_specs(test_run_id: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -77,6 +72,18 @@ def list_test_specs(test_run_id: Optional[str] = None) -> Dict[str, Any]:
         "specs": sorted(specs, key=lambda s: s["relative_path"].lower()),
         "roots_scanned": roots,
     }
+
+# ===================================================================================
+# MCP Tool (get_browser_steps): Load and parse a browser automation spec into steps
+# ===================================================================================
+
+def load_browser_steps(test_run_id: str, spec_path: str, ctx: Optional[Any] = None) -> List[str]:
+    """
+    Load the Markdown spec / Task file and return a list of step text blocks.
+    """
+    task_text = generate_task(spec_path)
+    steps = parse_task_to_steps(task_text)
+    return steps
 
 def generate_task(task_filepath: str) -> str:
     """
