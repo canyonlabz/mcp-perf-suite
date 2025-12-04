@@ -21,10 +21,70 @@ from services.jmeter_runner import (
 )
 
 from services.playwright_adapter import run_playwright_capture_pipeline
+from services.playwright_adapter import archive_existing_traces
 
 # ----------------------------------------------------------
 # Browser Automation Helper Tools
 # ----------------------------------------------------------
+
+@mcp.tool()
+async def archive_playwright_traces(ctx: Context, test_run_id: Optional[str] = None) -> dict:
+    """
+    Archives existing Playwright trace files before a new browser automation run.
+    Moves the entire traces directory to a timestamped backup location.
+    
+    Args:
+        ctx (Context): FastMCP context for state/error details.
+        test_run_id (Optional[str]): Optional identifier for logging/context purposes.
+    
+    Returns:
+        dict: {
+            "status": "OK" | "NO_ACTION" | "ERROR",
+            "message": str,
+            "archived_path": str | None,
+            "test_run_id": str | None
+        }
+    """
+    _ = ctx  # reserved for future context usage
+    try:
+        archived_path = archive_existing_traces()
+        
+        if archived_path:
+            return {
+                "status": "OK",
+                "message": f"Traces archived to: {archived_path}",
+                "archived_path": archived_path,
+                "test_run_id": test_run_id
+            }
+        else:
+            return {
+                "status": "NO_ACTION",
+                "message": "No traces to archive (directory empty or doesn't exist)",
+                "archived_path": None,
+                "test_run_id": test_run_id
+            }
+    
+    except PermissionError as e:
+        return {
+            "status": "ERROR",
+            "message": f"Permission denied when archiving traces: {e}",
+            "archived_path": None,
+            "test_run_id": test_run_id
+        }
+    except OSError as e:
+        return {
+            "status": "ERROR",
+            "message": f"OS error when archiving traces: {e}",
+            "archived_path": None,
+            "test_run_id": test_run_id
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "message": f"Unexpected error archiving traces: {e}",
+            "archived_path": None,
+            "test_run_id": test_run_id
+        }
 
 @mcp.tool()
 async def get_test_specs(ctx: Context, test_run_id: Optional[str] = None) -> dict:

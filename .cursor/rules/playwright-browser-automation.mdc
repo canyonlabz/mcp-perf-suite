@@ -14,11 +14,13 @@ These rules govern how the AI agent should execute browser automation steps for 
 
 ## Browser Automation Workflow
 
-1. **Get test specs** using `mcp_jmeter_get_test_specs`
-2. **Present specs** to user and let them choose
-3. **Get browser steps** using `mcp_jmeter_get_browser_steps` with the selected spec
-4. **Execute each step** using Playwright browser tools
-5. **Capture network traffic** using `mcp_jmeter_capture_network_traffic` after completion
+1. **Archive existing traces** using `mcp_jmeter_archive_playwright_traces` (clears old traces before new run)
+2. **Get test specs** using `mcp_jmeter_get_test_specs`
+3. **Present specs** to user and let them choose
+4. **Get browser steps** using `mcp_jmeter_get_browser_steps` with the selected spec
+5. **Execute each step** using Playwright browser tools (with think time between steps)
+6. **Capture network traffic** using `mcp_jmeter_capture_network_traffic` after completion
+7. **Generate JMeter script** using `mcp_jmeter_generate_jmeter_script` from the captured JSON
 
 ## Think Time Between Steps
 
@@ -56,10 +58,13 @@ After completing final step → do NOT wait
 
 - After the final step, confirm the flow is complete
 - **Keep the browser open** for manual inspection unless explicitly told to close
-- Notify the user that Playwright has captured network traffic to `~/.playwright-mcp/traces/`
+- Notify the user that Playwright has captured network traffic to `<repo_root>/.playwright-mcp/traces/`
+- Prompt user to proceed with `capture_network_traffic` and `generate_jmeter_script`
 
 ## Network Capture Notes
 
-- Playwright automatically captures network traffic when `--save-trace` is enabled
-- Traces are saved to `~/.playwright-mcp/traces/`
+- Playwright automatically captures network traffic when `--save-trace` is enabled in `mcp.json`
+- Traces are saved to `<repo_root>/.playwright-mcp/traces/`
+- Use `mcp_jmeter_archive_playwright_traces` before each new run to clear old traces
 - Use `mcp_jmeter_capture_network_traffic` to parse traces and map to spec steps
+- Video/streaming files (`.m3u8`, `.ts`) are excluded from capture via `capture_video_streams: False` config
