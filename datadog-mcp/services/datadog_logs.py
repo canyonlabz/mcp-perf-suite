@@ -255,21 +255,38 @@ def _normalize_timestamp(timestamp: str) -> str:
 # -----------------------------------------------
 # Logs (v2) API - Search Logs
 # -----------------------------------------------
-async def collect_logs(env_name: str, start_time: str, end_time: str, query_type: str, run_id: Optional[str], ctx: Context, custom_query: str = None) -> dict:
+async def collect_logs(env_name: str, start_time: str, end_time: str, query_type: str, run_id: str, ctx: Context, custom_query: Optional[str] = None) -> dict:
     """
     Retrieve logs from Datadog Logs API.
     
     Args:
-        env_name: Environment name
-        start_time: Start time (epoch)
-        end_time: End time (epoch)
-        query_type: Type of query template
-        run_id: Run ID for artifacts organization
-        ctx: Workflow context
-        custom_query: Custom query string if query_type is 'custom'
+        env_name: Environment name from environments.json
+        start_time: Start timestamp in UTC. Accepts epoch, ISO 8601, or datetime string formats.
+        end_time: End timestamp in UTC. Accepts the same formats as start_time.
+        query_type: Query template type. Valid values:
+            - "all_errors": All logs with error/critical/fatal status
+            - "warnings": Warning level logs
+            - "http_errors": HTTP 4xx and 5xx status codes
+            - "api_errors": API-related HTTP errors
+            - "service_errors": Errors filtered by configured services
+            - "host_errors": Errors filtered by configured hosts
+            - "kubernetes_errors": Errors filtered by configured Kubernetes services
+            - "custom": Use custom_query parameter
+        run_id: Test run identifier for artifacts organization
+        ctx: Workflow context for logging and error handling
+        custom_query: Custom Datadog query string (required if query_type="custom")
         
     Returns:
-        Dict with results and file paths
+        dict: Dictionary containing:
+            - 'csv_file': Path to output CSV file
+            - 'summary': Summary statistics (status_counts, level_counts, top_services)
+            - 'log_count': Total number of logs collected
+            - 'pages_fetched': Number of API pages retrieved
+            - 'query': The actual query string used
+            - 'time_range': Start/end timestamps used
+            - 'env_name': Environment name
+            - 'env_tag': Environment tag from config
+            - 'run_id': Test run identifier
     """
     valid_query_types = ["all_errors", "service_errors", "host_errors", "http_errors", 
                         "kubernetes_errors", "warnings", "api_errors", "custom"]
