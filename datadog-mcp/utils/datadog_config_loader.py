@@ -4,7 +4,6 @@ import json
 import os
 from typing import Dict, Any, Optional
 from fastmcp import Context    # ✅ FastMCP 2.x import
-from functools import lru_cache
 from utils.config import load_config
 
 config = load_config()
@@ -52,7 +51,6 @@ async def load_environment_json(env_name: str, ctx: Context) -> Dict[str, Any]:
 # Custom query loader
 # -----------------------------------------------
 
-@lru_cache(maxsize=1)
 async def load_custom_queries_json() -> dict:
     """
     Load custom Datadog APM and Log queries from custom_queries.json.
