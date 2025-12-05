@@ -248,6 +248,7 @@ artifacts/*
 
 # ignore Datadog environments
 datadog-mcp/environments.json
+datadog-mcp/custom_queries.json
 
 # Ignore all files in perfreport-mcp/templates except the default templates
 perfreport-mcp/templates/*

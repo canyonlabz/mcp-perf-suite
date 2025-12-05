@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "environments": {
     "QA1": {
-      "env_tag": "azure.qa1.local",
+      "env_tag": "azure.qa1",
       "metadata": {
         "platform": "Azure Kubernetes",
         "description": "QA1 environment for testing"
@@ -18,11 +18,25 @@
             "cpus": "4.05 core",
             "memory": "16 GiB"
           }
+        ],
+        "pods": [
+          {
+            "pod_filter": "app-web*",
+            "description": "App Web Pod",
+            "cpus": "4.05 cores",
+            "memory": "16 GiB"
+          },
+          {
+            "pod_filter": "app-worker*",
+            "description": "App Worker Pod",
+            "cpus": "1.5 cores",
+            "memory": "8 GiB"
+          }
         ]
       }
     },
     "QA2": {
-      "env_tag": "azure.qa2.local",
+      "env_tag": "azure.qa2",
       "metadata": {
         "platform": "Windows Servers",
         "cpus": 4,

@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 from fastmcp import FastMCP, Context    # ✅ FastMCP 2.x import
 from utils.config import load_config
-from services.datadog_api import load_environment_json
+from utils.datadog_config_loader import load_environment_json, load_custom_queries_json
 
 # -----------------------------------------------
 # Bootstrap

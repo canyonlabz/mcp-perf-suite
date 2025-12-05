@@ -81,8 +81,6 @@ Create an `environments.json` file defining your environments, hosts, and Kubern
       "env_tag": "qa",
       "metadata": {
         "platform": "Windows Server 2019",
-        "cpus": 4,
-        "memory": "16GB",
         "description": "QA environment for web/app/db tier"
       },
       "tags": ["team:qa"],
@@ -108,6 +106,20 @@ Create an `environments.json` file defining your environments, hosts, and Kubern
             "description": "Authentication services",
             "cpus": "4.05 cores",
             "memory": "8GiB"
+          }
+        ],
+        "pods": [
+          {
+            "pod_filter": "app-web*",
+            "description": "App Web Pod",
+            "cpus": "4.05 cores",
+            "memory": "16 GiB"
+          },
+          {
+            "pod_filter": "app-worker*",
+            "description": "App Worker Pod",
+            "cpus": "1.5 cores",
+            "memory": "8 GiB"
           }
         ]
       }

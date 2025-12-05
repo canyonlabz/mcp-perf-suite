@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Tuple, Optional, Union
 from dotenv import load_dotenv
 from fastmcp import FastMCP, Context    # ✅ FastMCP 2.x import
 from utils.config import load_config
+from utils.datadog_config_loader import load_environment_json
 
 # -----------------------------------------------
 # Bootstrap
@@ -167,42 +168,6 @@ def _write_csv_header(writer: csv.writer):
         "env_name", "env_tag", "scope", "hostname", "service_filter", "container_or_pod",
         "timestamp_utc", "metric", "value", "unit"
     ])
-
-# -----------------------------------------------
-# Environment loader
-# -----------------------------------------------
-
-async def load_environment_json(env_name: str, ctx: Context) -> Dict[str, Any]:
-    """
-    Loads the complete environment configuration for a given environment from environments.json and stores it in the context.
-    Args:
-        env_name (str): The environment name ("QA", "UAT", etc.)
-        ctx: FastMCP context (for info/error reporting)
-    Returns:
-        dict: Complete environment configuration including env_tag, metadata, tags, services, hosts, and kubernetes sections.
-    """
-    with open(environments_json_path, "r", encoding="utf-8") as f:
-        envdata = json.load(f)
-    
-    env_config = envdata["environments"].get(env_name)
-    if not env_config:
-        await ctx.error(f"Environment '{env_name}' not found in environments.json")
-        raise ValueError(f"Environment '{env_name}' not found in environments.json")
-    
-    # Add the environment name to the config for reference
-    env_config["environment_name"] = env_name
-    
-    # Store in context for later steps
-    ctx.set_state("env_config", json.dumps(env_config))  # Store as JSON string
-    ctx.set_state("env_name", env_name)
-
-    # Extract key info for the log message
-    env_tag = env_config.get("env_tag", "unknown")
-    host_count = len(env_config.get("hosts", []))
-    k8s_services = len(env_config.get("kubernetes", {}).get("services", []))
-    await ctx.info(f"Environment '{env_name}' loaded with env_tag: {env_tag}, {host_count} hosts, {k8s_services} k8s services")
-
-    return env_config
 
 # -----------------------------------------------
 # Hosts (v1) — per-host CSV + aggregates

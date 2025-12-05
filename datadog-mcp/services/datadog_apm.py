@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 from pathlib import Path
 from fastmcp import FastMCP, Context
 from utils.config import load_config
-from services.datadog_api import load_environment_json, get_ssl_verify_setting
+from utils.datadog_config_loader import load_environment_json, load_custom_queries_json
+from services.datadog_api import get_ssl_verify_setting
 
 # -----------------------------------------------
 # Bootstrap

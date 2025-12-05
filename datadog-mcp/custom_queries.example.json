@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "apm_queries": {
+    "app_500_errors": {
+      "description": "Application Services - HTTP 500 errors",
+      "query": "service:(service.app.web OR service.worker.web-sql-server OR service.worker.web-http-client) env:west.qa @http.status_code:500"
+    },
+    "app_all_errors": {
+      "description": "Application Services - All errors",
+      "query": "service:(service.app.web OR service.worker.web-sql-server OR service.worker.web-http-client) env:west.qa status:error"
+    },
+    "app_slow_requests": {
+      "description": "Application Services - Slow requests (>5s)",
+      "query": "service:(service.app.web OR service.worker.web-sql-server OR service.worker.web-http-client) env:west.qa @duration:>5000000000"
+    }
+  },
+
+  "log_queries": {
+    "app_error_logs": {
+      "description": "Application Services - Application error logs",
+      "query": "service:service.app.web status:error"
+    },
+    "app_exception_logs": {
+      "description": "Application Services - Logs with stack traces",
+      "query": "service:service.app.web \"Exception\""
+    }
+  }
+}
