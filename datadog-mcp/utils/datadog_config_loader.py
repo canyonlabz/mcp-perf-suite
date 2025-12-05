@@ -53,7 +53,7 @@ async def load_environment_json(env_name: str, ctx: Context) -> Dict[str, Any]:
 # -----------------------------------------------
 
 @lru_cache(maxsize=1)
-def load_custom_queries_json() -> dict:
+async def load_custom_queries_json() -> dict:
     """
     Load custom Datadog APM and Log queries from custom_queries.json.
 
@@ -64,7 +64,6 @@ def load_custom_queries_json() -> dict:
         # No custom queries configured; return empty structure
         return {
             "schema_version": "1.0",
-            "projects": {},
             "apm_queries": {},
             "log_queries": {}
         }
@@ -73,7 +72,6 @@ def load_custom_queries_json() -> dict:
         # Fail soft – you can also choose to raise if you want
         return {
             "schema_version": "1.0",
-            "projects": {},
             "apm_queries": {},
             "log_queries": {}
         }
@@ -82,7 +80,6 @@ def load_custom_queries_json() -> dict:
         data = json.load(f)
 
     # Normalize expected keys
-    data.setdefault("projects", {})
     data.setdefault("apm_queries", {})
     data.setdefault("log_queries", {})
 

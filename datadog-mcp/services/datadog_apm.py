@@ -36,7 +36,13 @@ CA_BUNDLE = os.getenv("REQUESTS_CA_BUNDLE") or os.getenv("SSL_CERT_FILE")
 
 async def _build_apm_query(env_tag: str, query_type: str, ctx: Context, env_config: dict = None, custom_query: str = None) -> str:
     """
-    Build Datadog APM query based on type and environment configuration.
+    Build Datadog APM query based on type and configuration.
+    Order of resolution:
+      1. If query_type == 'custom' -> use custom_query (required).
+      2. Built-in templates (all_errors, http_500_errors, etc.).
+      3. custom_queries.json -> apm_queries[query_type].
+      4. 'service_errors' special handling.
+
     Args:
         env_tag (str): Environment tag to filter traces (e.g., 'qa', 'uat').
         query_type (str): Type of query to build (e.g., 'all_errors', 'http_500_errors', etc.).
@@ -47,13 +53,14 @@ async def _build_apm_query(env_tag: str, query_type: str, ctx: Context, env_conf
     Returns:
         str: Constructed Datadog APM query string.
     """
+    # 1) Explicit custom query
     if query_type == 'custom':
         if not custom_query:
             await ctx.error("Custom query_type requires a custom_query string")
             raise ValueError("Custom query_type requires a custom_query string")
         return custom_query
     
-    # Predefined APM query templates
+    # 2) Predefined APM query templates
     templates = {
         'all_errors': f"env:{env_tag} status:error",
         'http_500_errors': f"env:{env_tag} @http.status_code:500",
@@ -66,17 +73,18 @@ async def _build_apm_query(env_tag: str, query_type: str, ctx: Context, env_conf
         await ctx.info(f"Using predefined APM template for query_type: {query_type}")
         return templates[query_type]
     
-    # Check for custom queries defined in environment config
-    if env_config and 'custom_apm_queries' in env_config:
-        custom_queries = env_config.get('custom_apm_queries', {})
-        if query_type in custom_queries:
-            query_def = custom_queries[query_type]
-            query_string = query_def.get('query', '')
-            description = query_def.get('description', query_type)
-            await ctx.info(f"Using custom APM query '{query_type}': {description}")
-            return query_string
+    # 3) Custom APM queries from custom_queries.json
+    custom_queries_config = await load_custom_queries_json()
+    apm_queries = (custom_queries_config or {}).get("apm_queries", {}) or {}
+
+    if query_type in apm_queries:
+        query_def = apm_queries[query_type]
+        query_string = query_def.get("query", "")
+        description = query_def.get("description", query_type)
+        await ctx.info(f"Using custom APM query from custom_queries.json '{query_type}': {description}")
+        return query_string
     
-    # Service errors
+    # 4) Service errors (uses env_config.services)
     if query_type == 'service_errors':
         if not env_config or 'services' not in env_config:
             await ctx.info("No services found in environment config; defaulting to all_errors template")
@@ -258,11 +266,23 @@ async def collect_apm_traces(env_name: str, start_time: str, end_time: str, quer
         # Extract environment configuration
         env_tag = env_config.get('env_tag')
         
-        # Validate query_type (including custom queries from environment)
-        predefined_query_types = ["all_errors", "service_errors", "http_500_errors", "http_errors", "slow_requests", "custom"]
-        custom_apm_queries = env_config.get('custom_apm_queries', {})
-        valid_query_types = predefined_query_types + list(custom_apm_queries.keys())
-        
+        # Validate query_type
+        predefined_query_types = [
+            "all_errors",
+            "service_errors",
+            "http_500_errors",
+            "http_errors",
+            "slow_requests",
+            "custom",
+        ]
+
+        # Load custom APM queries from custom_queries.json
+        custom_queries_config = await load_custom_queries_json()
+        apm_queries_config = (custom_queries_config or {}).get("apm_queries", {}) or {}
+        custom_apm_keys = list(apm_queries_config.keys())
+
+        valid_query_types = predefined_query_types + custom_apm_keys
+
         if query_type not in valid_query_types:
             await ctx.error(f"Invalid query_type: {query_type}. Valid types: {', '.join(valid_query_types)}")
             raise ValueError(f"Invalid query_type: {query_type}")

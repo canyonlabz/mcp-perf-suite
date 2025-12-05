@@ -15,4 +15,5 @@ datadog:
   time_zone: "America/New_York"  # Set the time zone
   environments_json_path: "/path_to_root/mcp-perf-suite/datadog-mcp/environments.json"
   custom_queries_json_path: "/path_to_root/mcp-perf-suite/datadog-mcp/custom_queries.json"
-  log_page_limit: 1000  # Number of log entries to fetch per page
+  log_page_limit: 100  # Number of log entries to fetch per page
+  apm_page_limit: 100  # Number of APM traces to fetch per page

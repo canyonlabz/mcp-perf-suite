@@ -178,7 +178,11 @@ def _logs_to_csv(logs: List[dict], env_name: str, env_tag: str, query_type: str)
         return "env_name,env_tag,query_type,id,timestamp_utc,message,status,service,host,level,source,http_status_code,http_method,error_kind,custom_attributes\n"
     
     csv_rows = []
-    fieldnames = ['env_name', 'env_tag', 'query_type', 'id', 'timestamp_utc', 'message', 'status', 'service', 'host', 'level', 'source', 'http_status_code', 'http_method', 'error_kind', 'custom_attributes']
+    fieldnames = [
+        'env_name', 'env_tag', 'query_type', 'id', 'timestamp_utc', 'message', 'status', 
+        'service', 'host', 'level', 'source', 'http_status_code', 'http_method', 
+        'error_kind', 'custom_attributes'
+    ]
     
     for log in logs:
         row = {
