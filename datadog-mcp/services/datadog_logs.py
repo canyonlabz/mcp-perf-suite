@@ -46,13 +46,14 @@ async def _build_query(env_tag: str, query_type: str, ctx: Context, env_config: 
     Returns:
         str: Constructed Datadog log query string.
     """
+    # 1) Explicit custom query
     if query_type == 'custom':
         if not custom_query:
             await ctx.error("Custom query_type requires a custom_query string")
             raise ValueError("Custom query_type requires a custom_query string")
         return custom_query
     
-    # Predefined query templates
+    # 2) Predefined query templates
     templates = {
         'all_errors': f"(env:{env_tag}) AND (status:error OR level:ERROR OR level:CRITICAL OR level:FATAL)",
         'warnings': f"(env:{env_tag}) AND (status:warn OR level:WARN OR level:WARNING)",
@@ -64,9 +65,22 @@ async def _build_query(env_tag: str, query_type: str, ctx: Context, env_config: 
     if query_type in templates:
         await ctx.info(f"Using predefined template for query_type: {query_type}")
         return templates[query_type]
-    
+
+    # 3) Custom log queries from custom_queries.json
+    custom_queries_config = await load_custom_queries_json()
+    log_queries = (custom_queries_config or {}).get("log_queries", {}) or {}
+
+    if query_type in log_queries:
+        query_def = log_queries[query_type]
+        query_string = query_def.get("query", "")
+        description = query_def.get("description", query_type)
+        await ctx.info(
+            f"Using custom log query from custom_queries.json '{query_type}': {description}"
+        )
+        return query_string
+
     # -------------------------------------------------
-    # Build queries that depend on environment config
+    # 4) Build queries that depend on environment config
     # -------------------------------------------------
 
     # Service errors
@@ -292,11 +306,17 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
             - 'env_tag': Environment tag from config
             - 'run_id': Test run identifier
     """
-    valid_query_types = ["all_errors", "service_errors", "host_errors", "http_errors", 
-                        "kubernetes_errors", "warnings", "api_errors", "custom"]
-    if query_type not in valid_query_types:
-        await ctx.error(f"Invalid query_type '{query_type}'. Valid options: {', '.join(valid_query_types)}")
-        raise ValueError(f"Invalid query_type: {query_type}")
+    # Base / predefined query types
+    predefined_query_types = [
+        "all_errors",
+        "service_errors",
+        "host_errors",
+        "http_errors",
+        "kubernetes_errors",
+        "warnings",
+        "api_errors",
+        "custom",
+    ]
 
     try:
         # Normalize timestamps
@@ -309,6 +329,20 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
             msg = "No infrastructure configuration available. Load environment JSON file first."
             await ctx.error(msg)
             return {"files": [], "summary": {"warnings": [msg]}}
+
+        # Load custom log queries from custom_queries.json
+        custom_queries_config = await load_custom_queries_json(ctx)
+        log_queries_config = (custom_queries_config or {}).get("log_queries", {}) or {}
+        custom_log_keys = list(log_queries_config.keys())
+
+        # Final valid query types
+        valid_query_types = predefined_query_types + custom_log_keys
+
+        if query_type not in valid_query_types:
+            await ctx.error(
+                f"Invalid query_type '{query_type}'. Valid options: {', '.join(valid_query_types)}"
+            )
+            raise ValueError(f"Invalid query_type: {query_type}")
 
         # Extract environment configuration
         env_tag = env_config.get('env_tag')
