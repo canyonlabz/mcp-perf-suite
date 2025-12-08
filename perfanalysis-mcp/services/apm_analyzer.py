@@ -111,47 +111,60 @@ async def analyze_kubernetes_metrics(
         env_data = combined_df[combined_df['env_name'] == env_name]
         env_config = environments_config.get("environments", {}).get(env_name, {})
         
-        # Get K8s services configuration
+        # Get K8s services and pods configuration
         k8s_config = env_config.get("kubernetes", {})
         services_config = k8s_config.get("services", [])
+        pods_config = k8s_config.get("pods", [])
         
-        # Analyze each unique service
-        unique_services = env_data['filter'].unique()
+        # Analyze each unique service/pod
+        unique_filters = env_data['filter'].unique()
         
-        for service_name in unique_services:
-            service_data = env_data[env_data['filter'] == service_name]
+        for filter_name in unique_filters:
+            filter_data = env_data[env_data['filter'] == filter_name]
             
-            # Find matching service configuration
-            service_config = next(
-                (s for s in services_config if s.get('service_filter') == service_name), 
-                {}
+            # Find matching configuration - try services first, then pods
+            entity_config = next(
+                (s for s in services_config if s.get('service_filter') == filter_name), 
+                None
             )
+            entity_type = "service"
+            
+            if not entity_config:
+                entity_config = next(
+                    (p for p in pods_config if p.get('pod_filter') == filter_name),
+                    None
+                )
+                entity_type = "pod" if entity_config else "unknown"
+            
+            # Use empty dict if no config found
+            if not entity_config:
+                entity_config = {}
             
             # Get resource allocation (with config-driven defaults)
-            resource_allocation = get_kubernetes_resource_allocation(service_config, service_name, config)
+            resource_allocation = get_kubernetes_resource_allocation(entity_config, filter_name, config)
             
             # Track assumptions
-            if not service_config:
+            if not entity_config:
                 k8s_analysis["assumptions"].append(
-                    f"K8s Service '{service_name}' not found in environments.json - "
+                    f"K8s {entity_type.title()} '{filter_name}' not found in environments.json - "
                     f"using defaults: {resource_allocation['cpus']} cores, {resource_allocation['memory_gb']}GB"
                 )
             else:
-                if 'cpus' not in service_config:
+                if 'cpus' not in entity_config:
                     k8s_analysis["assumptions"].append(
-                        f"K8s Service '{service_name}' missing CPU config - assumed {resource_allocation['cpus']} cores"
+                        f"K8s {entity_type.title()} '{filter_name}' missing CPU config - assumed {resource_allocation['cpus']} cores"
                     )
-                if 'memory' not in service_config:
+                if 'memory' not in entity_config:
                     k8s_analysis["assumptions"].append(
-                        f"K8s Service '{service_name}' missing memory config - assumed {resource_allocation['memory_gb']}GB"
+                        f"K8s {entity_type.title()} '{filter_name}' missing memory config - assumed {resource_allocation['memory_gb']}GB"
                     )
             
-            # Analyze service metrics
-            service_analysis = analyze_k8s_service_metrics(service_data, resource_allocation, config)
-            k8s_analysis["services"][f"{env_name}::{service_name}"] = service_analysis
+            # Analyze service/pod metrics
+            service_analysis = analyze_k8s_service_metrics(filter_data, resource_allocation, config)
+            k8s_analysis["services"][f"{env_name}::{filter_name}"] = service_analysis
             
             # Count containers
-            container_count = service_data['container_or_pod'].nunique()
+            container_count = filter_data['container_or_pod'].nunique()
             k8s_analysis["total_containers"] += container_count
     
     return k8s_analysis

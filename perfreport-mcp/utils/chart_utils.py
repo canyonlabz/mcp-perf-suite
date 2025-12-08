@@ -80,6 +80,11 @@ async def load_environment_details(run_id: str, env_name: str) -> Optional[Dict]
         resources = [
             s["service_filter"].replace("*", "") for s in env_entry["kubernetes"]["services"]
         ]
+    elif env_entry.get("kubernetes", {}).get("pods"):
+        env_type = "k8s"
+        resources = [
+            p["pod_filter"].replace("*", "") for p in env_entry["kubernetes"]["pods"]
+        ]
 
     return {
         "env_name": env_name,

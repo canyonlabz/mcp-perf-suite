@@ -539,7 +539,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
 
             aggregates.append(
                 {
-                    "service_filter": s_filter,  # you will later rename this key to "filter"
+                    "filter": s_filter,
                     "entity_type": "service",
                     "avg_cpu": round(avg_cpu, 4),
                     "avg_mem": round(avg_mem, 4),
@@ -701,7 +701,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
 
             aggregates.append(
                 {
-                    "service_filter": pod_filter,  # you will rename this to "filter"
+                    "filter": pod_filter,
                     "entity_type": "pod",
                     "avg_cpu": round(avg_cpu, 4),
                     "avg_mem": round(avg_mem, 4),
