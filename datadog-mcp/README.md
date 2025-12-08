@@ -222,7 +222,7 @@ MCP’s APM module emits post-test metrics using a unified CSV schema that suppo
 ### Host Metrics CSV
 
 ```csv
-env_name,env_tag,scope,hostname,service_filter,container_or_pod,timestamp_utc,metric,value,unit,derived_pct
+env_name,env_tag,scope,hostname,filter,container_or_pod,timestamp_utc,metric,value,unit,derived_pct
 STG,my_stg_env,host,my_hostname_of_vm,,,2024-07-22T12:29:00,system.cpu.user,0.7486701287759618,%,
 STG,my_stg_env,host,my_hostname_of_vm,,,2024-07-22T12:29:00,system.mem.used,8945780736.0,B,
 ```
@@ -230,7 +230,7 @@ STG,my_stg_env,host,my_hostname_of_vm,,,2024-07-22T12:29:00,system.mem.used,8945
 ### Kubernetes Metrics CSV
 
 ```csv
-env_name,env_tag,scope,hostname,service_filter,container_or_pod,timestamp_utc,metric,value,unit,derived_pct
+env_name,env_tag,scope,hostname,filter,container_or_pod,timestamp_utc,metric,value,unit,derived_pct
 QA,my_qa_env,k8s,,my-k8-service-api*,my-k8-pod-name,2025-09-19T14:41:50,kubernetes.cpu.usage.total,11095701.891776,nanocores,
 QA,my_qa_env,k8s,,my-k8-service-api*,my-k8-pod-name,2025-09-19T14:41:50,kubernetes.memory.usage,394260480.0,bytes,
 ```

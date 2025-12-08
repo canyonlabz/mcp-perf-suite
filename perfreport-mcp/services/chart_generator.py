@@ -276,8 +276,8 @@ async def _load_chart_data(run_id: str, chart_spec: Dict, chart_data: dict) -> O
         template_vars = {}
         if 'scope' in chart_data:
             template_vars['scope'] = chart_data['scope']
-        if 'service_filter' in chart_data:
-            template_vars['service_filter'] = chart_data['service_filter']
+        if 'filter' in chart_data:
+            template_vars['filter'] = chart_data['filter']
         if 'pod_or_container' in chart_data:
             template_vars['pod_or_container'] = chart_data['pod_or_container']
         
@@ -402,15 +402,15 @@ async def _load_chart_data_from_spec(run_id: str, chart_spec: Dict) -> Optional[
         if datadog_path.exists():
             # Find files matching the pattern
             import re
-            pattern = data_source.replace('{scope}', r'(\w+)').replace('{service_filter}', r'([^]]+)')
+            pattern = data_source.replace('{scope}', r'(\w+)').replace('{filter}', r'([^]]+)')
             pattern = pattern.replace('[', r'\[').replace(']', r'\]')
             
             for file_path in datadog_path.glob("*.csv"):
                 match = re.match(pattern, file_path.name)
                 if match:
-                    scope, service_filter = match.groups()
+                    scope, filter_value = match.groups()
                     chart_data['scope'] = scope
-                    chart_data['service_filter'] = service_filter
+                    chart_data['filter'] = filter_value
                     break
         
         # If no template variables found, try to load from blazemeter

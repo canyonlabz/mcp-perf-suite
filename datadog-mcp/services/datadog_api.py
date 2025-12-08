@@ -165,7 +165,7 @@ def _parse_to_utc(start_time: str, end_time: str) -> Tuple[int, int, int, int, s
 def _write_csv_header(writer: csv.writer):
     """Write standard CSV header for output files."""
     writer.writerow([
-        "env_name", "env_tag", "scope", "hostname", "service_filter", "container_or_pod",
+        "env_name", "env_tag", "scope", "hostname", "filter", "container_or_pod",
         "timestamp_utc", "metric", "value", "unit"
     ])
 
@@ -346,8 +346,11 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
 # -----------------------------------------------
 async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: str, run_id: str, ctx: Context) -> Dict[str, Any]:
     """
-    Collect CPU & Memory metrics for each configured k8s service and write one CSV per service.
-    CPU and Memory are queried separately (to avoid ambiguous multi-metric responses) and merged by timestamp & container.
+    Collect CPU & Memory metrics for each configured k8s service and/or pod and write one CSV per service/pod.
+    - Services are read from environment["kubernetes"]["services"].
+    - Pods are read from environment["kubernetes"]["pods"].
+    - At least one of them must be defined (services or pods).
+    - One CSV is produced per service / pod, all using the same schema.
 
     Args:
         env_name: Environment name to load (e.g., 'QA', 'UAT')
@@ -363,7 +366,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
             "env_name": str, "env_tag": str,
             "entities": int, "metrics": ["cpu","mem"],
             "date_range": {"start": str, "end": str, "tz": str},
-            "aggregates": [{"service_filter": str, "avg_cpu": float, "avg_mem": float}],
+            "aggregates": [{"filter": str, "avg_cpu": float, "avg_mem": float}],
             "warnings": [str, ...]
           }
         }
@@ -377,11 +380,16 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
         await ctx.error(msg)
         return {"files": [], "summary": {"warnings": [msg]}}
 
-    env_name = env_config.get("environment_name", "unknown")
     env_tag = env_config.get("env_tag", "unknown")
-    services = env_config.get("kubernetes", {}).get("services", [])
-    if not services:
-        msg = "No Kubernetes services configured in environment."
+
+    kube_namespace = env_config.get("kube_namespace")
+
+    k8s_cfg = env_config.get("kubernetes", {}) or {}
+    services: List[Dict[str, Any]] = k8s_cfg.get("services", []) or []
+    pods: List[Dict[str, Any]] = k8s_cfg.get("pods", []) or []
+
+    if not services and not pods:
+        msg = "No Kubernetes pods or services configured in environment. At least one must be defined."
         await ctx.error(msg)
         return {"files": [], "summary": {"warnings": [msg]}}
 
@@ -400,16 +408,12 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
         "Content-Type": "application/json",
     }
 
-    # Metric queries (by container)
-    def cpu_query(env_tag: str, svc_filter: str) -> str:
-        return f"avg:kubernetes.cpu.usage.total{{env:{env_tag},service:{svc_filter}}} by {{kube_container_name}}"
-
-    def mem_query(env_tag: str, svc_filter: str) -> str:
-        # Choose a common memory usage metric; adjust if your Datadog tenant uses a different one
-        return f"avg:kubernetes.memory.usage{{env:{env_tag},service:{svc_filter}}} by {{kube_container_name}}"
-
     verify_ssl = get_ssl_verify_setting()
+
     async with httpx.AsyncClient(verify=verify_ssl) as client:
+        # -------------------------------------------------------------
+        # 1) Services
+        # -------------------------------------------------------------
         for svc in services:
             s_filter = svc.get("service_filter")
             if not s_filter:
@@ -419,7 +423,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
             cpu_limit_cores = _parse_resource_limit(svc.get("cpus", ""))
             memory_limit_bytes = _parse_resource_limit(svc.get("memory", ""))
 
-            # 1) CPU request
+            # 1a) CPU request
             body_cpu = {
                 "data": {
                     "type": "timeseries_request",
@@ -430,7 +434,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                         "queries": [{
                             "data_source": "metrics",
                             "name": "a",
-                            "query": cpu_query(env_tag, s_filter)
+                            "query": svc_cpu_query(env_tag, s_filter)
                         }],
                         "formulas": [{"formula": "a"}]
                     }
@@ -441,30 +445,14 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
             try:
                 r_cpu = await client.post(V2_TIMESERIES_URL, headers=headers, json=body_cpu, timeout=60.0)
                 r_cpu.raise_for_status()
-                j = r_cpu.json()
-                attrs = j.get("data", {}).get("attributes", {})
-                times = attrs.get("times", [])  # ms timestamps
-                series_list = attrs.get("series", [])
-                for idx, s in enumerate(series_list):
-                    # group_tags like ["kube_container_name:xyz"]
-                    gtags = s.get("group_tags", [])
-                    cname = next((t.split(":",1)[1] for t in gtags if t.startswith("kube_container_name:")), "")
-                    # values provided in a separate top-level "values" array aligned with times
-                values = attrs.get("values", [])
-                # The v2 payload places all series’ values in a single matrix parallel to `series`
-                # values[series_index][time_index]
-                for s_idx, s in enumerate(series_list):
-                    gtags = s.get("group_tags", [])
-                    cname = next((t.split(":",1)[1] for t in gtags if t.startswith("kube_container_name:")), "")
-                    if not cname:
-                        cname = f"series_{s_idx}"
-                    cpu_series[cname] = [(int(times[t_idx]), float(values[s_idx][t_idx])) for t_idx in range(len(times)) if values[s_idx][t_idx] is not None]
+                attrs = r_cpu.json().get("data", {}).get("attributes", {})
+                cpu_series = _extract_series(attrs, ["kube_container_name"])
             except Exception as e:
-                warnings.append(f"Service '{s_filter}': CPU query error — {e}; Request body: {body_cpu}; Response: {json.dumps(j, indent=2) if 'j' in locals() else 'N/A'}")
+                warnings.append(f"Service '{s_filter}': CPU query error — {e}; Request body: {body_cpu}; Response: {json.dumps(attrs, indent=2) if 'attrs' in locals() else 'N/A'}")
                 await ctx.error(warnings[-1])
                 continue
 
-            # 2) Memory request
+            # 1b) Memory request
             body_mem = {
                 "data": {
                     "type": "timeseries_request",
@@ -475,7 +463,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                         "queries": [{
                             "data_source": "metrics",
                             "name": "a",
-                            "query": mem_query(env_tag, s_filter)
+                            "query": svc_mem_query(env_tag, s_filter)
                         }],
                         "formulas": [{"formula": "a"}]
                     }
@@ -486,20 +474,10 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
             try:
                 r_mem = await client.post(V2_TIMESERIES_URL, headers=headers, json=body_mem, timeout=60.0)
                 r_mem.raise_for_status()
-                j = r_mem.json()
-                ##attrs = (j.get("data") or [{}])[0].get("attributes", {})
-                attrs = j.get("data", {}).get("attributes", {})
-                times = attrs.get("times", [])
-                series_list = attrs.get("series", [])
-                values = attrs.get("values", [])
-                for s_idx, s in enumerate(series_list):
-                    gtags = s.get("group_tags", [])
-                    cname = next((t.split(":",1)[1] for t in gtags if t.startswith("kube_container_name:")), "")
-                    if not cname:
-                        cname = f"series_{s_idx}"
-                    mem_series[cname] = [(int(times[t_idx]), float(values[s_idx][t_idx])) for t_idx in range(len(times)) if values[s_idx][t_idx] is not None]
+                attrs = r_mem.json().get("data", {}).get("attributes", {})
+                mem_series = _extract_series(attrs, ["kube_container_name"])
             except Exception as e:
-                warnings.append(f"Service '{s_filter}': Memory query error — {e}; Request body: {body_mem}; Response: {json.dumps(j, indent=2) if 'j' in locals() else 'N/A'}")
+                warnings.append(f"Service '{s_filter}': Memory query error — {e}; Request body: {body_mem}; Response: {json.dumps(attrs, indent=2) if 'attrs' in locals() else 'N/A'}")
                 await ctx.error(warnings[-1])
                 continue
 
@@ -519,16 +497,22 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                 w = csv.writer(fcsv)
                 _write_csv_header(w)
 
-                def write_series(scope_metric: str, unit: str, per_container: Dict[str, List[Tuple[int, float]]]):
+                def write_series(
+                    metric_name: str,
+                    unit: str,
+                    per_container: Dict[str, List[Tuple[int, float]]],
+                ):
                     for cname, pts in per_container.items():
                         for ts_ms, val in pts:
                             dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                            w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, scope_metric, val, unit])
+                            # scope = "k8s", hostname = "", service_filter = s_filter
+                            w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, metric_name, val, unit])
 
+                # Raw CPU/Memory metrics
                 write_series("kubernetes.cpu.usage.total", "nanocores", cpu_series)
                 write_series("kubernetes.memory.usage", "bytes", mem_series)
 
-                # Write CPU percentages (if CPU limit is configured)
+                # CPU percentage based on CPU limits
                 if cpu_limit_cores > 0:
                     for cname, pts in cpu_series.items():
                         for ts_ms, val in pts:
@@ -536,7 +520,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                             dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
                             w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, "cpu_util_pct", cpu_pct, "%"])
 
-                # Write Memory percentages (if Memory limit is configured)
+                # Memory percentage based on Memory limits
                 if memory_limit_bytes > 0:
                     for cname, pts in mem_series.items():
                         for ts_ms, val in pts:
@@ -544,30 +528,193 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                             dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
                             w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, "mem_util_pct", mem_pct, "%"])
 
-            # Aggregates (service-level): simple mean across all container values within window
-            def flat_vals(d: Dict[str, List[Tuple[int, float]]]) -> List[float]:
-                arr: List[float] = []
-                for _, pts in d.items():
-                    arr.extend([v for _, v in pts])
-                return arr
+            # Aggregates (per service)
+            def flat_vals(series: Dict[str, List[Tuple[int, float]]]) -> List[float]:
+                return [v for pts in series.values() for (_, v) in pts]
 
             cpu_vals = flat_vals(cpu_series)
             mem_vals = flat_vals(mem_series)
             avg_cpu = (sum(cpu_vals) / len(cpu_vals)) if cpu_vals else 0.0
             avg_mem = (sum(mem_vals) / len(mem_vals)) if mem_vals else 0.0
 
-            aggregates.append({
-                "service_filter": s_filter,
-                "avg_cpu": round(avg_cpu, 4),
-                "avg_mem": round(avg_mem, 4),
-            })
+            aggregates.append(
+                {
+                    "service_filter": s_filter,  # you will later rename this key to "filter"
+                    "entity_type": "service",
+                    "avg_cpu": round(avg_cpu, 4),
+                    "avg_mem": round(avg_mem, 4),
+                }
+            )
 
             await ctx.info(f"K8s CSV written: {outcsv}")
 
+        # -------------------------------------------------------------
+        # 2) Pods
+        # -------------------------------------------------------------
+        for pod in pods:
+            pod_filter = pod.get("pod_filter")
+            if not pod_filter:
+                continue
+
+            # Parse CPU and Memory limits at the pod definition level
+            cpu_limit_cores = _parse_resource_limit(pod.get("cpus", ""))
+            memory_limit_bytes = _parse_resource_limit(pod.get("memory", ""))
+
+            # 2a) CPU request
+            body_cpu = {
+                "data": {
+                    "type": "timeseries_request",
+                    "interval": 20000,
+                    "attributes": {
+                        "from": v2_from_ms,
+                        "to": v2_to_ms,
+                        "queries": [{
+                            "data_source": "metrics",
+                            "name": "a",
+                            "query": pod_cpu_query(kube_namespace, pod_filter),
+                        }],
+                        "formulas": [{"formula": "a"}],
+                    },
+                }
+            }
+
+            pod_cpu_series: Dict[str, List[Tuple[int, float]]] = {}
+            try:
+                r_cpu = await client.post(
+                    V2_TIMESERIES_URL,
+                    headers=headers,
+                    json=body_cpu,
+                    timeout=60.0,
+                )
+                r_cpu.raise_for_status()
+                attrs = r_cpu.json().get("data", {}).get("attributes", {})
+                # Prefer pod name, fallback to container name
+                pod_cpu_series = _extract_series(attrs, ["kube_pod_name", "kube_container_name", "kube_namespace"])
+            except Exception as e:
+                warnings.append(
+                    f"Pod '{pod_filter}': CPU query failed with error: {e}"
+                )
+                await ctx.error(warnings[-1])
+                continue
+
+            # 2b) Memory request
+            body_mem = {
+                "data": {
+                    "type": "timeseries_request",
+                    "interval": 20000,
+                    "attributes": {
+                        "from": v2_from_ms,
+                        "to": v2_to_ms,
+                        "queries": [{
+                            "data_source": "metrics",
+                            "name": "a",
+                            "query": pod_mem_query(kube_namespace, pod_filter),
+                        }],
+                            "formulas": [{"formula": "a"}],
+                    },
+                }
+            }
+
+            pod_mem_series: Dict[str, List[Tuple[int, float]]] = {}
+            try:
+                r_mem = await client.post(
+                    V2_TIMESERIES_URL,
+                    headers=headers,
+                    json=body_mem,
+                    timeout=60.0,
+                )
+                r_mem.raise_for_status()
+                attrs = r_mem.json().get("data", {}).get("attributes", {})
+                pod_mem_series = _extract_series(attrs, ["kube_pod_name", "kube_container_name", "kube_namespace"])
+            except Exception as e:
+                warnings.append(
+                    f"Pod '{pod_filter}': Memory query failed with error: {e}"
+                )
+                await ctx.error(warnings[-1])
+                continue
+
+            # If both CPU and Memory are empty, skip file
+            if not any(pod_cpu_series.values()) and not any(pod_mem_series.values()):
+                warnings.append(
+                    f"Pod '{pod_filter}': no datapoints in the date range; skipping file"
+                )
+                await ctx.info(warnings[-1])
+                continue
+
+            # Prepare per-pod CSV
+            fname = f"k8s_metrics_[{_sanitize_filename(pod_filter)}].csv"
+            outcsv = os.path.join(outdir, fname)
+            files.append(outcsv)
+
+            with open(outcsv, "w", newline="", encoding="utf-8") as fcsv:
+                w = csv.writer(fcsv)
+                _write_csv_header(w)
+
+                def write_pod_series(
+                    metric_name: str,
+                    unit: str,
+                    per_pod: Dict[str, List[Tuple[int, float]]],
+                ):
+                    for pod_id, pts in per_pod.items():
+                        for ts_ms, val in pts:
+                            dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
+                            # "filter" column stores pod_filter here.
+                            # "container_or_pod" column stores the pod identifier.
+                            w.writerow([env_name, env_tag, "k8s", "", pod_filter, pod_id, dt_iso, metric_name, val, unit])
+
+                write_pod_series(
+                    "kubernetes.cpu.usage.total",
+                    "nanocores",
+                    pod_cpu_series,
+                )
+                write_pod_series(
+                    "kubernetes.memory.usage",
+                    "bytes",
+                    pod_mem_series,
+                )
+
+                # Percentages based on pod-level limits
+                if cpu_limit_cores > 0:
+                    for pod_id, pts in pod_cpu_series.items():
+                        for ts_ms, val in pts:
+                            cpu_pct = _calculate_cpu_percentage(val, cpu_limit_cores)
+                            dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
+                            w.writerow([env_name, env_tag, "k8s", "", pod_filter, pod_id, dt_iso, "cpu_util_pct", cpu_pct, "%"])
+
+                if memory_limit_bytes > 0:
+                    for pod_id, pts in pod_mem_series.items():
+                        for ts_ms, val in pts:
+                            mem_pct = _calculate_memory_percentage(
+                                val, memory_limit_bytes
+                            )
+                            dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
+                            w.writerow([env_name, env_tag, "k8s", "", pod_filter, pod_id, dt_iso, "mem_util_pct", mem_pct, "%"])
+
+            # Aggregates (per pod_filter)
+            def flat_vals(series: Dict[str, List[Tuple[int, float]]]) -> List[float]:
+                return [v for pts in series.values() for (_, v) in pts]
+
+            cpu_vals = flat_vals(pod_cpu_series)
+            mem_vals = flat_vals(pod_mem_series)
+            avg_cpu = (sum(cpu_vals) / len(cpu_vals)) if cpu_vals else 0.0
+            avg_mem = (sum(mem_vals) / len(mem_vals)) if mem_vals else 0.0
+
+            aggregates.append(
+                {
+                    "service_filter": pod_filter,  # you will rename this to "filter"
+                    "entity_type": "pod",
+                    "avg_cpu": round(avg_cpu, 4),
+                    "avg_mem": round(avg_mem, 4),
+                }
+            )
+
+            await ctx.info(f"K8s pod CSV written: {outcsv}")
+
+    # Final summary
     summary = {
         "env_name": env_name,
         "env_tag": env_tag,
-        "entities": len(services),
+        "entities": len(services) + len(pods),
         "metrics": ["cpu", "mem"],
         "date_range": {"start": str(start_time), "end": str(end_time), "tz": tz_label},
         "aggregates": aggregates,
@@ -575,6 +722,94 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
     }
 
     return {"files": files, "summary": summary}
+
+# -----------------------------
+# Query builder functions
+# -----------------------------
+
+def svc_cpu_query(tag: str, svc_filter: str) -> str:
+    return (
+        f"avg:kubernetes.cpu.usage.total{{env:{tag},service:{svc_filter}}}"
+        " by {kube_container_name}"
+    )
+
+def svc_mem_query(tag: str, svc_filter: str) -> str:
+    return (
+        f"avg:kubernetes.memory.usage{{env:{tag},service:{svc_filter}}}"
+        " by {kube_container_name}"
+    )
+
+def pod_cpu_query(ns: Optional[str], pod_filter: str) -> str:
+    """
+    Pod queries use pod_filter as kube_service and include kube_namespace.
+    We group by kube_namespace so metrics are aggregated per namespace.
+    """
+    if ns:
+        return (
+            "avg:kubernetes.cpu.usage.total"
+            f"{{kube_service:{pod_filter},kube_namespace:{ns}}} by {{kube_namespace}}"
+        )
+    # Fallback if namespace is not configured
+    return (
+        "avg:kubernetes.cpu.usage.total"
+        f"{{kube_service:{pod_filter}}} by {{kube_namespace}}"
+    )
+
+def pod_mem_query(ns: Optional[str], pod_filter: str) -> str:
+    """
+    Pod queries use pod_filter as kube_service and include kube_namespace.
+    We group by kube_namespace so metrics are aggregated per namespace.
+    """
+    if ns:
+        return (
+            "avg:kubernetes.memory.usage"
+            f"{{kube_service:{pod_filter},kube_namespace:{ns}}} by {{kube_namespace}}"
+        )
+    return (
+        "avg:kubernetes.memory.usage"
+        f"{{kube_service:{pod_filter}}} by {{kube_namespace}}"
+    )
+
+# Small helper to normalize v2 timeseries into: { identifier -> [(ts_ms, value), ...] }
+def _extract_series(attrs: Dict[str, Any], id_tag_keys: List[str]) -> Dict[str, List[Tuple[int, float]]]:
+    times = attrs.get("times", []) or []
+    series_list = attrs.get("series", []) or []
+    values = attrs.get("values", []) or []
+
+    per_id: Dict[str, List[Tuple[int, float]]] = {}
+    for s_idx, series in enumerate(series_list):
+        gtags = series.get("group_tags", []) or []
+
+        identifier: str = ""
+        # Try each tag key in order (e.g. kube_pod_name, kube_container_name)
+        for tag_key in id_tag_keys:
+            identifier = next(
+                (t.split(":", 1)[1] for t in gtags if t.startswith(f"{tag_key}:")),
+                identifier,
+            )
+            if identifier:
+                break
+
+        if not identifier:
+            identifier = f"series_{s_idx}"
+
+        row_vals = values[s_idx] if s_idx < len(values) else []
+        pts: List[Tuple[int, float]] = []
+        for t_idx, ts_ms in enumerate(times):
+            if t_idx >= len(row_vals):
+                break
+            val = row_vals[t_idx]
+            if val is None:
+                continue
+            try:
+                pts.append((int(ts_ms), float(val)))
+            except (TypeError, ValueError):
+                continue
+
+        if pts:
+            per_id[identifier] = pts
+
+    return per_id
 
 # -----------------------------
 # Helper functions

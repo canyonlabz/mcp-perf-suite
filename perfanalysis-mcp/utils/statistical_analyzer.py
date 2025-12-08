@@ -641,7 +641,7 @@ def load_and_process_infrastructure_data(infra_csv_files, granularity_window):
     Works with identical CSV schema from Datadog MCP
     
     Returns DataFrame with columns: timestamp, cpu_util_pct, mem_util_pct, identifier
-    Where identifier is either service_filter (k8s) or hostname (host)
+    Where identifier is either filter (k8s) or hostname (host)
     """
     
     all_infra_data = []
@@ -672,7 +672,7 @@ def load_and_process_infrastructure_data(infra_csv_files, granularity_window):
                 
                 # Add identifier based on environment type
                 if env_type == 'k8s':
-                    cpu_processed['identifier'] = cpu_df['service_filter'].values
+                    cpu_processed['identifier'] = cpu_df['filter'].values
                 else:  # host
                     cpu_processed['identifier'] = cpu_df['hostname'].values
                 
@@ -686,7 +686,7 @@ def load_and_process_infrastructure_data(infra_csv_files, granularity_window):
                 
                 # Add identifier based on environment type
                 if env_type == 'k8s':
-                    mem_processed['identifier'] = mem_df['service_filter'].values
+                    mem_processed['identifier'] = mem_df['filter'].values
                 else:  # host
                     mem_processed['identifier'] = mem_df['hostname'].values
                 

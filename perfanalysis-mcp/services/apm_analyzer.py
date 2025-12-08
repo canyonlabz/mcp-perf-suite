@@ -116,10 +116,10 @@ async def analyze_kubernetes_metrics(
         services_config = k8s_config.get("services", [])
         
         # Analyze each unique service
-        unique_services = env_data['service_filter'].unique()
+        unique_services = env_data['filter'].unique()
         
         for service_name in unique_services:
-            service_data = env_data[env_data['service_filter'] == service_name]
+            service_data = env_data[env_data['filter'] == service_name]
             
             # Find matching service configuration
             service_config = next(

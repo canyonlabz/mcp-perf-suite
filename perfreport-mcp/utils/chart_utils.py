@@ -43,7 +43,7 @@ async def load_environment_details(run_id: str, env_name: str) -> Optional[Dict]
             {
                 "env_name": <environment name>,
                 "env_type": "host" | "k8s" | "unknown",
-                "resources": [<list of hostnames or service_filters>],
+                "resources": [<list of hostnames or filters>],
                 "config": <entire environment definition>
             }
             Returns None if the JSON file is missing or the environment is undefined.
