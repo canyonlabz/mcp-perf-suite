@@ -160,7 +160,7 @@ async def analyze_kubernetes_metrics(
                     )
             
             # Analyze service/pod metrics
-            service_analysis = analyze_k8s_service_metrics(filter_data, resource_allocation, config)
+            service_analysis = analyze_k8s_entity_metrics(filter_data, resource_allocation, config)
             k8s_analysis["services"][f"{env_name}::{filter_name}"] = service_analysis
             
             # Count containers
@@ -169,24 +169,24 @@ async def analyze_kubernetes_metrics(
     
     return k8s_analysis
 
-def get_kubernetes_resource_allocation(service_config: Dict, service_name: str, config: Dict) -> Dict:
-    """Get K8s resource allocation with config-driven fallbacks"""
+def get_kubernetes_resource_allocation(entity_config: Dict, entity_name: str, config: Dict) -> Dict:
+    """Get K8s entity (service or pod) resource allocation with config-driven fallbacks"""
     
     defaults = config['perf_analysis']['default_resources']['kubernetes']
     
     return {
-        "cpus": parse_cpu_cores(service_config.get("cpus", f"{defaults['cpus']} core")),
-        "memory_gb": parse_memory_gib(service_config.get("memory", f"{defaults['memory_gb']}GiB"))
+        "cpus": parse_cpu_cores(entity_config.get("cpus", f"{defaults['cpus']} core")),
+        "memory_gb": parse_memory_gib(entity_config.get("memory", f"{defaults['memory_gb']}GiB"))
     }
 
-def analyze_k8s_service_metrics(service_data: pd.DataFrame, resource_allocation: Dict, config: Dict) -> Dict:
-    """Analyze individual K8s service metrics with CORRECT nanocore calculations"""
+def analyze_k8s_entity_metrics(entity_data: pd.DataFrame, resource_allocation: Dict, config: Dict) -> Dict:
+    """Analyze individual K8s entity (service or pod) metrics with correct nanocore calculations"""
     
     # Separate CPU and Memory metrics
-    cpu_data = service_data[service_data['metric'].str.contains('cpu', case=False, na=False)]
-    memory_data = service_data[service_data['metric'].str.contains('mem', case=False, na=False)]
+    cpu_data = entity_data[entity_data['metric'].str.contains('cpu', case=False, na=False)]
+    memory_data = entity_data[entity_data['metric'].str.contains('mem', case=False, na=False)]
     
-    service_metrics = {
+    entity_metrics = {
         "resource_allocation": resource_allocation,
         "cpu_analysis": {},
         "memory_analysis": {},
@@ -196,11 +196,11 @@ def analyze_k8s_service_metrics(service_data: pd.DataFrame, resource_allocation:
     }
     
     # Time range analysis
-    if not service_data.empty:
-        service_metrics["time_range"] = {
-            "start_time": service_data['timestamp_utc'].min(),
-            "end_time": service_data['timestamp_utc'].max(),
-            "duration_minutes": calculate_duration_minutes(service_data['timestamp_utc'])
+    if not entity_data.empty:
+        entity_metrics["time_range"] = {
+            "start_time": entity_data['timestamp_utc'].min(),
+            "end_time": entity_data['timestamp_utc'].max(),
+            "duration_minutes": calculate_duration_minutes(entity_data['timestamp_utc'])
         }
     
     # CPU Analysis with CORRECT nanocore conversion
@@ -209,7 +209,7 @@ def analyze_k8s_service_metrics(service_data: pd.DataFrame, resource_allocation:
         cpu_data_converted = cpu_data.copy()
         cpu_data_converted['cpu_cores'] = cpu_data_converted['value'] / 1e9  # nanocores to cores
 
-        service_metrics["cpu_analysis"] = {
+        entity_metrics["cpu_analysis"] = {
             "allocated_cores": resource_allocation['cpus'],
             "peak_usage_cores": float(cpu_data_converted['cpu_cores'].max()),
             "avg_usage_cores": float(cpu_data_converted['cpu_cores'].mean()),
@@ -224,7 +224,7 @@ def analyze_k8s_service_metrics(service_data: pd.DataFrame, resource_allocation:
         memory_data_converted = memory_data.copy()
         memory_data_converted['memory_gb'] = memory_data_converted['value'] / 1e9  # bytes to GB
         
-        service_metrics["memory_analysis"] = {
+        entity_metrics["memory_analysis"] = {
             "allocated_gb": resource_allocation['memory_gb'],
             "peak_usage_gb": float(memory_data_converted['memory_gb'].max()),
             "avg_usage_gb": float(memory_data_converted['memory_gb'].mean()),
@@ -235,21 +235,21 @@ def analyze_k8s_service_metrics(service_data: pd.DataFrame, resource_allocation:
         }
     
     # Container-level breakdown
-    containers = service_data['container_or_pod'].unique()
+    containers = entity_data['container_or_pod'].unique()
     for container in containers:
-        container_data = service_data[service_data['container_or_pod'] == container]
+        container_data = entity_data[entity_data['container_or_pod'] == container]
         
         container_cpu = container_data[container_data['metric'].str.contains('cpu', case=False, na=False)]
         container_memory = container_data[container_data['metric'].str.contains('mem', case=False, na=False)]
         
-        service_metrics["containers"][container] = {
+        entity_metrics["containers"][container] = {
             "cpu_samples": len(container_cpu),
             "memory_samples": len(container_memory),
             "peak_cpu_cores": float(container_cpu['value'].max() / 1e6) if not container_cpu.empty else 0,
             "peak_memory_gb": float(container_memory['value'].max() / 1e9) if not container_memory.empty else 0
         }
     
-    return service_metrics
+    return entity_metrics
 
 # -----------------------------------------------
 # Host Analysis Functions
