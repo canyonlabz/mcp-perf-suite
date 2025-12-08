@@ -139,6 +139,8 @@ def _markdown_to_confluence_storage_format(markdown: str) -> str:
             if not in_table:
                 in_table = True
                 xhtml_lines.append('<table>')
+                # Add colgroup with width hint for first column (prevents Cloud auto-shrinking)
+                xhtml_lines.append('<colgroup><col style="min-width: 250px;" /><col /></colgroup>')
                 xhtml_lines.append('<tbody>')
             
             # Skip separator lines (e.g., |---|---|)
@@ -148,9 +150,13 @@ def _markdown_to_confluence_storage_format(markdown: str) -> str:
             # Parse table row
             cells = [cell.strip() for cell in line.split('|')[1:-1]]  # Skip first/last empty
             row_html = '<tr>'
-            for cell in cells:
+            for idx, cell in enumerate(cells):
                 cell_content = _apply_inline_formatting(cell)
-                row_html += f'<td>{cell_content}</td>'
+                if idx == 0:
+                    # First column: prevent text wrapping (fixes Cloud smart-table compression)
+                    row_html += f'<td style="white-space: nowrap;">{cell_content}</td>'
+                else:
+                    row_html += f'<td>{cell_content}</td>'
             row_html += '</tr>'
             xhtml_lines.append(row_html)
             continue
@@ -189,8 +195,8 @@ def _markdown_to_confluence_storage_format(markdown: str) -> str:
             content = _apply_inline_formatting(line.strip())
             xhtml_lines.append(f'<p>{content}</p>')
         else:
-            # Preserve empty lines as line breaks
-            xhtml_lines.append('<p></p>')
+            # Use <br/> for empty lines (Cloud renders <p></p> as excessive whitespace)
+            xhtml_lines.append('<br/>')
     
     # Close any open table
     if in_table:
