@@ -331,7 +331,7 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
             return {"files": [], "summary": {"warnings": [msg]}}
 
         # Load custom log queries from custom_queries.json
-        custom_queries_config = await load_custom_queries_json(ctx)
+        custom_queries_config = await load_custom_queries_json()
         log_queries_config = (custom_queries_config or {}).get("log_queries", {}) or {}
         custom_log_keys = list(log_queries_config.keys())
 
