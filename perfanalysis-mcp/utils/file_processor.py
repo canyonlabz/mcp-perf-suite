@@ -118,7 +118,7 @@ async def write_infrastructure_csv(analysis: Dict, csv_file: Path):
     
     csv_data = []
     
-    # K8s services data
+    # K8s entity data
     k8s_data = analysis.get("detailed_metrics", {}).get("kubernetes", {})
     for service_name, service_metrics in k8s_data.get("services", {}).items():
         env_name, svc_name = service_name.split("::", 1) if "::" in service_name else ("unknown", service_name)

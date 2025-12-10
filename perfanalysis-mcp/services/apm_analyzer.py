@@ -160,8 +160,8 @@ async def analyze_kubernetes_metrics(
                     )
             
             # Analyze service/pod metrics
-            service_analysis = analyze_k8s_entity_metrics(filter_data, resource_allocation, config)
-            k8s_analysis["services"][f"{env_name}::{filter_name}"] = service_analysis
+            entity_analysis = analyze_k8s_entity_metrics(filter_data, resource_allocation, config)
+            k8s_analysis["services"][f"{env_name}::{filter_name}"] = entity_analysis
             
             # Count containers
             container_count = filter_data['container_or_pod'].nunique()
@@ -598,7 +598,7 @@ def generate_resource_insights(analysis_results: Dict, config: Dict) -> Dict:
     return insights
 
 def analyze_service_utilization(service_name: str, service_metrics: Dict, cpu_thresholds: Dict, memory_thresholds: Dict, insights: Dict):
-    """Analyze K8s service utilization against thresholds"""
+    """Analyze K8s entity utilization against thresholds"""
     
     cpu_analysis = service_metrics.get("cpu_analysis", {})
     memory_analysis = service_metrics.get("memory_analysis", {})
