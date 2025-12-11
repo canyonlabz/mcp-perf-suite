@@ -157,25 +157,17 @@ datadog-mcp/custom_queries.json
 {
   "schema_version": "1.0",
 
-  "projects": {
-    "vipr": {
-      "description": "VIPR Valuation Services",
-      "apm_queries": ["vipr_500_errors", "vipr_slow_requests"],
-      "log_queries": ["vipr_error_logs"]
-    }
-  },
-
   "apm_queries": {
-    "vipr_500_errors": {
-      "description": "VIPR HTTP 500 errors",
-      "query": "service:valuationservice env:uat @http.status_code:500"
+    "app_500_errors": {
+      "description": "Application HTTP 500 errors",
+      "query": "service:app-service env:qa @http.status_code:500"
     }
   },
 
   "log_queries": {
-    "vipr_error_logs": {
-      "description": "VIPR Application errors",
-      "query": "service:valuationservice status:error"
+    "app_error_logs": {
+      "description": "Application errors",
+      "query": "service:app-service status:error"
     }
   }
 }
@@ -183,41 +175,25 @@ datadog-mcp/custom_queries.json
 
 ---
 
-# 🕰️ 8. Legacy Environment Custom Queries (Optional)
-
-Still supported for backward compatibility:
-
-```json
-"custom_log_queries": {
-  "old_filter": {
-    "query": "service:legacy status:error"
-  }
-}
-```
-
-Emoji meaning: 🕰️ = deprecated but supported for now.
-
----
-
-# 🧮 9. Summary of All Query Sources
+# 🧮 8. Summary of All Query Sources
 
 | Source                                | Description                | Recommended?         |
 | ------------------------------------- | -------------------------- | -------------------- |
-| Built-in templates                    | Common patterns            | ✅ Yes                |
-| Env-based queries                     | Service/host/k8s filtering | ✅ Yes                |
+| Built-in templates                    | Common patterns            | ✅ Yes               |
+| Env-based queries                     | Service/host/k8s filtering | ✅ Yes               |
 | Inline custom                         | Fully manual               | ⚠️ Use when needed   |
 | Global custom (`custom_queries.json`) | Reusable                   | 🌟 **Best practice** |
 
 ---
 
-# 🧪 10. Example MCP Tool Usage
+# 🧪 9. Example MCP Tool Usage
 
 ## 🔵 APM Example
 
 ```json
 {
-  "env_name": "uat",
-  "query_type": "vipr_500_errors",
+  "env_name": "qa1",
+  "query_type": "app_500_errors",
   "start_time": "2024-12-01T00:00:00Z",
   "end_time": "2024-12-02T00:00:00Z"
 }
@@ -227,7 +203,7 @@ Emoji meaning: 🕰️ = deprecated but supported for now.
 
 ```json
 {
-  "env_name": "qa",
+  "env_name": "qa2",
   "query_type": "service_errors",
   "start_time": "2024-12-05T00:00:00Z",
   "end_time": "2024-12-05T23:59:59Z"

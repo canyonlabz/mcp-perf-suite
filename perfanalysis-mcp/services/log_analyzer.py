@@ -770,7 +770,7 @@ def group_datadog_errors(issues: List[Dict], ctx: Context) -> List[Dict]:
     })
     
     for issue in issues:
-        # Group by error_type, service, api_request, and http_status_code
+        # Group by error_type, k8s entity, api_request, and http_status_code
         key = (
             issue["error_type"], 
             issue["service"], 
@@ -912,15 +912,15 @@ async def correlate_with_infrastructure_analysis(
         # Extract hosts/services with resource issues
         kpi_violations = infra_data.get("kpi_violations", [])
         
-        # Group log issues by host/service
+        # Group log issues by host/k8s entity (using Datadog service field as entity identifier)
         issues_by_host = defaultdict(list)
-        issues_by_service = defaultdict(list)
+        issues_by_k8s_entity = defaultdict(list)
         
         for issue in log_issues:
             if issue.get("host"):
                 issues_by_host[issue["host"]].append(issue)
             if issue.get("service"):
-                issues_by_service[issue["service"]].append(issue)
+                issues_by_k8s_entity[issue["service"]].append(issue)
         
         # Find correlated infrastructure issues
         resource_constrained = []
@@ -942,7 +942,7 @@ async def correlate_with_infrastructure_analysis(
             "available": True,
             "total_hosts_analyzed": len(issues_by_host),
             "resource_constrained_hosts": resource_constrained,
-            "service_health_correlation": _analyze_service_health(issues_by_service, infra_data),
+            "k8s_entity_health_correlation": _analyze_k8s_entity_health(issues_by_k8s_entity, infra_data),
             "temporal_correlation": "Future enhancement: Not available yet"
         }
         
@@ -975,40 +975,40 @@ def _analyze_error_impact(correlated_issues: List[Dict]) -> Dict[str, Any]:
     }
 
 
-def _analyze_service_health(
-    issues_by_service: Dict[str, List[Dict]], 
+def _analyze_k8s_entity_health(
+    issues_by_k8s_entity: Dict[str, List[Dict]], 
     infra_data: Dict
 ) -> Dict[str, Any]:
     """
-    Analyze service health based on errors and infrastructure metrics.
+    Analyze K8s entity health based on errors and infrastructure metrics.
     
     Args:
-        issues_by_service: Dictionary mapping services to their issues
+        issues_by_k8s_entity: Dictionary mapping K8s entities to their issues
         infra_data: Infrastructure analysis data
     
     Returns:
-        Dictionary with service health analysis
+        Dictionary with K8s entity health analysis
     """
-    if not issues_by_service:
-        return {"services_analyzed": 0}
+    if not issues_by_k8s_entity:
+        return {"k8s_entities_analyzed": 0}
     
-    unhealthy_services = []
+    unhealthy_k8s_entities = []
     
-    for service, issues in issues_by_service.items():
+    for entity, issues in issues_by_k8s_entity.items():
         total_errors = sum(issue["count"] for issue in issues)
         critical_errors = sum(issue["count"] for issue in issues if issue["severity"] == "Critical")
         
         if critical_errors > 0:
-            unhealthy_services.append({
-                "service": service,
+            unhealthy_k8s_entities.append({
+                "k8s_entity": entity,
                 "total_errors": total_errors,
                 "critical_errors": critical_errors
             })
     
     return {
-        "services_analyzed": len(issues_by_service),
-        "unhealthy_services": unhealthy_services,
-        "services_requiring_attention": len(unhealthy_services)
+        "k8s_entities_analyzed": len(issues_by_k8s_entity),
+        "unhealthy_k8s_entities": unhealthy_k8s_entities,
+        "k8s_entities_requiring_attention": len(unhealthy_k8s_entities)
     }
 
 
@@ -1283,14 +1283,14 @@ def format_log_analysis_markdown(
                 md.append(f"| {item.get('host', 'N/A')} | {item.get('metric', 'N/A')} | {item.get('threshold', 'N/A')} | {item.get('max_value', 'N/A')} | {item.get('error_count', 0)} |")
             md.append("\n")
         
-        service_health = infra_corr.get("service_health_correlation", {})
-        unhealthy_services = service_health.get("unhealthy_services", [])
-        if unhealthy_services:
-            md.append("### Services Requiring Attention\n")
-            md.append("| Service | Total Errors | Critical Errors |")
-            md.append("|---------|--------------|-----------------|")
-            for item in unhealthy_services[:15]:
-                md.append(f"| {item.get('service', 'N/A')} | {item.get('total_errors', 0)} | {item.get('critical_errors', 0)} |")
+        k8s_entity_health = infra_corr.get("k8s_entity_health_correlation", {})
+        unhealthy_k8s_entities = k8s_entity_health.get("unhealthy_k8s_entities", [])
+        if unhealthy_k8s_entities:
+            md.append("### K8s Entities Requiring Attention\n")
+            md.append("| K8s Entity | Total Errors | Critical Errors |")
+            md.append("|------------|--------------|-----------------|")
+            for item in unhealthy_k8s_entities[:15]:
+                md.append(f"| {item.get('k8s_entity', 'N/A')} | {item.get('total_errors', 0)} | {item.get('critical_errors', 0)} |")
             md.append("\n")
     
     # Recommendations

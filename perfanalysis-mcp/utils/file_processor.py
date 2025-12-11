@@ -120,16 +120,16 @@ async def write_infrastructure_csv(analysis: Dict, csv_file: Path):
     
     # K8s entity data
     k8s_data = analysis.get("detailed_metrics", {}).get("kubernetes", {})
-    for service_name, service_metrics in k8s_data.get("services", {}).items():
-        env_name, svc_name = service_name.split("::", 1) if "::" in service_name else ("unknown", service_name)
+    for entity_name, entity_metrics in k8s_data.get("entities", {}).items():
+        env_name, k8s_name = entity_name.split("::", 1) if "::" in entity_name else ("unknown", entity_name)
         
-        cpu_analysis = service_metrics.get("cpu_analysis", {})
-        memory_analysis = service_metrics.get("memory_analysis", {})
+        cpu_analysis = entity_metrics.get("cpu_analysis", {})
+        memory_analysis = entity_metrics.get("memory_analysis", {})
         
         csv_data.append({
             'environment': env_name,
             'resource_type': 'kubernetes',
-            'resource_name': svc_name,
+            'resource_name': k8s_name,
             'metric_type': 'overall',
             'allocated_cpu': cpu_analysis.get('allocated_cores', 0),
             'peak_cpu_utilization_pct': cpu_analysis.get('peak_utilization_pct', 0),
@@ -137,8 +137,8 @@ async def write_infrastructure_csv(analysis: Dict, csv_file: Path):
             'allocated_memory_gb': memory_analysis.get('allocated_gb', 0),
             'peak_memory_utilization_pct': memory_analysis.get('peak_utilization_pct', 0),
             'avg_memory_utilization_pct': memory_analysis.get('avg_utilization_pct', 0),
-            'total_containers': len(service_metrics.get('containers', {})),
-            'duration_minutes': service_metrics.get('time_range', {}).get('duration_minutes', 0)
+            'total_containers': len(entity_metrics.get('containers', {})),
+            'duration_minutes': entity_metrics.get('time_range', {}).get('duration_minutes', 0)
         })
     
     # Host data
@@ -396,7 +396,7 @@ def format_infrastructure_markdown(analysis: Dict, test_run_id: str) -> str:
     k8s_summary = infrastructure_summary.get('kubernetes_summary', {})
     host_summary = infrastructure_summary.get('host_summary', {})
     
-    total_services = k8s_summary.get('total_services', 0)
+    total_entities = k8s_summary.get('total_entities', 0)
     total_containers = k8s_summary.get('total_containers', 0)
     total_hosts = host_summary.get('total_hosts', 0)
     
@@ -404,7 +404,7 @@ def format_infrastructure_markdown(analysis: Dict, test_run_id: str) -> str:
 
 ## Infrastructure Overview
 - **Total Environments**: {infrastructure_summary.get('total_environments', 0)}
-- **Kubernetes Services**: {total_services} ({total_containers} containers)
+- **Kubernetes Entities**: {total_entities} ({total_containers} containers)
 - **Host Systems**: {total_hosts}
 
 ## Resource Utilization Summary
@@ -441,7 +441,7 @@ def format_infrastructure_markdown(analysis: Dict, test_run_id: str) -> str:
     # Kubernetes details
     if k8s_summary:
         md_content += f"\n## Kubernetes Analysis\n"
-        md_content += f"- **Services Analyzed**: {total_services}\n"
+        md_content += f"- **K8s Entities Analyzed**: {total_entities}\n"
         md_content += f"- **Total Containers**: {total_containers}\n"
         md_content += f"- **Environments**: {', '.join(k8s_summary.get('environments', []))}\n"
     

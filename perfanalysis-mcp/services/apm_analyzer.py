@@ -79,7 +79,7 @@ async def analyze_kubernetes_metrics(
     """Analyze Kubernetes container metrics with correct nanocore calculations"""
     
     k8s_analysis = {
-        "services": {},
+        "entities": {},
         "environments": [],
         "assumptions": [],
         "total_containers": 0,
@@ -161,7 +161,7 @@ async def analyze_kubernetes_metrics(
             
             # Analyze service/pod metrics
             entity_analysis = analyze_k8s_entity_metrics(filter_data, resource_allocation, config)
-            k8s_analysis["services"][f"{env_name}::{filter_name}"] = entity_analysis
+            k8s_analysis["entities"][f"{env_name}::{filter_name}"] = entity_analysis
             
             # Count containers
             container_count = filter_data['container_or_pod'].nunique()
@@ -557,7 +557,7 @@ def generate_infrastructure_summary(analysis_results: Dict) -> Dict:
     k8s_data = analysis_results.get("detailed_metrics", {}).get("kubernetes", {})
     if k8s_data:
         summary["kubernetes_summary"] = {
-            "total_services": len(k8s_data.get("services", {})),
+            "total_entities": len(k8s_data.get("entities", {})),
             "total_containers": k8s_data.get("total_containers", 0),
             "environments": k8s_data.get("environments", [])
         }
@@ -587,8 +587,8 @@ def generate_resource_insights(analysis_results: Dict, config: Dict) -> Dict:
     
     # Analyze K8s resources
     k8s_data = analysis_results.get("detailed_metrics", {}).get("kubernetes", {})
-    for service_name, service_metrics in k8s_data.get("services", {}).items():
-        analyze_service_utilization(service_name, service_metrics, cpu_thresholds, memory_thresholds, insights)
+    for entity_name, entity_metrics in k8s_data.get("entities", {}).items():
+        analyze_k8s_utilization(entity_name, entity_metrics, cpu_thresholds, memory_thresholds, insights)
     
     # Analyze Host resources
     host_data = analysis_results.get("detailed_metrics", {}).get("hosts", {})
@@ -597,11 +597,11 @@ def generate_resource_insights(analysis_results: Dict, config: Dict) -> Dict:
     
     return insights
 
-def analyze_service_utilization(service_name: str, service_metrics: Dict, cpu_thresholds: Dict, memory_thresholds: Dict, insights: Dict):
+def analyze_k8s_utilization(entity_name: str, entity_metrics: Dict, cpu_thresholds: Dict, memory_thresholds: Dict, insights: Dict):
     """Analyze K8s entity utilization against thresholds"""
     
-    cpu_analysis = service_metrics.get("cpu_analysis", {})
-    memory_analysis = service_metrics.get("memory_analysis", {})
+    cpu_analysis = entity_metrics.get("cpu_analysis", {})
+    memory_analysis = entity_metrics.get("memory_analysis", {})
     
     # CPU utilization analysis
     if cpu_analysis:
@@ -610,7 +610,7 @@ def analyze_service_utilization(service_name: str, service_metrics: Dict, cpu_th
         
         if peak_cpu_pct > cpu_thresholds['high']:
             insights["high_utilization"].append({
-                "resource": f"{service_name} (CPU)",
+                "resource": f"{entity_name} (CPU)",
                 "type": "kubernetes",
                 "peak_utilization": peak_cpu_pct,
                 "avg_utilization": avg_cpu_pct,
@@ -619,7 +619,7 @@ def analyze_service_utilization(service_name: str, service_metrics: Dict, cpu_th
             })
         elif avg_cpu_pct < cpu_thresholds['low']:
             insights["low_utilization"].append({
-                "resource": f"{service_name} (CPU)",
+                "resource": f"{entity_name} (CPU)",
                 "type": "kubernetes", 
                 "avg_utilization": avg_cpu_pct,
                 "threshold": cpu_thresholds['low'],
@@ -627,7 +627,7 @@ def analyze_service_utilization(service_name: str, service_metrics: Dict, cpu_th
             })
         else:
             insights["right_sized"].append({
-                "resource": f"{service_name} (CPU)",
+                "resource": f"{entity_name} (CPU)",
                 "utilization": avg_cpu_pct,
                 "status": "well-utilized"
             })
@@ -639,7 +639,7 @@ def analyze_service_utilization(service_name: str, service_metrics: Dict, cpu_th
         
         if peak_mem_pct > memory_thresholds['high']:
             insights["high_utilization"].append({
-                "resource": f"{service_name} (Memory)",
+                "resource": f"{entity_name} (Memory)",
                 "type": "kubernetes",
                 "peak_utilization": peak_mem_pct,
                 "avg_utilization": avg_mem_pct,
@@ -648,7 +648,7 @@ def analyze_service_utilization(service_name: str, service_metrics: Dict, cpu_th
             })
         elif avg_mem_pct < memory_thresholds['low']:
             insights["low_utilization"].append({
-                "resource": f"{service_name} (Memory)",
+                "resource": f"{entity_name} (Memory)",
                 "type": "kubernetes",
                 "avg_utilization": avg_mem_pct,
                 "threshold": memory_thresholds['low'],
@@ -656,7 +656,7 @@ def analyze_service_utilization(service_name: str, service_metrics: Dict, cpu_th
             })
         else:
             insights["right_sized"].append({
-                "resource": f"{service_name} (Memory)",
+                "resource": f"{entity_name} (Memory)",
                 "utilization": avg_mem_pct,
                 "status": "well-utilized"
             })
