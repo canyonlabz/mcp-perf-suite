@@ -98,6 +98,8 @@ def _markdown_to_confluence_storage_format(markdown: str) -> str:
     in_table = False
     in_code_block = False
     code_block_content = []
+    table_header_processed = False  # Track if we've processed the header row
+    table_column_count = 0  # Track number of columns for colgroup
     
     for line in lines:
         # Handle code blocks
@@ -136,33 +138,71 @@ def _markdown_to_confluence_storage_format(markdown: str) -> str:
         
         # Handle tables
         if '|' in line and line.strip().startswith('|'):
+            # Parse cells first to get column count
+            cells = [cell.strip() for cell in line.split('|')[1:-1]]  # Skip first/last empty
+            
             if not in_table:
                 in_table = True
+                table_header_processed = False
+                table_column_count = len(cells)
                 xhtml_lines.append('<table>')
-                # Add colgroup with width hint for first column (prevents Cloud auto-shrinking)
-                xhtml_lines.append('<colgroup><col style="min-width: 250px;" /><col /></colgroup>')
+                # Generate dynamic colgroup based on actual column count
+                colgroup_html = '<colgroup>'
+                for i in range(table_column_count):
+                    if i == 0:
+                        colgroup_html += '<col style="min-width: 250px;" />'
+                    else:
+                        colgroup_html += '<col style="min-width: 120px;" />'
+                colgroup_html += '</colgroup>'
+                xhtml_lines.append(colgroup_html)
                 xhtml_lines.append('<tbody>')
             
-            # Skip separator lines (e.g., |---|---|)
+            # Skip separator lines (e.g., |---|---|) and mark header as processed
             if re.match(r'^\|[\s\-:]+\|', line):
+                table_header_processed = True
                 continue
             
-            # Parse table row
-            cells = [cell.strip() for cell in line.split('|')[1:-1]]  # Skip first/last empty
+            # Parse table row - use <th> for header row, <td> for data rows
             row_html = '<tr>'
             for idx, cell in enumerate(cells):
                 cell_content = _apply_inline_formatting(cell)
-                if idx == 0:
-                    # First column: prevent text wrapping (fixes Cloud smart-table compression)
-                    row_html += f'<td style="white-space: nowrap;">{cell_content}</td>'
+                
+                if not table_header_processed:
+                    # Header row: use <th> with Cloud-compatible attributes
+                    th_attrs = (
+                        'rowspan="1" colspan="1" '
+                        'colorname="Dark blue" '
+                        'data-cell-background="#4c9aff" '
+                        'aria-sort="none" '
+                        'style="background-color: rgb(102, 157, 241);"'
+                    )
+                    # Header text styling: white text on colored background
+                    th_content = (
+                        f'<p><strong>'
+                        f'<span data-renderer-mark="true" '
+                        f'data-text-custom-color="#ffffff" '
+                        f'class="fabric-text-color-mark" '
+                        f'style="--custom-palette-color: var(--ds-text-inverse, #FFFFFF);">'
+                        f'{cell_content}'
+                        f'</span></strong></p>'
+                    )
+                    row_html += f'<th {th_attrs}>{th_content}</th>'
                 else:
-                    row_html += f'<td>{cell_content}</td>'
+                    # Data row: use <td>
+                    if idx == 0:
+                        # First column: prevent text wrapping
+                        row_html += f'<td style="white-space: nowrap;">{cell_content}</td>'
+                    else:
+                        row_html += f'<td>{cell_content}</td>'
+            
             row_html += '</tr>'
             xhtml_lines.append(row_html)
             continue
         else:
             if in_table:
                 in_table = False
+                table_header_processed = False
+                table_column_count = 0
                 xhtml_lines.append('</tbody>')
                 xhtml_lines.append('</table>')
         
@@ -190,13 +230,11 @@ def _markdown_to_confluence_storage_format(markdown: str) -> str:
             xhtml_lines.append(f'<blockquote><p>{content}</p></blockquote>')
             continue
         
-        # Handle regular paragraphs
+        # Handle regular paragraphs (skip empty lines - they add no value in browser)
         if line.strip():
             content = _apply_inline_formatting(line.strip())
             xhtml_lines.append(f'<p>{content}</p>')
-        else:
-            # Use <br/> for empty lines (Cloud renders <p></p> as excessive whitespace)
-            xhtml_lines.append('<br/>')
+        # Empty lines are skipped - no output generated
     
     # Close any open table
     if in_table:

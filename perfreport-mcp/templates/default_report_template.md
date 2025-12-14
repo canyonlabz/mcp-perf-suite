@@ -109,19 +109,39 @@
 
 ---
 
-## 6.0 Bottleneck Identification
+## 6.0 Log Analysis
+
+### 6.1 Log Analysis Summary
+
+{{LOG_ANALYSIS_SUMMARY}}
+
+### 6.2 JMeter Log Analysis
+
+{{JMETER_LOG_ANALYSIS}}
+
+### 6.3 Datadog Log Analysis
+
+{{DATADOG_LOG_ANALYSIS}}
+
+### 6.4 APM Trace Analysis
+
+{{APM_TRACE_ANALYSIS}}
+
+---
+
+## 7.0 Bottleneck Identification
 
 {{BOTTLENECK_ANALYSIS}}
 
 ---
 
-## 7.0 Recommendations
+## 8.0 Recommendations
 
 {{RECOMMENDATIONS}}
 
 ---
 
-## 8.0 Action Items & Bug Tracking
+## 9.0 Action Items & Bug Tracking
 
 ### 8.1 Bugs Created
 

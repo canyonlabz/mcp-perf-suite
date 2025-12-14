@@ -141,6 +141,19 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             warnings
         )
         
+        # Load log analysis data (optional)
+        log_data = await _load_json_safe(
+            analysis_path / "log_analysis.json",
+            "log_analysis",
+            source_files,
+            warnings,
+            missing_sections
+        )
+        
+        # Load APM trace data from datadog folder (optional)
+        datadog_path = run_path / "datadog"
+        apm_trace_summary = await _load_apm_trace_summary(datadog_path, source_files, warnings)
+        
         # Select template
         template_name = template or "default_report_template.md"
         template_path = TEMPLATES_PATH / template_name
@@ -165,7 +178,9 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             corr_data,
             perf_summary_md,
             infra_summary_md,
-            corr_summary_md
+            corr_summary_md,
+            log_data,
+            apm_trace_summary
         )
 
         # Extract key metrics for metadata (needed for comparison reports)
@@ -346,7 +361,9 @@ def _build_report_context(
     corr_data: Optional[Dict],
     perf_md: Optional[str],
     infra_md: Optional[str],
-    corr_md: Optional[str]
+    corr_md: Optional[str],
+    log_data: Optional[Dict] = None,
+    apm_trace_summary: Optional[Dict] = None
 ) -> Dict:
     """Build context dictionary for template rendering"""
     
@@ -451,6 +468,12 @@ def _build_report_context(
     context["BOTTLENECK_ANALYSIS"] = _build_bottleneck_analysis(corr_data, infra_data)
     context["RECOMMENDATIONS"] = _build_recommendations(perf_data, infra_data, corr_data)
     context["SOURCE_FILES_LIST"] = "See metadata JSON for complete source file list"
+    
+    # Log analysis sections
+    context["LOG_ANALYSIS_SUMMARY"] = _build_log_analysis_summary(log_data)
+    context["JMETER_LOG_ANALYSIS"] = _build_jmeter_log_analysis(log_data)
+    context["DATADOG_LOG_ANALYSIS"] = _build_datadog_log_analysis(log_data)
+    context["APM_TRACE_ANALYSIS"] = _build_apm_trace_analysis(apm_trace_summary)
     
     return context
 
@@ -664,6 +687,260 @@ def _safe_float(value, default=0.0):
         return float(value)
     except (ValueError, TypeError):
         return default
+
+
+# -----------------------------------------------
+# Log Analysis Helper Functions
+# -----------------------------------------------
+def _build_log_analysis_summary(log_data: Optional[Dict]) -> str:
+    """Build log analysis summary section"""
+    if not log_data:
+        return "No log analysis data available."
+    
+    summary = log_data.get("summary", {})
+    total_issues = summary.get("total_unique_issues", 0)
+    total_occurrences = summary.get("total_error_occurrences", 0)
+    issues_by_source = summary.get("issues_by_source", {})
+    issues_by_severity = summary.get("issues_by_severity", {})
+    
+    lines = [
+        f"**Total Unique Issues:** {total_issues}",
+        f"**Total Error Occurrences:** {total_occurrences}",
+        "",
+        "| Severity | Count |",
+        "|----------|-------|"
+    ]
+    
+    for severity in ["Critical", "High", "Medium", "Low"]:
+        count = issues_by_severity.get(severity, 0)
+        if count > 0:
+            lines.append(f"| {severity} | {count} |")
+    
+    lines.extend([
+        "",
+        "| Source | Errors |",
+        "|--------|--------|"
+    ])
+    
+    for source, count in issues_by_source.items():
+        lines.append(f"| {source.upper()} | {count} |")
+    
+    return "\n".join(lines)
+
+
+def _build_jmeter_log_analysis(log_data: Optional[Dict]) -> str:
+    """Build JMeter-specific log analysis section"""
+    if not log_data:
+        return "No JMeter log data available."
+    
+    summary = log_data.get("summary", {})
+    issues_by_source = summary.get("issues_by_source", {})
+    jmeter_errors = issues_by_source.get("jmeter", 0)
+    
+    if jmeter_errors == 0:
+        return "No JMeter errors detected during test execution."
+    
+    # Get top error types
+    top_errors = log_data.get("top_error_types", [])
+    critical_issues = log_data.get("critical_issues", [])
+    
+    lines = [
+        f"**Total JMeter Errors:** {jmeter_errors}",
+        "",
+        "#### Top Error Types",
+        "",
+        "| Error Type | Count |",
+        "|------------|-------|"
+    ]
+    
+    for error in top_errors[:5]:  # Top 5 errors
+        lines.append(f"| {error.get('error_type', 'Unknown')} | {error.get('count', 0)} |")
+    
+    # Add critical issues if any from JMeter
+    jmeter_critical = [c for c in critical_issues if c.get("source") == "jmeter"]
+    if jmeter_critical:
+        lines.extend([
+            "",
+            "#### Critical Issues (JMeter)",
+            "",
+            "| Error Type | API/Request | Count |",
+            "|------------|-------------|-------|"
+        ])
+        for issue in jmeter_critical:
+            lines.append(
+                f"| {issue.get('error_type', 'Unknown')} | "
+                f"{issue.get('api_request', 'Unknown')[:50]} | "
+                f"{issue.get('count', 0)} |"
+            )
+    
+    return "\n".join(lines)
+
+
+def _build_datadog_log_analysis(log_data: Optional[Dict]) -> str:
+    """Build Datadog-specific log analysis section"""
+    if not log_data:
+        return "No Datadog log data available."
+    
+    summary = log_data.get("summary", {})
+    issues_by_source = summary.get("issues_by_source", {})
+    datadog_errors = issues_by_source.get("datadog", 0)
+    
+    if datadog_errors == 0:
+        return "No Datadog log errors captured during test execution."
+    
+    critical_issues = log_data.get("critical_issues", [])
+    
+    lines = [
+        f"**Total Datadog Log Errors:** {datadog_errors}",
+        ""
+    ]
+    
+    # Add Datadog-specific critical issues
+    datadog_critical = [c for c in critical_issues if c.get("source") == "datadog"]
+    if datadog_critical:
+        lines.extend([
+            "#### Critical Issues (Datadog Logs)",
+            "",
+            "| Error Type | Service | Host | Count |",
+            "|------------|---------|------|-------|"
+        ])
+        for issue in datadog_critical:
+            lines.append(
+                f"| {issue.get('error_type', 'Unknown')} | "
+                f"{issue.get('service', 'N/A')} | "
+                f"{issue.get('host', 'N/A')} | "
+                f"{issue.get('count', 0)} |"
+            )
+    else:
+        lines.append("No critical issues detected in Datadog logs.")
+    
+    # Add correlation info if available
+    correlations = log_data.get("correlations", {})
+    infra_corr = correlations.get("infrastructure", {})
+    if infra_corr.get("available"):
+        hosts_analyzed = infra_corr.get("total_hosts_analyzed", 0)
+        lines.extend([
+            "",
+            f"**Infrastructure Hosts Analyzed:** {hosts_analyzed}"
+        ])
+    
+    return "\n".join(lines)
+
+
+def _build_apm_trace_analysis(apm_summary: Optional[Dict]) -> str:
+    """Build APM trace analysis section"""
+    if not apm_summary or not apm_summary.get("available"):
+        return "No APM trace data available for this test run."
+    
+    lines = [
+        f"**Total APM Trace Files:** {apm_summary.get('file_count', 0)}",
+        f"**Total Error Spans:** {apm_summary.get('total_error_spans', 0)}",
+        ""
+    ]
+    
+    # HTTP status breakdown
+    http_status_counts = apm_summary.get("http_status_counts", {})
+    if http_status_counts:
+        lines.extend([
+            "#### HTTP Status Distribution",
+            "",
+            "| Status Code | Count |",
+            "|-------------|-------|"
+        ])
+        for status, count in sorted(http_status_counts.items(), key=lambda x: -x[1]):
+            lines.append(f"| {status} | {count} |")
+        lines.append("")
+    
+    # Top error services
+    top_services = apm_summary.get("top_services", [])
+    if top_services:
+        lines.extend([
+            "#### Top Services with Errors",
+            "",
+            "| Service | Error Count |",
+            "|---------|-------------|"
+        ])
+        for svc in top_services[:5]:
+            lines.append(f"| {svc.get('service', 'Unknown')} | {svc.get('count', 0)} |")
+        lines.append("")
+    
+    # Top error types
+    top_error_types = apm_summary.get("top_error_types", [])
+    if top_error_types:
+        lines.extend([
+            "#### Top Error Types (APM)",
+            "",
+            "| Error Type | Count |",
+            "|------------|-------|"
+        ])
+        for err in top_error_types[:5]:
+            lines.append(f"| {err.get('error_type', 'Unknown')} | {err.get('count', 0)} |")
+    
+    return "\n".join(lines)
+
+
+async def _load_apm_trace_summary(datadog_path: Path, source_files: Dict, warnings: List) -> Dict:
+    """Load and summarize APM trace data from datadog folder"""
+    import csv
+    from collections import Counter
+    
+    result = {"available": False}
+    
+    if not datadog_path.exists():
+        return result
+    
+    # Find APM trace files
+    apm_files = list(datadog_path.glob("apm_traces_*.csv"))
+    if not apm_files:
+        return result
+    
+    result["available"] = True
+    result["file_count"] = len(apm_files)
+    
+    total_spans = 0
+    http_status_counts = Counter()
+    service_error_counts = Counter()
+    error_type_counts = Counter()
+    
+    for apm_file in apm_files:
+        try:
+            source_files[f"apm_trace_{apm_file.name}"] = str(apm_file)
+            with open(apm_file, 'r', encoding='utf-8', errors='replace') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    total_spans += 1
+                    
+                    # Count HTTP status codes
+                    http_status = row.get("http_status_code", "")
+                    if http_status:
+                        http_status_counts[http_status] += 1
+                    
+                    # Count services with errors
+                    service = row.get("service", "unknown")
+                    if row.get("error") == "1" or row.get("status") == "error":
+                        service_error_counts[service] += 1
+                    
+                    # Count error types
+                    error_type = row.get("error_type", "")
+                    if error_type:
+                        error_type_counts[error_type] += 1
+                        
+        except Exception as e:
+            warnings.append(f"Failed to parse APM file {apm_file.name}: {str(e)}")
+    
+    result["total_error_spans"] = total_spans
+    result["http_status_counts"] = dict(http_status_counts)
+    result["top_services"] = [
+        {"service": svc, "count": cnt} 
+        for svc, cnt in service_error_counts.most_common(10)
+    ]
+    result["top_error_types"] = [
+        {"error_type": err, "count": cnt}
+        for err, cnt in error_type_counts.most_common(10)
+    ]
+    
+    return result
+
 
 def _parse_numeric(value, default=0.0) -> float:
     """Parse a numeric value that may be a number or a string with units.
