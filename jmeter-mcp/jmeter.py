@@ -22,6 +22,7 @@ from services.jmeter_runner import (
 
 from services.playwright_adapter import run_playwright_capture_pipeline
 from services.playwright_adapter import archive_existing_traces
+from services.correlation_analyzer import analyze_traffic
 
 # ----------------------------------------------------------
 # Browser Automation Helper Tools
@@ -170,14 +171,16 @@ async def capture_network_traffic(test_run_id: str, spec_file: str, ctx: Context
 @mcp.tool(enabled=False)
 async def analyze_network_traffic(test_run_id: str, ctx: Context) -> dict:
     """
-    Analyzes network traffic data, extracting test request metadata/stats.
+    Analyzes network traffic data, extracting test request metadata/stats
+    and potential correlations, and writes correlation_spec.json.
+
     Args:
         test_run_id (str): Unique identifier for the test run.
         ctx (Context, optional): FastMCP context for state/error details.
         
     Returns: dict with extracted stats, request/response mappings, discovered correlations.
     """
-    ##return await analyze_traffic(test_run_id, ctx)
+    return await analyze_traffic(test_run_id, ctx)
 
 # ----------------------------------------------------------
 # JMeter JMX Generation

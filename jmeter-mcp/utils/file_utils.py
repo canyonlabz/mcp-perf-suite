@@ -7,6 +7,7 @@ of the core JMeter component utilities.
 """
 import xml.etree.ElementTree as ET
 import datetime
+import json
 import os
 import urllib.parse
 from xml.dom import minidom
@@ -52,5 +53,23 @@ def save_jmx_file(root_element: ET.Element, run_id: str) -> str:
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(pretty_xml)
+
+    return output_file
+
+def save_correlation_spec(run_id: str, correlation_spec: dict) -> str:
+    """
+    Saves the correlation specification JSON for a given run_id.
+
+    The file will be stored under:
+        artifacts/<run_id>/jmeter/correlation_spec.json
+
+    Returns the full output file path.
+    """
+    output_dir = get_jmeter_artifacts_dir(run_id)
+    output_file = os.path.join(output_dir, "correlation_spec.json")
+
+    # Ensure directory exists (get_jmeter_artifacts_dir already does this)
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(correlation_spec, f, indent=2)
 
     return output_file

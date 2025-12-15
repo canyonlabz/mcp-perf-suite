@@ -1,0 +1,92 @@
+---
+description: JMeter Correlation Naming Rules
+alwaysApply: false
+---
+# JMeter Correlation Naming Rules (.mdc)
+
+## Purpose
+
+Given a `correlation_spec` JSON object produced by the JMeter MCP,
+generate a `correlation_naming` JSON object that assigns meaningful,
+consistent JMeter variable names and hints for each `correlation_id`.
+
+## Input schema (summary)
+
+- `capture_file`: string
+- `application`: string
+- `spec_version`: string
+- `correlations`: array of objects with:
+  - `correlation_id`: string
+  - `type`: string (e.g., "numeric_id", "jwt_or_token", "string")
+  - `source`:
+    - `step_label`: string
+    - `request_method`: string
+    - `request_url`: string
+    - `response_content_type`: string
+    - `response_json_path`: string
+    - `response_example_value`: any
+  - `usages`: array of:
+    - `step_label`: string
+    - `request_method`: string
+    - `request_url`: string
+    - `location_type`: string
+    - `location_key`: string | null
+    - `location_pattern`: string
+    - `request_example_fragment`: string
+
+## Output schema
+
+Return a JSON object with:
+
+```json
+{
+  "application": "<same as input application>",
+  "spec_version": "1.0",
+  "naming_conventions": {
+    "case_style": "snake_case",
+    "id_suffix": "_id",
+    "token_suffix": "_token"
+  },
+  "variables": [
+    {
+      "correlation_id": "corr_1",
+      "variable_name": "auth_token",
+      "jmeter_scope": "thread",
+      "jmeter_extractor_type": "json_extractor",
+      "jmeter_extractor_name": "Extract auth_token from login response",
+      "intended_usage": [
+        "Authorization header for authenticated requests"
+      ],
+      "comments": "Brief description of what this value represents."
+    }
+  ]
+}
+```
+
+## Naming conventions
+
+- Use `snake_case` for all variable names.
+- If the value is used in an `Authorization` header or looks like a JWT, prefer `auth_token` or `<resource>_token`.
+- If the value is an identifier for a resource inferred from the URL or step label:
+  - For `/cart` or step label containing "cart", use `cart_id`.
+  - For `/order` or step label containing "order" or "purchase", use `order_id`.
+  - For `/user` or step label containing "login", "sign in", etc., use `user_id` or `auth_token` depending on context.
+- Do not embed literal values in variable names.
+- Prefer short, descriptive names that reflect the domain (cart, order, session, product).
+
+## Instructions
+
+1. Read the entire `correlation_spec` JSON.
+2. For each `correlation`:
+   - Infer what the value represents based on:
+     - `source.request_url`,
+     - `source.step_label`,
+     - `usages[*].request_url` and `usages[*].step_label`,
+     - `type`.
+   - Propose a `variable_name` that follows the naming conventions.
+   - Set `jmeter_scope` to `"thread"` unless there is a clear reason to use another scope.
+   - Set `jmeter_extractor_type` to `"json_extractor"`.
+   - Compose a human-readable `jmeter_extractor_name` (e.g., `"Extract cart_id from addtocart response"`).
+   - Add a short explanation in `comments`.
+
+3. Return only valid JSON matching the output schema, with no additional text.
