@@ -22,7 +22,7 @@ from services.jmeter_runner import (
 
 from services.playwright_adapter import run_playwright_capture_pipeline
 from services.playwright_adapter import archive_existing_traces
-from services.correlation_analyzer import analyze_traffic
+from services.correlations import analyze_traffic  # New modular package (v0.2.0)
 
 # ----------------------------------------------------------
 # Browser Automation Helper Tools
@@ -168,7 +168,7 @@ async def capture_network_traffic(test_run_id: str, spec_file: str, ctx: Context
             "error": str(e)
         }
 
-@mcp.tool(enabled=False)
+@mcp.tool()
 async def analyze_network_traffic(test_run_id: str, ctx: Context) -> dict:
     """
     Analyzes network traffic data, extracting test request metadata/stats

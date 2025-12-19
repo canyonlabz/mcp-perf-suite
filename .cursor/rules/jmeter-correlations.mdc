@@ -6,42 +6,85 @@ alwaysApply: false
 
 ## Purpose
 
-Given a `correlation_spec` JSON object produced by the JMeter MCP,
-generate a `correlation_naming` JSON object that assigns meaningful,
-consistent JMeter variable names and hints for each `correlation_id`.
+Given a `correlation_spec.json` file produced by the JMeter MCP's `analyze_network_traffic` tool,
+generate a `correlation_naming.json` object that assigns meaningful, consistent JMeter variable 
+names and hints for each `correlation_id`.
 
-## Input schema (summary)
+## Input Schema (correlation_spec.json)
 
-- `capture_file`: string
-- `application`: string
-- `spec_version`: string
-- `correlations`: array of objects with:
-  - `correlation_id`: string
-  - `type`: string (e.g., "numeric_id", "jwt_or_token", "string")
-  - `source`:
-    - `step_label`: string
-    - `request_method`: string
-    - `request_url`: string
-    - `response_content_type`: string
-    - `response_json_path`: string
-    - `response_example_value`: any
-  - `usages`: array of:
-    - `step_label`: string
-    - `request_method`: string
-    - `request_url`: string
-    - `location_type`: string
-    - `location_key`: string | null
-    - `location_pattern`: string
-    - `request_example_fragment`: string
+```jsonc
+{
+  "capture_file": "network_capture_*.json",
+  "application": "string",
+  "spec_version": "2.0",
+  "analyzer_version": "2.0.0",
+  "analysis_timestamp": "ISO8601 timestamp",
+  "total_steps": number,
+  "total_entries": number,
+  "correlations": [
+    {
+      "correlation_id": "corr_1",
+      "type": "business_id" | "correlation_id" | "oauth_param",
+      "value_type": "business_id_numeric" | "business_id_guid" | "oauth_state" | "oauth_nonce" | "oauth_code" | "correlation_id",
+      "confidence": "high" | "low",
+      "correlation_found": true | false,
+      "source": {
+        "step_number": number,
+        "step_label": "Step N: Description...",
+        "entry_index": number,
+        "request_id": "uuid",
+        "request_method": "GET" | "POST" | etc,
+        "request_url": "https://...",
+        "response_status": number | null,
+        "source_location": "response_json" | "response_header" | "response_redirect_url" | "request_url_path",
+        "source_key": "field_name" | null,
+        "source_json_path": "$.path.to.value" | null,
+        "response_example_value": "actual_value"
+      },
+      "usages": [
+        {
+          "location_type": "request_url_path" | "request_query_param" | "request_header" | "request_body_json" | "request_body_form",
+          "location_key": "param_name" | null,
+          "location_json_path": "$.path" | null,
+          "location_pattern": "param={VALUE}",
+          "request_example_fragment": "snippet showing value in context",
+          "usage_number": number,
+          "entry_index": number,
+          "step_number": number,
+          "step_label": "Step N: Description...",
+          "request_id": "uuid",
+          "request_method": "GET" | "POST",
+          "request_url": "https://..."
+        }
+      ],
+      "parameterization_hint": {
+        "strategy": "extract_and_reuse" | "csv_dataset" | "user_defined_variable",
+        "extractor_type": "json" | "regex",
+        "reason": "explanation"
+      },
+      "notes": "Optional notes for low-confidence or orphan IDs"
+    }
+  ],
+  "summary": {
+    "total_correlations": number,
+    "business_ids": number,
+    "correlation_ids": number,
+    "oauth_params": number,
+    "orphan_ids": number,
+    "high_confidence": number,
+    "low_confidence": number
+  }
+}
+```
 
-## Output schema
+## Output Schema (correlation_naming.json)
 
 Return a JSON object with:
 
 ```json
 {
   "application": "<same as input application>",
-  "spec_version": "1.0",
+  "spec_version": "2.0",
   "naming_conventions": {
     "case_style": "snake_case",
     "id_suffix": "_id",
@@ -50,43 +93,163 @@ Return a JSON object with:
   "variables": [
     {
       "correlation_id": "corr_1",
-      "variable_name": "auth_token",
+      "variable_name": "product_id",
       "jmeter_scope": "thread",
       "jmeter_extractor_type": "json_extractor",
-      "jmeter_extractor_name": "Extract auth_token from login response",
+      "jmeter_extractor_expression": "$.items[0].productId",
+      "jmeter_extractor_name": "Extract product_id from ProductList response",
+      "source_request_url": "https://api.example.com/products/list",
       "intended_usage": [
-        "Authorization header for authenticated requests"
+        "URL path parameter in product detail requests"
       ],
-      "comments": "Brief description of what this value represents."
+      "comments": "Business ID for product entity, extracted from product list response."
+    }
+  ],
+  "orphan_variables": [
+    {
+      "correlation_id": "corr_15",
+      "variable_name": "user_id",
+      "parameterization_strategy": "csv_dataset",
+      "csv_column_suggestion": "userId",
+      "comments": "Numeric ID found in request URL but no source detected. Recommend CSV parameterization."
     }
   ]
 }
 ```
 
-## Naming conventions
+## Naming Conventions
 
+### General Rules
 - Use `snake_case` for all variable names.
-- If the value is used in an `Authorization` header or looks like a JWT, prefer `auth_token` or `<resource>_token`.
-- If the value is an identifier for a resource inferred from the URL or step label:
-  - For `/cart` or step label containing "cart", use `cart_id`.
-  - For `/order` or step label containing "order" or "purchase", use `order_id`.
-  - For `/user` or step label containing "login", "sign in", etc., use `user_id` or `auth_token` depending on context.
 - Do not embed literal values in variable names.
-- Prefer short, descriptive names that reflect the domain (cart, order, session, product).
+- Prefer short, descriptive names that reflect the domain.
+- Use singular nouns for IDs (e.g., `product_id` not `products_id`).
+
+### By Correlation Type
+
+| Type | Naming Pattern | Examples |
+|------|----------------|----------|
+| `business_id` | `<resource>_id` | `product_id`, `order_id`, `customer_id`, `item_id` |
+| `correlation_id` | `<purpose>_id` or `transaction_id` | `request_id`, `trace_id`, `session_id` |
+| `oauth_param` | Keep standard OAuth names | `oauth_state`, `oauth_nonce`, `oauth_client_id`, `auth_code` |
+
+### Context-Based Naming
+
+Infer the resource name from:
+1. **`source.source_key`** - The JSON field name (e.g., `productId` → `product_id`)
+2. **`source.source_json_path`** - The path context (e.g., `$.items[0].orderId` → `order_id`)
+3. **`source.request_url`** - API endpoint (e.g., `/products/` → `product_id`)
+4. **`usages[*].request_url`** - Where it's used (e.g., `/orders/details/` → `order_id`)
+5. **`source.step_label`** - Business context from step description
+
+### Special Cases
+
+| URL/Context Pattern | Suggested Variable Name |
+|---------------------|------------------------|
+| `/cart` or "cart" in step | `cart_id` |
+| `/order` or "order" in step | `order_id` |
+| `/product` or "product" in step | `product_id` |
+| `/user` or "user" in step | `user_id` |
+| `/customer` | `customer_id` |
+| `/item` | `item_id` |
+| `/account` | `account_id` |
+| OAuth `state` parameter | `oauth_state` |
+| OAuth `nonce` parameter | `oauth_nonce` |
+| OAuth `client_id` | `oauth_client_id` |
+
+## Extractor Type Selection
+
+| source_location | Recommended Extractor |
+|-----------------|----------------------|
+| `response_json` | `json_extractor` |
+| `response_header` | `regex_extractor` |
+| `response_redirect_url` | `regex_extractor` + URL decode |
+| `response_cookie` | `regex_extractor` |
+
+### JSON Extractor Expression
+When `source_location` is `response_json`, use `source.source_json_path` directly:
+```
+jmeter_extractor_expression: "$.items[0].productId"
+```
+
+### Regex Extractor Expression
+When `source_location` is `response_header` or `response_redirect_url`:
+```
+jmeter_extractor_expression: "transactionid:\\s*([^\\r\\n]+)"
+jmeter_extractor_expression: "[?&]code=([^&]+)"
+```
+
+## Handling Orphan IDs (Low Confidence)
+
+For correlations where `correlation_found: false`:
+- These are IDs found in requests with no identifiable source
+- Place them in the `orphan_variables` array
+- Suggest `csv_dataset` for IDs appearing 3+ times
+- Suggest `user_defined_variable` for IDs appearing 1-2 times
+- Provide a `csv_column_suggestion` that matches the variable name
 
 ## Instructions
 
-1. Read the entire `correlation_spec` JSON.
-2. For each `correlation`:
-   - Infer what the value represents based on:
-     - `source.request_url`,
-     - `source.step_label`,
-     - `usages[*].request_url` and `usages[*].step_label`,
-     - `type`.
-   - Propose a `variable_name` that follows the naming conventions.
-   - Set `jmeter_scope` to `"thread"` unless there is a clear reason to use another scope.
-   - Set `jmeter_extractor_type` to `"json_extractor"`.
-   - Compose a human-readable `jmeter_extractor_name` (e.g., `"Extract cart_id from addtocart response"`).
-   - Add a short explanation in `comments`.
+1. Read the entire `correlation_spec.json` file.
 
-3. Return only valid JSON matching the output schema, with no additional text.
+2. For each correlation with `correlation_found: true`:
+   - Infer the resource/purpose from source_key, source_json_path, URLs, and step labels
+   - Generate a descriptive `variable_name` following naming conventions
+   - Set `jmeter_scope` to `"thread"` (default)
+   - Set `jmeter_extractor_type` based on `source_location`
+   - Generate `jmeter_extractor_expression` (JSONPath or regex)
+   - Compose `jmeter_extractor_name` (e.g., "Extract product_id from ProductList response")
+   - List `intended_usage` based on usage locations
+   - Add contextual `comments`
+
+3. For each correlation with `correlation_found: false`:
+   - Place in `orphan_variables` array
+   - Suggest parameterization strategy based on `parameterization_hint`
+   - Provide `csv_column_suggestion`
+
+4. Return only valid JSON matching the output schema, with no additional text.
+
+## Example Transformation
+
+**Input (from correlation_spec.json):**
+```json
+{
+  "correlation_id": "corr_7",
+  "type": "business_id",
+  "value_type": "business_id_numeric",
+  "confidence": "high",
+  "correlation_found": true,
+  "source": {
+    "step_number": 4,
+    "step_label": "Step 4: Navigate to the Products page.",
+    "request_url": "https://api.example.com/catalog/products/list",
+    "source_location": "response_json",
+    "source_key": "productId",
+    "source_json_path": "$.items[0].productId",
+    "response_example_value": "12345"
+  },
+  "usages": [
+    {
+      "location_type": "request_url_path",
+      "request_url": "https://api.example.com/catalog/products/details/12345"
+    }
+  ]
+}
+```
+
+**Output (in correlation_naming.json):**
+```json
+{
+  "correlation_id": "corr_7",
+  "variable_name": "product_id",
+  "jmeter_scope": "thread",
+  "jmeter_extractor_type": "json_extractor",
+  "jmeter_extractor_expression": "$.items[0].productId",
+  "jmeter_extractor_name": "Extract product_id from ProductList response",
+  "source_request_url": "https://api.example.com/catalog/products/list",
+  "intended_usage": [
+    "URL path parameter in product details API calls"
+  ],
+  "comments": "Product ID extracted from catalog list response, used in product detail endpoints."
+}
+```
