@@ -37,3 +37,45 @@ network_capture:
   capture_third_party: True           # Google Fonts, CDN, Ads
   capture_cookies: True               # Always true – critical for JMeter
   capture_domain: ""                  # Domain to capture network traffic from (e.g., example.com). Leave empty to capture all domains.
+  
+  # Exclusion patterns for APM, analytics, and other non-essential traffic
+  # These domains will be excluded from network capture AND correlation analysis
+  exclude_domains:
+    # APM / Monitoring
+    - datadoghq.com
+    - newrelic.com
+    - appdynamics.com
+    - dynatrace.com
+    - splunk.com
+    - elastic.co
+    - sumologic.com
+    - lightstep.io
+    
+    # Analytics / Tracking
+    - google-analytics.com
+    - googletagmanager.com
+    - segment.io
+    - segment.com
+    - mixpanel.com
+    - amplitude.com
+    - heap.io
+    - hotjar.com
+    - fullstory.com
+    - clarity.ms
+    - mouseflow.com
+    - crazyegg.com
+    
+    # Advertising / Pixels
+    - doubleclick.net
+    - googlesyndication.com
+    - facebook.net
+    - connect.facebook.com
+    - ads.linkedin.com
+    - ads.twitter.com
+    - bing.com/bat
+    
+    # Error Tracking
+    - sentry.io
+    - bugsnag.com
+    - rollbar.com
+    - raygun.com

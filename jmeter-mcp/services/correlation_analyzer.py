@@ -1,6 +1,9 @@
 # services/correlation_analyzer.py
 """
-Correlation Analyzer for JMeter MCP - Version 2.0
+Correlation Analyzer for JMeter MCP - Version 0.2.0
+
+Open Source - MIT License
+Repository: https://github.com/canyonlabz/mcp-perf-suite
 
 Analyzes Playwright-derived network captures to detect dynamic correlations
 between HTTP responses and subsequent requests.
@@ -93,6 +96,38 @@ ID_KEY_PATTERNS = re.compile(
 MAX_JSON_DEPTH = 5
 
 
+# === Domain Exclusion ===
+
+def _get_exclude_domains() -> List[str]:
+    """Load excluded domains from config (APM, analytics, etc.)."""
+    try:
+        network_config = CONFIG.get("network_capture", {})
+        return network_config.get("exclude_domains", [])
+    except Exception:
+        return []
+
+EXCLUDE_DOMAINS = _get_exclude_domains()
+
+
+def _is_excluded_url(url: str) -> bool:
+    """Check if URL should be excluded based on domain exclusion list."""
+    if not url or not EXCLUDE_DOMAINS:
+        return False
+    
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.netloc.lower()
+        
+        for domain in EXCLUDE_DOMAINS:
+            domain_lower = domain.lower()
+            # Match exact domain or subdomain (e.g., "datadoghq.com" matches "browser-intake-us3-datadoghq.com")
+            if hostname == domain_lower or hostname.endswith("." + domain_lower) or domain_lower in hostname:
+                return True
+        return False
+    except Exception:
+        return False
+
+
 # === File Loading ===
 
 def _get_network_capture_path(run_id: str) -> str:
@@ -119,17 +154,32 @@ def _load_network_data(path: str) -> Dict[str, Any]:
         return json.load(f)
 
 
-def _iter_entries(network_data: Dict[str, Any]) -> List[Tuple[int, int, str, Dict[str, Any]]]:
+def _iter_entries(
+    network_data: Dict[str, Any],
+    exclude_domains: bool = True
+) -> List[Tuple[int, int, str, Dict[str, Any]]]:
     """
     Flatten step-grouped data into ordered list of (entry_index, step_number, step_label, entry).
+    
+    Args:
+        network_data: The loaded network capture data
+        exclude_domains: If True, filter out entries matching EXCLUDE_DOMAINS (APM, analytics, etc.)
     
     Returns entries in sequential order with global entry_index for forward-only searching.
     """
     flattened: List[Tuple[int, int, str, Dict[str, Any]]] = []
+    excluded_count = 0
     global_index = 0
     
     for step_label, entries in network_data.items():
         for entry in entries:
+            # Filter out excluded domains (APM, analytics, etc.)
+            if exclude_domains:
+                url = entry.get("url", "")
+                if _is_excluded_url(url):
+                    excluded_count += 1
+                    continue
+            
             step_meta = entry.get("step") or {}
             step_number = step_meta.get("step_number")
             if step_number is None:
@@ -137,6 +187,9 @@ def _iter_entries(network_data: Dict[str, Any]) -> List[Tuple[int, int, str, Dic
                 step_number = int(match.group(1)) if match else 0
             flattened.append((global_index, step_number, step_label, entry))
             global_index += 1
+    
+    if excluded_count > 0:
+        print(f"[INFO] Excluded {excluded_count} entries from non-essential domains (APM, analytics, etc.)")
 
     # Sort by step_number, preserving order within steps
     flattened.sort(key=lambda x: (x[1], x[0]))

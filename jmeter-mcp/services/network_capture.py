@@ -28,8 +28,17 @@ logger = logging.getLogger(__name__)
 def should_capture_url(url, config):
     """Determines whether a URL should be captured based on config filters."""
     parsed_url = urlparse(url)
-    domain = parsed_url.netloc
+    domain = parsed_url.netloc.lower()
     path = parsed_url.path.lower()
+
+    # Check exclude_domains list first (APM, analytics, advertising, etc.)
+    # These are always excluded regardless of other settings
+    exclude_domains = config.get("exclude_domains", [])
+    for excluded in exclude_domains:
+        excluded_lower = excluded.lower()
+        # Match exact domain, subdomain, or partial match (e.g., "datadoghq.com" in "browser-intake-us3-datadoghq.com")
+        if domain == excluded_lower or domain.endswith("." + excluded_lower) or excluded_lower in domain:
+            return False
 
     # Get the capture domain from the config, defaulting to an empty string if not provided
     capture_domain = config.get("capture_domain", "")
