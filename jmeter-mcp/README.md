@@ -1,7 +1,7 @@
 # JMeter MCP Server
 
 Welcome to the JMeter MCP Server! 🎉
-This is a Python-based MCP server built with **FastMCP** to automate JMeter-based performance testing workflows — including Playwright trace capture, network analysis, JMX script generation, test execution, and results aggregation.
+This is a Python-based MCP server built with **FastMCP** to automate JMeter-based performance testing workflows — including Playwright trace capture, network analysis, correlation detection, JMX script generation, test execution, and results aggregation.
 
 ---
 
@@ -12,8 +12,10 @@ This is a Python-based MCP server built with **FastMCP** to automate JMeter-base
 * **Stop active JMeter tests**: Gracefully terminate test executions in progress.
 * **Capture network traffic**: Parse Playwright network traces and map them to test steps from spec files.
 * **Analyze correlations**: Identify dynamic values (IDs, tokens, correlation IDs) that flow between requests for parameterization.
+* **Orphan ID detection**: Flag request-only IDs without prior response sources for manual parameterization.
 * **Generate JMeter scripts**: Convert captured network traffic into executable JMX test scripts with proper structure.
 * **Aggregate post-test results**: Parse JMeter JTL output to generate BlazeMeter-style summary reports and KPIs.
+* **Configurable domain exclusions**: Filter out APM, analytics, and middleware traffic from capture and analysis.
 * **Configurable and extensible**: Manage all paths and parameters through `config.yaml` and `jmeter_config.yaml` files.
 
 🧩 Future tools under consideration:
@@ -22,6 +24,7 @@ This is a Python-based MCP server built with **FastMCP** to automate JMeter-base
 * `validate_jmx` – Validate JMX script structure and variable references (currently disabled)
 * `get_jmeter_run_summary` – Produce a summarized report for quick insights (currently disabled)
 * `compare_runs` – Compare two or more JMeter test results (for regression or trend analysis)
+* **OAuth 2.0 / PKCE correlation support** – Authentication flow correlation (Phase 2)
 
 ---
 
@@ -137,6 +140,22 @@ network_capture:
   capture_third_party: True
   capture_cookies: True
   capture_domain: ""
+  # Domains to exclude from capture and correlation analysis
+  exclude_domains:
+    - "datadoghq.com"
+    - "google-analytics.com"
+    - "googletagmanager.com"
+    - "facebook.com"
+    - "doubleclick.net"
+    - "newrelic.com"
+    - "segment.io"
+    - "hotjar.com"
+    - "mixpanel.com"
+    - "amplitude.com"
+    - "sentry.io"
+    - "bugsnag.com"
+    - "fullstory.com"
+    - "logrocket.com"
 ```
 
 ### `jmeter_config.yaml` (JMeter Script Settings)
@@ -239,7 +258,7 @@ The JMeter MCP server exposes the following tools for agents, Cursor, or automat
 | `get_test_specs`            | Discovers available Markdown browser automation specs in `test-specs/`     |
 | `get_browser_steps`         | Loads a given Markdown file and parses browser automation test steps       |
 | `capture_network_traffic`   | Parses Playwright network traces and maps them to test steps from a spec file |
-| `analyze_network_traffic`   | Analyzes network traffic to identify correlations and dynamic values       |
+| `analyze_network_traffic`   | Analyzes network traffic to identify correlations, dynamic values, and orphan IDs |
 
 ### JMeter Script Generation & Execution
 
@@ -283,20 +302,30 @@ Use Cursor's Playwright MCP agent to execute the browser automation:
 ### 3. **Analyze Correlations**
 
 * `analyze_network_traffic` identifies dynamic values (IDs, tokens, correlation IDs) that flow between requests
-* Outputs `correlation_spec.json` for use in script generation
+* Detects **orphan IDs** — values in request URLs without identifiable source responses
+* Outputs `correlation_spec.json` with:
+  - High-confidence correlations (source → usage patterns)
+  - Low-confidence orphan IDs (recommend CSV or User Defined Variable parameterization)
+  - Parameterization hints (extractor type, strategy)
 
-### 4. **Generate JMeter Script**
+### 4. **Generate Correlation Naming (Cursor Rules)**
+
+* Apply the `.cursor/rules/jmeter-correlations.mdc` rules to `correlation_spec.json`
+* Generates `correlation_naming.json` with meaningful JMeter variable names
+* Provides JMeter extractor expressions (JSON Extractor or Regex Extractor)
+
+### 5. **Generate JMeter Script**
 
 * `generate_jmeter_script` converts the captured network traffic JSON into a JMX test plan
 * Applies settings from `jmeter_config.yaml` (thread groups, think times, listeners)
 
-### 5. **Execute Test**
+### 6. **Execute Test**
 
 * `start_jmeter_test` runs the generated JMX file
 * `get_jmeter_run_status` polls real-time metrics during execution
 * `stop_jmeter_test` terminates the test gracefully if needed
 
-### 6. **Generate Reports**
+### 7. **Generate Reports**
 
 * `generate_aggregate_report` produces a BlazeMeter-style aggregate report CSV from JTL results
 * Output results available for downstream analysis
@@ -309,7 +338,15 @@ Use Cursor's Playwright MCP agent to execute the browser automation:
 jmeter-mcp/
 ├── jmeter.py                     # MCP server entrypoint (FastMCP)
 ├── services/
-│   ├── correlation_analyzer.py   # Identifies dynamic values and correlation candidates
+│   ├── correlation_analyzer.py   # Backward-compatible wrapper for correlations package
+│   ├── correlations/             # Modular correlation analysis package (v0.2.0)
+│   │   ├── __init__.py           # Package exports (analyze_traffic)
+│   │   ├── analyzer.py           # Main orchestrator (_find_correlations, analyze_traffic)
+│   │   ├── classifiers.py        # Value type classification and parameterization strategy
+│   │   ├── constants.py          # Regex patterns, header exclusions, configuration
+│   │   ├── extractors.py         # Source extraction from responses (JSON, headers, redirects)
+│   │   ├── matchers.py           # Usage detection in requests, orphan ID detection
+│   │   └── utils.py              # URL normalization, JSON traversal, file loading
 │   ├── jmeter_runner.py          # Handles JMeter execution, control, and reporting
 │   ├── network_capture.py        # URL filtering and capture configuration logic
 │   ├── playwright_adapter.py     # Parses Playwright traces into step-aware network capture
@@ -330,6 +367,7 @@ jmeter-mcp/
 ├── jmeter_config.yaml            # JMeter script generation settings
 ├── pyproject.toml                # Project metadata and dependencies
 ├── uv.lock                       # uv dependency lock file
+├── test_correlation_analyzer.py  # Standalone smoke test for correlation analyzer
 ├── README.md                     # This file
 └── test-specs/
     ├── web-flows/
@@ -352,12 +390,62 @@ artifacts/
     ├── jmeter/
     │   ├── network-capture/
     │   │   └── network_capture_<timestamp>.json
-    │   ├── correlation_spec.json
-    │   ├── <test_run_id>.jmx
-    │   ├── <test_run_id>.jtl
+    │   ├── correlation_spec.json        # Correlation analysis output
+    │   ├── correlation_naming.json      # Variable naming (via Cursor Rules)
+    │   ├── <test_run_id>.jmx            # Generated JMeter script
+    │   ├── <test_run_id>.jtl            # JMeter results log
     │   └── <test_run_id>_aggregate_report.csv
     └── test-specs/
         └── (run-specific spec overrides)
+```
+
+---
+
+## 🔍 Correlation Analysis Details
+
+The correlation analyzer (v0.2.0) performs the following:
+
+### Phase 1: Source Extraction
+- **Response JSON bodies**: Walks JSON up to 5 levels deep, extracting ID-like values
+- **Response headers**: Extracts correlation headers (x-request-id, x-correlation-id, etc.)
+- **Redirect URLs**: Parses `Location` headers for OAuth params (client_id, state, nonce, etc.)
+
+### Phase 2: Usage Detection
+- **Request URLs**: Path segments and query parameters
+- **Request headers**: Custom headers (excluding HTTP plumbing like content-length)
+- **Request bodies**: JSON fields and form data
+
+### Phase 3: Orphan ID Detection
+- Identifies ID-like values in requests without prior response sources
+- Suggests parameterization strategy:
+  - `csv_dataset` for high-frequency IDs (3+ occurrences)
+  - `user_defined_variable` for low-frequency IDs (1-2 occurrences)
+
+### Output Schema
+```json
+{
+  "correlations": [
+    {
+      "correlation_id": "corr_1",
+      "type": "business_id",
+      "value_type": "business_id_numeric",
+      "confidence": "high",
+      "source": { ... },
+      "usages": [ ... ],
+      "parameterization_hint": {
+        "strategy": "extract_and_reuse",
+        "extractor_type": "json"
+      }
+    }
+  ],
+  "summary": {
+    "total_correlations": 27,
+    "business_ids": 12,
+    "correlation_ids": 0,
+    "oauth_params": 4,
+    "orphan_ids": 11
+  }
+}
 ```
 
 ---
@@ -369,7 +457,8 @@ artifacts/
 * **Auto-scaling JMeter clusters** (K8s-based execution)
 * **LLM-based test analysis** using PerfAnalysis MCP
 * **Report generation via PerfReport MCP**
-* **OAuth 2.0 / PKCE correlation support** for authentication flows
+* **OAuth 2.0 / PKCE correlation support** for authentication flows (Phase 2)
+* **Automatic JMX correlation insertion** based on `correlation_naming.json`
 
 ---
 
