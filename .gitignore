@@ -259,6 +259,7 @@ test_datadog.py
 test_blazemeter.py
 test_perfanalysis.py
 simple_test.py
+jmeter-mcp/test_correlation_analyzer.py
 
 # ignore temp documentation files
 docs/*
