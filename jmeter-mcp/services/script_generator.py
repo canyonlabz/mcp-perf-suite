@@ -12,6 +12,10 @@ CONFIG = load_config()
 ARTIFACTS_PATH = CONFIG["artifacts"]["artifacts_path"]
 JMETER_CONFIG = load_jmeter_config()
 
+# === Domain Exclusion (APM, analytics, etc.) ===
+from services.correlations.utils import init_exclude_domains, is_excluded_url
+init_exclude_domains(CONFIG)
+
 # Import necessary modules for JMeter JMX generation
 import xml.etree.ElementTree as ET  # Needed for creating empty hashTree elements
 from services.jmx.plan import (
@@ -833,6 +837,7 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     # Track correlation additions for logging
     extractors_added = 0
     substitutions_applied = 0
+    excluded_entries = 0
     
     if use_controllers:
         ctrl_type = ctrl_cfg.get("controller_type", "simple").lower()
@@ -851,6 +856,11 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
 
             # Now append each sampler under this controller
             for entry in entries:
+                # Filter out excluded domains (APM, analytics, advertising, etc.)
+                entry_url = entry.get("url", "")
+                if is_excluded_url(entry_url):
+                    excluded_entries += 1
+                    continue
                 # Apply variable substitutions before creating sampler (Phase C)
                 original_url = entry.get("url", "")
                 if substitution_map:
@@ -881,6 +891,12 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             if "url" not in entry:
                 entry["url"] = url
             
+            # Filter out excluded domains (APM, analytics, advertising, etc.)
+            entry_url = entry.get("url", "")
+            if is_excluded_url(entry_url):
+                excluded_entries += 1
+                continue
+            
             # Apply variable substitutions before creating sampler (Phase C)
             original_url = entry.get("url", "")
             if substitution_map:
@@ -905,6 +921,8 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             append_sampler(thread_group_hash_tree, sampler, header_manager, extractors=extractors)
     
     # Log correlation summary
+    if excluded_entries > 0:
+        ctx.info(f"🚫 Excluded {excluded_entries} request(s) from non-essential domains (APM, analytics, etc.)")
     if extractors_added > 0:
         ctx.info(f"✅ Added {extractors_added} extractor(s) for correlation support")
     if substitutions_applied > 0:
