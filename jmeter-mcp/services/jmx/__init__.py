@@ -9,7 +9,7 @@ This package provides modular functions to create JMeter JMX script elements:
 - config_elements.py: Cookie Manager, User Defined Variables, CSV Data Set, Header Manager
 - listeners.py: View Results Tree, Aggregate Report
 - post_processor.py: JSON Extractor, Regex Extractor, Boundary Extractor
-- pre_processor.py: JSR223 PreProcessor (coming soon)
+- pre_processor.py: JSR223 PreProcessor, Timestamp, UUID, PKCE generators
 - oauth2.py: OAuth 2.0 specific elements
 """
 
@@ -21,6 +21,17 @@ from .post_processor import (
     append_extractor
 )
 
+# Pre-Processors
+from .pre_processor import (
+    create_jsr223_preprocessor,
+    create_timestamp_preprocessor,
+    create_multiple_timestamps_preprocessor,
+    create_uuid_preprocessor,
+    create_pkce_preprocessor,
+    create_cookie_preprocessor,
+    append_preprocessor
+)
+
 # Expose commonly used functions at package level
 __all__ = [
     # Post-Processors
@@ -28,5 +39,13 @@ __all__ = [
     "create_regex_extractor",
     "create_boundary_extractor",
     "append_extractor",
+    # Pre-Processors
+    "create_jsr223_preprocessor",
+    "create_timestamp_preprocessor",
+    "create_multiple_timestamps_preprocessor",
+    "create_uuid_preprocessor",
+    "create_pkce_preprocessor",
+    "create_cookie_preprocessor",
+    "append_preprocessor",
 ]
 

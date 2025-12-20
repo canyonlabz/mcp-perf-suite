@@ -117,22 +117,43 @@ def create_http_sampler_with_body(entry):
     return sampler, header_manager
 
 # === Append Sampler to Parent HashTree ===
-def append_sampler(parent, sampler, header_manager=None):
+def append_sampler(parent, sampler, header_manager=None, extractors=None):
     """
     Appends a sampler and its children to the parent hashTree.
     JMeter expects that every sampler is immediately followed by a hashTree element.
     If a HeaderManager exists, it is placed inside its own hashTree.
+    If extractors are provided, they are added as post-processors.
+    
+    Args:
+        parent: The parent hashTree element (Thread Group or Controller)
+        sampler: The HTTP Sampler element
+        header_manager: Optional HeaderManager element
+        extractors: Optional list of extractor elements (JSON, Regex, etc.)
+    
+    Returns:
+        ET.Element: The sampler's hashTree (for further modifications if needed)
     """
     # Append the sampler
     parent.append(sampler)
     # Create a hashTree for the sampler's children.
     sampler_hash_tree = ET.Element("hashTree")
+    
+    # Add HeaderManager if present
     if header_manager is not None:
         sampler_hash_tree.append(header_manager)
         # Append an empty hashTree for the HeaderManager's children.
         header_hash_tree = ET.Element("hashTree")
         sampler_hash_tree.append(header_hash_tree)
+    
+    # Add extractors (post-processors) if present
+    if extractors:
+        for extractor in extractors:
+            sampler_hash_tree.append(extractor)
+            # Each extractor needs its own empty hashTree
+            sampler_hash_tree.append(ET.Element("hashTree"))
+    
     parent.append(sampler_hash_tree)
+    return sampler_hash_tree
 
 # === Flow Control Action Sampler ===
 def create_flow_control_action(action_type="pause", testname="Flow Control Action"):
