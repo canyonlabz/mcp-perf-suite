@@ -704,6 +704,258 @@ def _merge_udv_config(
 
 
 # ============================================================
+# Helper Functions - Hostname Parameterization (obs-1)
+# ============================================================
+
+def _extract_unique_hostnames(network_data: Any) -> set:
+    """
+    Extract all unique hostnames from network capture data.
+    
+    Handles both dict format (step_name -> entries) and list format.
+    Filters out excluded domains.
+    
+    Args:
+        network_data: The loaded network capture JSON data
+        
+    Returns:
+        Set of unique hostnames
+    """
+    hostnames = set()
+    
+    # Handle dict format (step_name -> list of entries)
+    if isinstance(network_data, dict):
+        for step_name, entries in network_data.items():
+            if isinstance(entries, list):
+                for entry in entries:
+                    url = entry.get("url", "")
+                    if url:
+                        parsed = urllib.parse.urlparse(url)
+                        if parsed.netloc and not is_excluded_url(url):
+                            hostnames.add(parsed.netloc)
+            elif isinstance(entries, dict):
+                # Single entry
+                url = entries.get("url", "")
+                if url:
+                    parsed = urllib.parse.urlparse(url)
+                    if parsed.netloc and not is_excluded_url(url):
+                        hostnames.add(parsed.netloc)
+    # Handle list format
+    elif isinstance(network_data, list):
+        for entry in network_data:
+            url = entry.get("url", "")
+            if url:
+                parsed = urllib.parse.urlparse(url)
+                if parsed.netloc and not is_excluded_url(url):
+                    hostnames.add(parsed.netloc)
+    
+    return hostnames
+
+
+def _categorize_hostname(hostname: str, patterns_config: Dict[str, Any]) -> str:
+    """
+    Categorize a hostname based on pattern matching.
+    
+    Applies patterns in order of specificity:
+    1. auth_internal (most specific)
+    2. auth
+    3. static
+    4. app (default catch-all)
+    
+    Args:
+        hostname: The hostname to categorize
+        patterns_config: The default_patterns configuration
+        
+    Returns:
+        Category name: "auth_internal", "auth", "static", or "app"
+    """
+    hostname_lower = hostname.lower()
+    
+    # Check categories in order of specificity
+    category_order = ["auth_internal", "auth", "static"]
+    
+    for category in category_order:
+        cat_config = patterns_config.get(category, {})
+        patterns = cat_config.get("patterns", [])
+        
+        for pattern in patterns:
+            if pattern.lower() in hostname_lower:
+                return category
+    
+    # Default to app category
+    return "app"
+
+
+def _build_hostname_variable_map(
+    hostnames: set,
+    patterns_config: Dict[str, Any]
+) -> Dict[str, str]:
+    """
+    Build a mapping from hostname to JMeter variable name.
+    
+    Categorizes each hostname and assigns variable names with
+    underscore suffix for multiple hosts in the same category.
+    
+    Args:
+        hostnames: Set of unique hostnames
+        patterns_config: The default_patterns configuration
+        
+    Returns:
+        Dictionary mapping hostname to variable name
+    """
+    # Group hostnames by category
+    categories: Dict[str, List[str]] = {
+        "auth_internal": [],
+        "auth": [],
+        "static": [],
+        "app": []
+    }
+    
+    for hostname in sorted(hostnames):  # Sort for consistent ordering
+        category = _categorize_hostname(hostname, patterns_config)
+        categories[category].append(hostname)
+    
+    # Build variable map
+    hostname_to_var: Dict[str, str] = {}
+    
+    for category, hosts in categories.items():
+        if not hosts:
+            continue
+        
+        # Get the variable prefix for this category
+        cat_config = patterns_config.get(category, {})
+        prefix = cat_config.get("variable_prefix", f"{category}Hostname")
+        
+        if len(hosts) == 1:
+            # Single host in category: no suffix
+            hostname_to_var[hosts[0]] = prefix
+        else:
+            # Multiple hosts: add underscore suffix
+            for i, host in enumerate(hosts, start=1):
+                hostname_to_var[host] = f"{prefix}_{i}"
+    
+    return hostname_to_var
+
+
+def _create_environment_csv(
+    test_run_id: str,
+    hostname_var_map: Dict[str, str],
+    csv_subfolder: str,
+    csv_filename: str
+) -> str:
+    """
+    Create the environment.csv file with hostname variables.
+    
+    Creates the CSV file with:
+    - Header row: variable names
+    - Data row: actual hostname values
+    
+    Args:
+        test_run_id: The test run identifier
+        hostname_var_map: Mapping from hostname to variable name
+        csv_subfolder: Subfolder name (e.g., "testdata_csv")
+        csv_filename: CSV filename (e.g., "environment.csv")
+        
+    Returns:
+        The relative path to the CSV file (for JMX reference)
+    """
+    # Build output directory path
+    output_dir = os.path.join(ARTIFACTS_PATH, test_run_id, "jmeter", csv_subfolder)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    csv_path = os.path.join(output_dir, csv_filename)
+    
+    # Sort by variable name for consistent ordering
+    sorted_items = sorted(hostname_var_map.items(), key=lambda x: x[1])
+    
+    # Build header and data rows
+    headers = [var_name for _, var_name in sorted_items]
+    values = [hostname for hostname, _ in sorted_items]
+    
+    # Write CSV file
+    with open(csv_path, "w", encoding="utf-8", newline='') as f:
+        f.write(",".join(headers) + "\n")
+        f.write(",".join(values) + "\n")
+    
+    # Return relative path for JMX reference (use forward slashes for cross-platform JMeter compatibility)
+    return f"{csv_subfolder}/{csv_filename}"
+
+
+def _create_environment_csv_data_set(
+    csv_relative_path: str,
+    variable_names: List[str]
+) -> ET.Element:
+    """
+    Create a CSV Data Set Config element for environment variables.
+    
+    Args:
+        csv_relative_path: Relative path to the CSV file
+        variable_names: List of variable names (in order)
+        
+    Returns:
+        The CSVDataSet XML element
+    """
+    csv_data = ET.Element("CSVDataSet", attrib={
+        "guiclass": "TestBeanGUI",
+        "testclass": "CSVDataSet",
+        "testname": "CSV Data Set Config (Environment)",
+        "enabled": "true"
+    })
+    ET.SubElement(csv_data, "stringProp", attrib={"name": "delimiter"}).text = ","
+    ET.SubElement(csv_data, "stringProp", attrib={"name": "fileEncoding"}).text = ""
+    ET.SubElement(csv_data, "stringProp", attrib={"name": "filename"}).text = csv_relative_path
+    ET.SubElement(csv_data, "boolProp", attrib={"name": "ignoreFirstLine"}).text = "true"
+    ET.SubElement(csv_data, "boolProp", attrib={"name": "quotedData"}).text = "false"
+    ET.SubElement(csv_data, "boolProp", attrib={"name": "recycle"}).text = "true"
+    ET.SubElement(csv_data, "stringProp", attrib={"name": "shareMode"}).text = "shareMode.all"
+    ET.SubElement(csv_data, "boolProp", attrib={"name": "stopThread"}).text = "false"
+    ET.SubElement(csv_data, "stringProp", attrib={"name": "variableNames"}).text = ",".join(variable_names)
+    
+    return csv_data
+
+
+def _substitute_hostname_in_entry(entry: Dict, hostname_var_map: Dict[str, str]) -> bool:
+    """
+    Substitute the hostname in an entry's URL with the JMeter variable.
+    
+    Modifies the entry in place.
+    
+    Args:
+        entry: The network capture entry (modified in place)
+        hostname_var_map: Mapping from hostname to variable name
+        
+    Returns:
+        True if substitution was made, False otherwise
+    """
+    url = entry.get("url", "")
+    if not url:
+        return False
+    
+    parsed = urllib.parse.urlparse(url)
+    hostname = parsed.netloc
+    
+    if hostname not in hostname_var_map:
+        return False
+    
+    var_name = hostname_var_map[hostname]
+    jmeter_var = f"${{{var_name}}}"
+    
+    # Replace hostname in URL
+    # Handle both with and without port
+    new_url = url.replace(f"://{hostname}/", f"://{jmeter_var}/")
+    new_url = new_url.replace(f"://{hostname}?", f"://{jmeter_var}?")
+    
+    # Handle URLs that end with hostname (no trailing slash)
+    if new_url == url and url.endswith(hostname):
+        new_url = url[:-len(hostname)] + jmeter_var
+    
+    if new_url != url:
+        entry["url"] = new_url
+        return True
+    
+    return False
+
+
+# ============================================================
 # Helper Functions
 # ============================================================
 
@@ -782,6 +1034,45 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     else:
         ctx.info("ℹ️ No correlation_naming.json found - generating JMX without extractors or substitutions")
     
+    # === Hostname Parameterization (obs-1) ===
+    # Extract unique hostnames and create environment CSV for parameterization
+    hostname_param_config = JMETER_CONFIG.get("hostname_parameterization", {})
+    hostname_var_map = {}
+    env_csv_relative_path = ""
+    
+    if hostname_param_config.get("enabled", False):
+        # Extract unique hostnames from network data
+        unique_hostnames = _extract_unique_hostnames(network_data)
+        
+        if unique_hostnames:
+            # Get patterns config for categorization
+            patterns_config = hostname_param_config.get("default_patterns", {})
+            
+            # Build hostname -> variable name mapping
+            hostname_var_map = _build_hostname_variable_map(unique_hostnames, patterns_config)
+            
+            # Create environment CSV file
+            csv_subfolder = hostname_param_config.get("csv_subfolder", "testdata_csv")
+            csv_filename = hostname_param_config.get("csv_filename", "environment.csv")
+            
+            env_csv_relative_path = _create_environment_csv(
+                test_run_id, 
+                hostname_var_map, 
+                csv_subfolder, 
+                csv_filename
+            )
+            
+            # Log hostname parameterization info
+            ctx.info(f"✅ Hostname parameterization: {len(unique_hostnames)} unique hostname(s) found")
+            for hostname, var_name in sorted(hostname_var_map.items(), key=lambda x: x[1]):
+                category = _categorize_hostname(hostname, patterns_config)
+                ctx.info(f"   • {hostname} → ${{{var_name}}} ({category})")
+            ctx.info(f"✅ Created environment CSV: {env_csv_relative_path}")
+        else:
+            ctx.info("ℹ️ No hostnames found for parameterization")
+    else:
+        ctx.info("ℹ️ Hostname parameterization disabled")
+    
     # ============================================================
     # === JMeter JMX File Configurations ===
     # ============================================================
@@ -816,6 +1107,14 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     if csv_elem is not None:
         test_plan_hash_tree.append(csv_elem)
         test_plan_hash_tree.append(ET.Element("hashTree"))
+    
+    # Add Environment CSV Data Set Config (from hostname parameterization)
+    if hostname_var_map and env_csv_relative_path:
+        # Get sorted variable names for the CSV Data Set
+        sorted_var_names = [var for _, var in sorted(hostname_var_map.items(), key=lambda x: x[1])]
+        env_csv_elem = _create_environment_csv_data_set(env_csv_relative_path, sorted_var_names)
+        test_plan_hash_tree.append(env_csv_elem)
+        test_plan_hash_tree.append(ET.Element("hashTree"))
 
     # === Create Thread Group ===
     # Create a single Thread Group using defaults from jmeter_config.
@@ -838,6 +1137,7 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     extractors_added = 0
     substitutions_applied = 0
     excluded_entries = 0
+    hostname_subs_applied = 0  # Track hostname substitutions
     
     if use_controllers:
         ctrl_type = ctrl_cfg.get("controller_type", "simple").lower()
@@ -868,6 +1168,11 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                     # Count if URL changed (substitution was applied)
                     if entry.get("url", "") != original_url:
                         substitutions_applied += 1
+                
+                # Apply hostname parameterization (obs-1)
+                if hostname_var_map:
+                    if _substitute_hostname_in_entry(entry, hostname_var_map):
+                        hostname_subs_applied += 1
                 
                 method = entry.get("method", "GET").upper()
                 if method == "GET":
@@ -905,6 +1210,11 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 if entry.get("url", "") != original_url:
                     substitutions_applied += 1
             
+            # Apply hostname parameterization (obs-1)
+            if hostname_var_map:
+                if _substitute_hostname_in_entry(entry, hostname_var_map):
+                    hostname_subs_applied += 1
+            
             method = entry.get("method", "GET").upper()
             if method == "GET":
                 sampler, header_manager = create_http_sampler_get(entry)
@@ -927,6 +1237,8 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
         ctx.info(f"✅ Added {extractors_added} extractor(s) for correlation support")
     if substitutions_applied > 0:
         ctx.info(f"✅ Applied variable substitutions to {substitutions_applied} request(s)")
+    if hostname_subs_applied > 0:
+        ctx.info(f"✅ Applied hostname parameterization to {hostname_subs_applied} request(s)")
 
     # === Add Listeners (outside the Thread Group) ===
     results_cfg = JMETER_CONFIG.get("results_collector_config", {})

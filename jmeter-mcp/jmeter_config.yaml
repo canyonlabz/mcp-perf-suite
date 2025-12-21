@@ -65,6 +65,34 @@ results_collector_config:
     save_response_headers: false        # Save response headers in the Summary Report
   # Additional settings can go here if enabled
 
+hostname_parameterization:
+  enabled: true
+  csv_filename: "environment.csv"
+  csv_subfolder: "testdata_csv"    # Relative to JMX location
+  
+  # Default patterns for hostname categorization (applied in order: most specific first)
+  # Patterns are case-insensitive substring matches against the hostname
+  default_patterns:
+    auth_internal:
+      patterns: ["internal.login", "internal.auth", "login.internal", "auth.internal", "pwcinternal"]
+      variable_prefix: "authInternalHostname"
+    auth:
+      patterns: ["login", "auth", "sso", "oauth", "identity", "accounts", "signin"]
+      variable_prefix: "authHostname"
+    static:
+      patterns: ["cdn", "static", "assets", "media", "images", "fonts"]
+      variable_prefix: "staticHostname"
+    # app is the default category (catches everything else)
+    app:
+      variable_prefix: "envHostname"
+  
+  # Optional: Additional patterns (merged with defaults)
+  # Users can add custom categories here
+  # additional_patterns:
+  #   api:
+  #     patterns: ["api."]
+  #     variable_prefix: "apiHostname"
+
 # Future extensions can include more settings such as:
 # advanced_options:
 #   timeout: 5000
