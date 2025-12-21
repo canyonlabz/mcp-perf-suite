@@ -265,13 +265,23 @@ def _create_extractor_element(var_config: Dict) -> Optional[ET.Element]:
     return None
 
 
-def _get_extractors_for_entry(entry: Dict, extractor_map: Dict[str, List[Dict]]) -> List[ET.Element]:
+def _get_extractors_for_entry(
+    entry: Dict, 
+    extractor_map: Dict[str, List[Dict]],
+    extracted_variables: Optional[set] = None,
+    extractor_config: Optional[Dict] = None
+) -> List[ET.Element]:
     """
     Get all extractor elements that should be added to a sampler.
+    
+    Supports "first_occurrence" mode where extractors are only added the first
+    time a variable is encountered, with exceptions for OAuth parameters.
     
     Args:
         entry: The network capture entry (contains URL)
         extractor_map: The pre-built extractor mapping
+        extracted_variables: Set tracking which variables already have extractors (modified in-place)
+        extractor_config: Configuration from jmeter_config.yaml for extractor placement
         
     Returns:
         List of extractor XML elements to add to the sampler's hashTree
@@ -283,10 +293,29 @@ def _get_extractors_for_entry(entry: Dict, extractor_map: Dict[str, List[Dict]])
     var_configs = _find_extractors_for_url(url, extractor_map)
     extractors = []
     
+    # Get extractor placement settings
+    mode = "all_occurrences"  # Default to adding all extractors
+    always_all = []
+    
+    if extractor_config:
+        mode = extractor_config.get("mode", "all_occurrences")
+        always_all = extractor_config.get("always_all_occurrences", [])
+    
     for var_config in var_configs:
+        variable_name = var_config.get("variable_name", "")
+        
+        # Check if we should skip this extractor (first_occurrence mode)
+        if mode == "first_occurrence" and extracted_variables is not None:
+            # Check if already extracted (unless in exception list)
+            if variable_name in extracted_variables and variable_name not in always_all:
+                continue  # Skip - already have an extractor for this variable
+        
         extractor = _create_extractor_element(var_config)
         if extractor is not None:
             extractors.append(extractor)
+            # Track that we've added an extractor for this variable
+            if extracted_variables is not None:
+                extracted_variables.add(variable_name)
     
     return extractors
 
@@ -703,6 +732,116 @@ def _merge_udv_config(
     return merged
 
 
+def _build_orphan_substitution_map(
+    correlation_naming: Dict[str, Any],
+    orphan_values: Dict[str, str]
+) -> List[Dict]:
+    """
+    Build a list of orphan value substitutions.
+    
+    Creates substitution entries for orphan variables that should be replaced
+    in HTTP requests. Handles context-aware substitution based on source_location.
+    
+    Args:
+        correlation_naming: The loaded correlation_naming.json data
+        orphan_values: Mapping from correlation_id to actual value
+        
+    Returns:
+        List of substitution dictionaries with keys:
+        - variable_name: JMeter variable name
+        - value: The actual value to replace
+        - source_key: The parameter/field name (for context-aware matching)
+        - source_location: Where the value appears (request_query_param, request_url_path, etc.)
+    """
+    substitutions = []
+    
+    for orphan in correlation_naming.get("orphan_variables", []):
+        corr_id = orphan.get("correlation_id", "")
+        var_name = orphan.get("variable_name", "")
+        
+        if not var_name or not corr_id:
+            continue
+        
+        # Get the actual value
+        value = orphan_values.get(corr_id, "")
+        if not value:
+            continue
+        
+        # Skip very short numeric values (1, 2, 3, etc.) as they cause false positives
+        # Unless they have a specific source_key context
+        if value.isdigit() and len(value) <= 2:
+            # These need context-aware matching only
+            continue
+        
+        substitutions.append({
+            "variable_name": var_name,
+            "value": value,
+            "correlation_id": corr_id
+        })
+    
+    return substitutions
+
+
+def _apply_orphan_substitutions_to_entry(
+    entry: Dict,
+    orphan_substitutions: List[Dict]
+) -> bool:
+    """
+    Apply orphan variable substitutions to a network capture entry.
+    
+    Replaces hardcoded orphan values (like GUIDs, timestamps) with JMeter variables.
+    
+    Args:
+        entry: The network capture entry (will be modified in place)
+        orphan_substitutions: List of orphan substitution configs
+        
+    Returns:
+        True if any substitution was applied, False otherwise
+    """
+    if not orphan_substitutions:
+        return False
+    
+    url = entry.get("url", "")
+    body = entry.get("post_data", "")
+    modified = False
+    
+    for sub in orphan_substitutions:
+        value = sub.get("value", "")
+        var_name = sub.get("variable_name", "")
+        
+        if not value or not var_name:
+            continue
+        
+        jmeter_var = f"${{{var_name}}}"
+        
+        # Substitute in URL (both encoded and raw)
+        if url and value in url:
+            entry["url"] = url.replace(value, jmeter_var)
+            url = entry["url"]  # Update for next iteration
+            modified = True
+        
+        # Also check URL-encoded version
+        encoded_value = urllib.parse.quote(value, safe='')
+        if url and encoded_value in url and encoded_value != value:
+            entry["url"] = entry["url"].replace(encoded_value, jmeter_var)
+            url = entry["url"]
+            modified = True
+        
+        # Substitute in body
+        if body and value in body:
+            entry["post_data"] = body.replace(value, jmeter_var)
+            body = entry["post_data"]
+            modified = True
+        
+        # Also check URL-encoded in body (for form data)
+        if body and encoded_value in body and encoded_value != value:
+            entry["post_data"] = entry["post_data"].replace(encoded_value, jmeter_var)
+            body = entry["post_data"]
+            modified = True
+    
+    return modified
+
+
 # ============================================================
 # Helper Functions - Hostname Parameterization (obs-1)
 # ============================================================
@@ -1010,6 +1149,13 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     extractor_map = {}
     substitution_map = {}
     orphan_udv_vars = {}  # Orphan variables for User Defined Variables (Phase D)
+    orphan_substitution_map = []  # Orphan value substitutions for HTTP requests (obs-3)
+    extracted_variables = set()  # Track variables that already have extractors (obs-2)
+    
+    # Load extractor placement config
+    extractor_config = JMETER_CONFIG.get("extractor_placement", {})
+    extractor_mode = extractor_config.get("mode", "all_occurrences")
+    ctx.info(f"📋 Extractor placement mode: {extractor_mode}")
     
     if correlation_naming:
         extractor_map = _build_extractor_map(correlation_naming)
@@ -1029,6 +1175,11 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             orphan_udv_vars = _get_orphan_udv_variables(correlation_naming, orphan_values)
             if orphan_udv_vars:
                 ctx.info(f"✅ Extracted {len(orphan_udv_vars)} orphan variable(s) for User Defined Variables")
+            
+            # Build orphan substitution map for replacing values in requests (obs-3)
+            orphan_substitution_map = _build_orphan_substitution_map(correlation_naming, orphan_values)
+            if orphan_substitution_map:
+                ctx.info(f"✅ Built orphan substitution map: {len(orphan_substitution_map)} value(s) to replace")
         else:
             ctx.info("ℹ️ No correlation_spec.json found - skipping variable substitution")
     else:
@@ -1136,6 +1287,7 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     # Track correlation additions for logging
     extractors_added = 0
     substitutions_applied = 0
+    orphan_subs_applied = 0  # Track orphan UDV substitutions (obs-3)
     excluded_entries = 0
     hostname_subs_applied = 0  # Track hostname substitutions
     
@@ -1169,6 +1321,11 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                     if entry.get("url", "") != original_url:
                         substitutions_applied += 1
                 
+                # Apply orphan UDV substitutions (obs-3)
+                if orphan_substitution_map:
+                    if _apply_orphan_substitutions_to_entry(entry, orphan_substitution_map):
+                        orphan_subs_applied += 1
+                
                 # Apply hostname parameterization (obs-1)
                 if hostname_var_map:
                     if _substitute_hostname_in_entry(entry, hostname_var_map):
@@ -1183,7 +1340,12 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 # Get extractors for this URL (correlation support - Phase B)
                 # Note: Use original URL for extractor lookup since that matches correlation_naming
                 entry_for_extractor = {"url": original_url} if original_url else entry
-                extractors = _get_extractors_for_entry(entry_for_extractor, extractor_map)
+                extractors = _get_extractors_for_entry(
+                    entry_for_extractor, 
+                    extractor_map,
+                    extracted_variables=extracted_variables,
+                    extractor_config=extractor_config
+                )
                 extractors_added += len(extractors)
                 
                 append_sampler(ctrl_hash, sampler, header_manager, extractors=extractors)
@@ -1210,6 +1372,11 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 if entry.get("url", "") != original_url:
                     substitutions_applied += 1
             
+            # Apply orphan UDV substitutions (obs-3)
+            if orphan_substitution_map:
+                if _apply_orphan_substitutions_to_entry(entry, orphan_substitution_map):
+                    orphan_subs_applied += 1
+            
             # Apply hostname parameterization (obs-1)
             if hostname_var_map:
                 if _substitute_hostname_in_entry(entry, hostname_var_map):
@@ -1224,7 +1391,12 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             # Get extractors for this URL (correlation support - Phase B)
             # Note: Use original URL for extractor lookup since that matches correlation_naming
             entry_for_extractor = {"url": original_url} if original_url else entry
-            extractors = _get_extractors_for_entry(entry_for_extractor, extractor_map)
+            extractors = _get_extractors_for_entry(
+                entry_for_extractor, 
+                extractor_map,
+                extracted_variables=extracted_variables,
+                extractor_config=extractor_config
+            )
             extractors_added += len(extractors)
             
             # Append the sampler and its header manager (if any) into the Thread Group's hashTree.
@@ -1234,9 +1406,14 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     if excluded_entries > 0:
         ctx.info(f"🚫 Excluded {excluded_entries} request(s) from non-essential domains (APM, analytics, etc.)")
     if extractors_added > 0:
-        ctx.info(f"✅ Added {extractors_added} extractor(s) for correlation support")
+        if extractor_mode == "first_occurrence":
+            ctx.info(f"✅ Added {extractors_added} extractor(s) for {len(extracted_variables)} unique variable(s) (first_occurrence mode)")
+        else:
+            ctx.info(f"✅ Added {extractors_added} extractor(s) for correlation support (all_occurrences mode)")
     if substitutions_applied > 0:
         ctx.info(f"✅ Applied variable substitutions to {substitutions_applied} request(s)")
+    if orphan_subs_applied > 0:
+        ctx.info(f"✅ Applied orphan UDV substitutions to {orphan_subs_applied} request(s)")
     if hostname_subs_applied > 0:
         ctx.info(f"✅ Applied hostname parameterization to {hostname_subs_applied} request(s)")
 

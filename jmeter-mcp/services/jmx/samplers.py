@@ -33,16 +33,18 @@ def create_http_sampler_get(entry):
     parsed_url = urllib.parse.urlparse(url)
     domain = parsed_url.netloc
     protocol = parsed_url.scheme if parsed_url.scheme else "http"
-    path = parsed_url.path if parsed_url.path else "/"
+    # Include query string in path (JMeter expects full path with query params)
+    base_path = parsed_url.path if parsed_url.path else "/"
+    path_with_query = base_path + ('?' + parsed_url.query if parsed_url.query else '')
     
     sampler = ET.Element("HTTPSamplerProxy", attrib={
         "guiclass": "HttpTestSampleGui",
         "testclass": "HTTPSamplerProxy",
-        "testname": f"{method.upper()} {path}"
+        "testname": f"{method.upper()} {base_path}"
     })
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.domain"}).text = domain
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.protocol"}).text = protocol
-    ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.path"}).text = path
+    ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.path"}).text = path_with_query
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.method"}).text = method.upper()
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.postBodyRaw"}).text = ""
     ET.SubElement(sampler, "boolProp", attrib={"name": "HTTPSampler.auto_redirects"}).text = "true"
@@ -68,17 +70,19 @@ def create_http_sampler_with_body(entry):
     parsed_url = urllib.parse.urlparse(url)
     domain = parsed_url.netloc
     protocol = parsed_url.scheme if parsed_url.scheme else "http"
-    path = parsed_url.path if parsed_url.path else "/"
+    # Include query string in path (JMeter expects full path with query params)
+    base_path = parsed_url.path if parsed_url.path else "/"
+    path_with_query = base_path + ('?' + parsed_url.query if parsed_url.query else '')
 
     # Create the HTTPSamplerProxy element
     sampler = ET.Element("HTTPSamplerProxy", attrib={
         "guiclass": "HttpTestSampleGui",
         "testclass": "HTTPSamplerProxy",
-        "testname": f"{method.upper()} {path}"
+        "testname": f"{method.upper()} {base_path}"
     })
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.domain"}).text = domain
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.protocol"}).text = protocol
-    ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.path"}).text = path
+    ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.path"}).text = path_with_query
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.method"}).text = method.upper()
     ET.SubElement(sampler, "boolProp", attrib={"name": "HTTPSampler.auto_redirects"}).text = "true"
     

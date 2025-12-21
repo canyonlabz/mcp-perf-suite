@@ -93,6 +93,21 @@ hostname_parameterization:
   #     patterns: ["api."]
   #     variable_prefix: "apiHostname"
 
+extractor_placement:
+  # Controls whether extractors are added for all occurrences or just the first
+  # Options: "first_occurrence" | "all_occurrences"
+  mode: "first_occurrence"
+  
+  # Exception list: Variables that should always have extractors on ALL occurrences
+  # Useful for OAuth parameters in redirect chains where values may change
+  always_all_occurrences:
+    - "oauth_state"
+    - "oauth_nonce"
+    - "oauth_client_id"
+    - "oauth_redirect_uri"
+    - "oauth_response_mode"
+    - "oauth_code"
+
 # Future extensions can include more settings such as:
 # advanced_options:
 #   timeout: 5000
