@@ -16,13 +16,16 @@ from services.jmx.config_elements import (
 )
 
 # === HTTP Sampler for GET Requests ===
-def create_http_sampler_get(entry):
+def create_http_sampler_get(entry, hostname_var_map=None):
     """
     Creates an HTTP Sampler for a GET request.
     'entry' is a dictionary containing:
       - url (full URL)
       - method (expected to be GET)
       - headers (dictionary of headers)
+    Args:
+      - entry: The request entry dictionary
+      - hostname_var_map: Optional mapping from hostname to JMeter variable name for header parameterization
     Returns:
       - The HTTPSamplerProxy element
       - (Optionally) the HeaderManager element if headers exist, otherwise None.
@@ -49,15 +52,18 @@ def create_http_sampler_get(entry):
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.postBodyRaw"}).text = ""
     ET.SubElement(sampler, "boolProp", attrib={"name": "HTTPSampler.auto_redirects"}).text = "true"
     
-    header_manager = create_header_manager(headers) if headers else None
+    header_manager = create_header_manager(headers, hostname_var_map) if headers else None
     return sampler, header_manager
 
 # === HTTP Sampler for POST/PUT/DELETE Requests ===
-def create_http_sampler_with_body(entry):
+def create_http_sampler_with_body(entry, hostname_var_map=None):
     """
     Creates an HTTP Sampler for POST/PUT/DELETE requests.
     'entry' should include:
       - url, method, headers, and post_data (the raw body)
+    Args:
+      - entry: The request entry dictionary
+      - hostname_var_map: Optional mapping from hostname to JMeter variable name for header parameterization
     Returns:
       - The HTTPSamplerProxy element
       - (Optionally) the HeaderManager element if headers exist.
@@ -116,7 +122,7 @@ def create_http_sampler_with_body(entry):
     ET.SubElement(arg_element, "boolProp", attrib={"name": "HTTPArgument.use_equals"}).text = "true"
 
     # Create a header manager if needed
-    header_manager = create_header_manager(headers) if headers else None
+    header_manager = create_header_manager(headers, hostname_var_map) if headers else None
 
     return sampler, header_manager
 

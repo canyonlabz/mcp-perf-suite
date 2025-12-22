@@ -1390,9 +1390,9 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 
                 method = entry.get("method", "GET").upper()
                 if method == "GET":
-                    sampler, header_manager = create_http_sampler_get(entry)
+                    sampler, header_manager = create_http_sampler_get(entry, hostname_var_map)
                 else:
-                    sampler, header_manager = create_http_sampler_with_body(entry)
+                    sampler, header_manager = create_http_sampler_with_body(entry, hostname_var_map)
                 
                 # Get extractors for this URL (correlation support - Phase B)
                 # Note: Use original URL for extractor lookup since that matches correlation_naming
@@ -1442,9 +1442,9 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             
             method = entry.get("method", "GET").upper()
             if method == "GET":
-                sampler, header_manager = create_http_sampler_get(entry)
+                sampler, header_manager = create_http_sampler_get(entry, hostname_var_map)
             else:
-                sampler, header_manager = create_http_sampler_with_body(entry)
+                sampler, header_manager = create_http_sampler_with_body(entry, hostname_var_map)
             
             # Get extractors for this URL (correlation support - Phase B)
             # Note: Use original URL for extractor lookup since that matches correlation_naming
