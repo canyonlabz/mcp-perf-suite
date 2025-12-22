@@ -246,6 +246,9 @@ artifacts/*
 **/config.mac.yaml
 **/config.windows.yaml
 
+# Ignore JMeter configuration files
+jmeter-mcp/jmeter_config.yaml
+
 # ignore Datadog environments
 datadog-mcp/environments.json
 datadog-mcp/custom_queries.json

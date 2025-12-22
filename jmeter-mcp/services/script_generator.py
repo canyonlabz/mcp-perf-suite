@@ -265,11 +265,43 @@ def _create_extractor_element(var_config: Dict) -> Optional[ET.Element]:
     return None
 
 
+def _should_add_oauth_extractor(
+    hostname_category: str,
+    url_path: str
+) -> bool:
+    """
+    Determine if OAuth extractors should be added for this request.
+    
+    OAuth extractors should only be added for:
+    1. Auth-related hostnames (auth, auth_internal) - where OAuth params originate
+    2. Refresh token endpoints - regardless of hostname, if path contains both "refresh" and "token"
+    
+    Args:
+        hostname_category: The category of the hostname ("auth", "auth_internal", "app", "static")
+        url_path: The URL path to check for refresh token endpoints
+        
+    Returns:
+        True if OAuth extractors should be added, False otherwise
+    """
+    # Always add for auth-related hostnames
+    if hostname_category in ("auth", "auth_internal"):
+        return True
+    
+    # Check for refresh token endpoint (case-insensitive)
+    path_lower = url_path.lower()
+    if "refresh" in path_lower and "token" in path_lower:
+        return True
+    
+    # Skip for app/static hostnames (OAuth values are just echoed, not generated)
+    return False
+
+
 def _get_extractors_for_entry(
     entry: Dict, 
     extractor_map: Dict[str, List[Dict]],
     extracted_variables: Optional[set] = None,
-    extractor_config: Optional[Dict] = None
+    extractor_config: Optional[Dict] = None,
+    hostname_patterns_config: Optional[Dict] = None
 ) -> List[ET.Element]:
     """
     Get all extractor elements that should be added to a sampler.
@@ -277,11 +309,15 @@ def _get_extractors_for_entry(
     Supports "first_occurrence" mode where extractors are only added the first
     time a variable is encountered, with exceptions for OAuth parameters.
     
+    OAuth extractors are filtered to only apply on auth-related hostnames
+    or refresh token endpoints.
+    
     Args:
         entry: The network capture entry (contains URL)
         extractor_map: The pre-built extractor mapping
         extracted_variables: Set tracking which variables already have extractors (modified in-place)
         extractor_config: Configuration from jmeter_config.yaml for extractor placement
+        hostname_patterns_config: Configuration for hostname categorization (for OAuth filtering)
         
     Returns:
         List of extractor XML elements to add to the sampler's hashTree
@@ -295,20 +331,42 @@ def _get_extractors_for_entry(
     
     # Get extractor placement settings
     mode = "all_occurrences"  # Default to adding all extractors
-    always_all = []
+    always_all = []  # OAuth variables that need special handling
     
     if extractor_config:
         mode = extractor_config.get("mode", "all_occurrences")
         always_all = extractor_config.get("always_all_occurrences", [])
     
+    # Parse URL to get hostname and path for OAuth filtering
+    parsed_url = urllib.parse.urlparse(url)
+    hostname = parsed_url.netloc
+    url_path = parsed_url.path
+    
+    # Determine hostname category for OAuth filtering
+    hostname_category = "app"  # Default
+    if hostname_patterns_config and hostname:
+        hostname_category = _categorize_hostname(hostname, hostname_patterns_config)
+    
+    # Check once if this request qualifies for OAuth extractors
+    oauth_allowed = _should_add_oauth_extractor(hostname_category, url_path)
+    
     for var_config in var_configs:
         variable_name = var_config.get("variable_name", "")
         
+        # Check if this is an OAuth variable
+        is_oauth_variable = variable_name in always_all
+        
+        # Filter OAuth extractors based on hostname category
+        if is_oauth_variable and not oauth_allowed:
+            continue  # Skip OAuth extractor for non-auth hostnames
+        
         # Check if we should skip this extractor (first_occurrence mode)
         if mode == "first_occurrence" and extracted_variables is not None:
-            # Check if already extracted (unless in exception list)
-            if variable_name in extracted_variables and variable_name not in always_all:
-                continue  # Skip - already have an extractor for this variable
+            # For OAuth variables on auth hostnames, still allow multiple occurrences
+            # For non-OAuth variables, only add first occurrence
+            if not is_oauth_variable:
+                if variable_name in extracted_variables:
+                    continue  # Skip - already have an extractor for this variable
         
         extractor = _create_extractor_element(var_config)
         if extractor is not None:
@@ -1190,15 +1248,14 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     hostname_param_config = JMETER_CONFIG.get("hostname_parameterization", {})
     hostname_var_map = {}
     env_csv_relative_path = ""
+    # Get patterns config early - needed for both hostname parameterization and OAuth extractor filtering
+    patterns_config = hostname_param_config.get("default_patterns", {})
     
     if hostname_param_config.get("enabled", False):
         # Extract unique hostnames from network data
         unique_hostnames = _extract_unique_hostnames(network_data)
         
         if unique_hostnames:
-            # Get patterns config for categorization
-            patterns_config = hostname_param_config.get("default_patterns", {})
-            
             # Build hostname -> variable name mapping
             hostname_var_map = _build_hostname_variable_map(unique_hostnames, patterns_config)
             
@@ -1344,7 +1401,8 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                     entry_for_extractor, 
                     extractor_map,
                     extracted_variables=extracted_variables,
-                    extractor_config=extractor_config
+                    extractor_config=extractor_config,
+                    hostname_patterns_config=patterns_config
                 )
                 extractors_added += len(extractors)
                 
@@ -1395,7 +1453,8 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 entry_for_extractor, 
                 extractor_map,
                 extracted_variables=extracted_variables,
-                extractor_config=extractor_config
+                extractor_config=extractor_config,
+                hostname_patterns_config=patterns_config
             )
             extractors_added += len(extractors)
             
