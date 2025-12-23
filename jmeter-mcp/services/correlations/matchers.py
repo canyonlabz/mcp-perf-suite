@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Set, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from .classifiers import classify_value_type
-from .constants import GUID_RE, NUMERIC_ID_RE, SKIP_HEADERS_USAGE
+from .constants import GUID_RE, NUMERIC_ID_RE, SKIP_HEADERS_USAGE, ID_KEY_PATTERNS
 from .utils import value_matches, walk_json_all_values
 
 
@@ -181,14 +181,31 @@ def find_usages(
 
 # === Phase 3: Orphan ID Detection ===
 
+def _is_id_like_param_name(param_name: str) -> bool:
+    """
+    Check if a query parameter name suggests it contains an ID value.
+    
+    Matches patterns like: appGuid, messagebusguid, userId, client_id, etc.
+    Uses the same ID_KEY_PATTERNS as JSON extraction for consistency.
+    """
+    return bool(ID_KEY_PATTERNS.search(param_name))
+
+
 def extract_ids_from_request_url(url: str) -> List[Dict[str, Any]]:
-    """Extract ID-like values from a request URL."""
+    """
+    Extract ID-like values from a request URL.
+    
+    Detects IDs based on:
+    1. Value format: numeric IDs or GUIDs (standard UUID format)
+    2. Parameter name: if the parameter name suggests it's an ID field
+       (e.g., appGuid, messagebusguid, userId, client_id)
+    """
     ids = []
     
     try:
         parsed = urlparse(url)
         
-        # Path segments
+        # Path segments - check by value format only
         for segment in parsed.path.split("/"):
             if segment and (NUMERIC_ID_RE.match(segment) or GUID_RE.match(segment)):
                 ids.append({
@@ -197,11 +214,18 @@ def extract_ids_from_request_url(url: str) -> List[Dict[str, Any]]:
                     "pattern": parsed.path.replace(segment, "{VALUE}", 1),
                 })
         
-        # Query params
+        # Query params - check by value format OR parameter name pattern
         query_params = parse_qs(parsed.query)
         for param_name, values in query_params.items():
             for val in values:
-                if NUMERIC_ID_RE.match(val) or GUID_RE.match(val):
+                # Extract if value looks like an ID (numeric or GUID)
+                value_is_id = NUMERIC_ID_RE.match(val) or GUID_RE.match(val)
+                
+                # Also extract if parameter name suggests it's an ID field
+                # but only if value is non-trivial (has some length)
+                name_suggests_id = _is_id_like_param_name(param_name) and len(val) >= 2
+                
+                if value_is_id or name_suggests_id:
                     ids.append({
                         "value": val,
                         "location": "request_query_param",

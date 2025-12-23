@@ -1,6 +1,7 @@
 import sys
 import json
 import os
+import re
 import urllib.parse
 from typing import Callable, Optional, Dict, Any, List
 from fastmcp import Context  # ✅ FastMCP 2.x import
@@ -46,6 +47,40 @@ from services.jmx.post_processor import (
     create_regex_extractor
 )
 from utils.file_utils import save_jmx_file
+
+# ============================================================
+# Helper Functions - Step/Test Case Naming
+# ============================================================
+
+def _transform_step_to_testcase(step_name: str) -> str:
+    """
+    Transform "Step X: Description" to "TC0X_Description" format.
+    
+    This naming convention is important for alphanumeric sorting in
+    JMeter and BlazeMeter reports (TC01, TC02, ... TC09, TC10).
+    
+    Args:
+        step_name: Original step name like "Step 1: Navigate to..."
+        
+    Returns:
+        Transformed name like "TC01_Navigate to..."
+        
+    Examples:
+        "Step 1: Navigate to homepage" -> "TC01_Navigate to homepage"
+        "Step 10: Validate results" -> "TC10_Validate results"
+        "Custom Name" -> "Custom Name" (unchanged if not matching pattern)
+    """
+    # Match "Step N: Description" pattern
+    match = re.match(r'^Step\s+(\d+):\s*(.*)$', step_name, re.IGNORECASE)
+    if match:
+        step_num = int(match.group(1))
+        description = match.group(2)
+        # Format as TC##_ with leading zero for single digits
+        return f"TC{step_num:02d}_{description}"
+    
+    # Return unchanged if doesn't match expected pattern
+    return step_name
+
 
 # ============================================================
 # Helper Functions - Correlation Support
@@ -1358,8 +1393,10 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
         }.get(ctrl_type, create_simple_controller)
 
         for step_name, entries in network_data.items():
+            # Transform "Step X: Description" to "TC0X_Description" for report sorting
+            testcase_name = _transform_step_to_testcase(step_name)
             # create the Controller node + its hashTree
-            ctrl_elem, ctrl_hash = factory(testname=step_name)
+            ctrl_elem, ctrl_hash = factory(testname=testcase_name)
             thread_group_hash_tree.append(ctrl_elem)
             thread_group_hash_tree.append(ctrl_hash)
 
