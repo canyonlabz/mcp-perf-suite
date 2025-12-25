@@ -16,7 +16,7 @@ from services.jmx.config_elements import (
 )
 
 # === HTTP Sampler for GET Requests ===
-def create_http_sampler_get(entry, hostname_var_map=None):
+def create_http_sampler_get(entry, hostname_var_map=None, exclude_http2_pseudo_headers=True):
     """
     Creates an HTTP Sampler for a GET request.
     'entry' is a dictionary containing:
@@ -26,6 +26,7 @@ def create_http_sampler_get(entry, hostname_var_map=None):
     Args:
       - entry: The request entry dictionary
       - hostname_var_map: Optional mapping from hostname to JMeter variable name for header parameterization
+      - exclude_http2_pseudo_headers: If True, exclude HTTP/2 pseudo-headers from Header Manager (default: True)
     Returns:
       - The HTTPSamplerProxy element
       - (Optionally) the HeaderManager element if headers exist, otherwise None.
@@ -52,11 +53,11 @@ def create_http_sampler_get(entry, hostname_var_map=None):
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.postBodyRaw"}).text = ""
     ET.SubElement(sampler, "boolProp", attrib={"name": "HTTPSampler.auto_redirects"}).text = "true"
     
-    header_manager = create_header_manager(headers, hostname_var_map) if headers else None
+    header_manager = create_header_manager(headers, hostname_var_map, exclude_http2_pseudo_headers) if headers else None
     return sampler, header_manager
 
 # === HTTP Sampler for POST/PUT/DELETE Requests ===
-def create_http_sampler_with_body(entry, hostname_var_map=None):
+def create_http_sampler_with_body(entry, hostname_var_map=None, exclude_http2_pseudo_headers=True):
     """
     Creates an HTTP Sampler for POST/PUT/DELETE requests.
     'entry' should include:
@@ -64,6 +65,7 @@ def create_http_sampler_with_body(entry, hostname_var_map=None):
     Args:
       - entry: The request entry dictionary
       - hostname_var_map: Optional mapping from hostname to JMeter variable name for header parameterization
+      - exclude_http2_pseudo_headers: If True, exclude HTTP/2 pseudo-headers from Header Manager (default: True)
     Returns:
       - The HTTPSamplerProxy element
       - (Optionally) the HeaderManager element if headers exist.
@@ -122,7 +124,7 @@ def create_http_sampler_with_body(entry, hostname_var_map=None):
     ET.SubElement(arg_element, "boolProp", attrib={"name": "HTTPArgument.use_equals"}).text = "true"
 
     # Create a header manager if needed
-    header_manager = create_header_manager(headers, hostname_var_map) if headers else None
+    header_manager = create_header_manager(headers, hostname_var_map, exclude_http2_pseudo_headers) if headers else None
 
     return sampler, header_manager
 

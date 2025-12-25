@@ -82,6 +82,16 @@ EXCLUDED_HEADERS = {
     "content-length",  # Automatically calculated by JMeter
 }
 
+# HTTP/2 pseudo-headers that may need to be excluded
+# JMeter uses HTTP/1.1 by default; these headers cause errors on non-HTTP/2 backends
+HTTP2_PSEUDO_HEADERS = {
+    ":method",     # HTTP/2 method pseudo-header
+    ":path",       # HTTP/2 path pseudo-header
+    ":scheme",     # HTTP/2 scheme pseudo-header (http/https)
+    ":authority",  # HTTP/2 authority pseudo-header (host:port)
+    ":status",     # HTTP/2 status pseudo-header (response only)
+}
+
 # Headers that should have hostname parameterization applied
 # These headers contain hostnames that should be replaced with JMeter variables
 HOSTNAME_HEADERS = {
@@ -136,7 +146,7 @@ def _substitute_hostname_in_header_value(header_name: str, header_value: str, ho
     
     return result
 
-def create_header_manager(headers, hostname_var_map=None):
+def create_header_manager(headers, hostname_var_map=None, exclude_http2_pseudo_headers=True):
     """
     Creates a Header Manager element with the provided headers.
     Excludes headers that are handled by other JMeter components (e.g., 'cookie' is handled by Cookie Manager).
@@ -145,6 +155,9 @@ def create_header_manager(headers, hostname_var_map=None):
     Args:
         headers: Dictionary of header name -> value pairs
         hostname_var_map: Optional mapping from hostname to JMeter variable name for parameterization
+        exclude_http2_pseudo_headers: If True, exclude HTTP/2 pseudo-headers (:method, :path, :scheme, :authority, :status).
+                                      JMeter uses HTTP/1.1 by default, and these headers cause errors on non-HTTP/2 backends.
+                                      Default is True for compatibility with public websites.
         
     Returns:
         The HeaderManager XML element.
@@ -156,12 +169,17 @@ def create_header_manager(headers, hostname_var_map=None):
     })
     collection = ET.SubElement(header_manager, "collectionProp", attrib={"name": "HeaderManager.headers"})
     
+    # Build the set of headers to exclude
+    headers_to_exclude = set(EXCLUDED_HEADERS)
+    if exclude_http2_pseudo_headers:
+        headers_to_exclude.update(HTTP2_PSEUDO_HEADERS)
+    
     for name, value in headers.items():
         # Skip excluded headers (case-insensitive comparison)
-        if name.lower() in EXCLUDED_HEADERS:
+        if name.lower() in headers_to_exclude:
             continue
         
-        # Apply hostname parameterization for relevant headers
+        # Apply hostname parameterization for relevant headers (only if not excluded)
         final_value = value
         if hostname_var_map and name.lower() in HOSTNAME_HEADERS:
             final_value = _substitute_hostname_in_header_value(name.lower(), value, hostname_var_map)

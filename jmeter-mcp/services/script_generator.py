@@ -1278,6 +1278,11 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     else:
         ctx.info("ℹ️ No correlation_naming.json found - generating JMX without extractors or substitutions")
     
+    # === HTTP/2 Pseudo-Header Exclusion ===
+    # JMeter uses HTTP/1.1 by default; HTTP/2 pseudo-headers cause errors on non-HTTP/2 backends
+    http2_config = JMETER_CONFIG.get("http2_headers", {})
+    exclude_http2_pseudo_headers = http2_config.get("exclude_pseudo_headers", True)
+    
     # === Hostname Parameterization (obs-1) ===
     # Extract unique hostnames and create environment CSV for parameterization
     hostname_param_config = JMETER_CONFIG.get("hostname_parameterization", {})
@@ -1427,9 +1432,9 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 
                 method = entry.get("method", "GET").upper()
                 if method == "GET":
-                    sampler, header_manager = create_http_sampler_get(entry, hostname_var_map)
+                    sampler, header_manager = create_http_sampler_get(entry, hostname_var_map, exclude_http2_pseudo_headers)
                 else:
-                    sampler, header_manager = create_http_sampler_with_body(entry, hostname_var_map)
+                    sampler, header_manager = create_http_sampler_with_body(entry, hostname_var_map, exclude_http2_pseudo_headers)
                 
                 # Get extractors for this URL (correlation support - Phase B)
                 # Note: Use original URL for extractor lookup since that matches correlation_naming
@@ -1479,9 +1484,9 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             
             method = entry.get("method", "GET").upper()
             if method == "GET":
-                sampler, header_manager = create_http_sampler_get(entry, hostname_var_map)
+                sampler, header_manager = create_http_sampler_get(entry, hostname_var_map, exclude_http2_pseudo_headers)
             else:
-                sampler, header_manager = create_http_sampler_with_body(entry, hostname_var_map)
+                sampler, header_manager = create_http_sampler_with_body(entry, hostname_var_map, exclude_http2_pseudo_headers)
             
             # Get extractors for this URL (correlation support - Phase B)
             # Note: Use original URL for extractor lookup since that matches correlation_naming
