@@ -36,6 +36,9 @@ http_sampler:
   auto_redirects: true
   post_body_raw: true
 
+http2_headers:
+  exclude_pseudo_headers: true          # Exclude HTTP/2 pseudo-headers (:method, :path, :scheme, :authority, :status) from Header Manager
+
 test_action_config:
   enabled: true
   action: "pause"                       # Options: pause, stop, start next thread loop, go to next iteration of current loop, etc.

@@ -20,7 +20,10 @@ These rules govern how the AI agent should execute browser automation steps for 
 4. **Get browser steps** using `mcp_jmeter_get_browser_steps` with the selected spec
 5. **Execute each step** using Playwright browser tools (with think time between steps)
 6. **Capture network traffic** using `mcp_jmeter_capture_network_traffic` after completion
-7. **Generate JMeter script** using `mcp_jmeter_generate_jmeter_script` from the captured JSON
+7. **Analyze network traffic** using `mcp_jmeter_analyze_network_traffic` to identify correlations
+8. **Cursor Agent** reads and follows Cursor Rules @jmeter-correlations.mdc
+9. **Correlation Naming JSON** Cursor will have generated correlation_naming.json for given test_run_id.
+10. **Generate JMeter script** using `mcp_jmeter_generate_jmeter_script` from the output JSON files
 
 ## Think Time Between Steps
 
