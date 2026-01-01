@@ -1408,6 +1408,11 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
         # Duration uses UDV variable reference by default for parameterization
         test_action_duration = "${thinkTime}"
         
+        # === Sampler Naming Configuration ===
+        # Apply naming convention: TC##_S##_METHOD /path for report-friendly sorting
+        sampler_naming_cfg = JMETER_CONFIG.get("sampler_naming", {})
+        sampler_naming_enabled = sampler_naming_cfg.get("enabled", True)
+        
         # Get total number of steps to identify the last step
         step_items = list(network_data.items())
         total_steps = len(step_items)
@@ -1419,6 +1424,10 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             ctrl_elem, ctrl_hash = factory(testname=testcase_name)
             thread_group_hash_tree.append(ctrl_elem)
             thread_group_hash_tree.append(ctrl_hash)
+            
+            # Track sampler counter for naming convention (resets per step)
+            step_num = step_index + 1  # 1-based step number for TC##
+            sampler_counter = 0  # Reset for each step
 
             # Now append each sampler under this controller
             for entry in entries:
@@ -1427,6 +1436,13 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 if is_excluded_url(entry_url):
                     excluded_entries += 1
                     continue
+                
+                # Increment sampler counter for naming (only for non-excluded entries)
+                sampler_counter += 1
+                
+                # Generate sampler name prefix if naming is enabled
+                sampler_prefix = f"TC{step_num:02d}_S{sampler_counter:02d}" if sampler_naming_enabled else None
+                
                 # Apply variable substitutions before creating sampler (Phase C)
                 original_url = entry.get("url", "")
                 if substitution_map:
@@ -1447,9 +1463,15 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 
                 method = entry.get("method", "GET").upper()
                 if method == "GET":
-                    sampler, header_manager = create_http_sampler_get(entry, hostname_var_map, exclude_http2_pseudo_headers)
+                    sampler, header_manager = create_http_sampler_get(
+                        entry, hostname_var_map, exclude_http2_pseudo_headers,
+                        testname_prefix=sampler_prefix
+                    )
                 else:
-                    sampler, header_manager = create_http_sampler_with_body(entry, hostname_var_map, exclude_http2_pseudo_headers)
+                    sampler, header_manager = create_http_sampler_with_body(
+                        entry, hostname_var_map, exclude_http2_pseudo_headers,
+                        testname_prefix=sampler_prefix
+                    )
                 
                 # Get extractors for this URL (correlation support - Phase B)
                 # Note: Use original URL for extractor lookup since that matches correlation_naming
@@ -1478,9 +1500,16 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 ctrl_hash.append(ET.Element("hashTree"))
                 think_time_added += 1
     else:
-        # === Create HTTP Request Samplers ===
+        # === Create HTTP Request Samplers (Flat Mode - No Controllers) ===
         # Iterate through the network capture entries.
         # Assume network_data is a dictionary where keys are URLs and values are entry dicts.
+        
+        # === Sampler Naming Configuration for Flat Mode ===
+        # Apply naming convention: TC01_S##_METHOD /path (all samplers under single TC01)
+        sampler_naming_cfg = JMETER_CONFIG.get("sampler_naming", {})
+        sampler_naming_enabled = sampler_naming_cfg.get("enabled", True)
+        sampler_counter = 0  # Single counter for flat mode
+        
         for url, entry in network_data.items():
             # Ensure each entry has its "url" field.
             if "url" not in entry:
@@ -1491,6 +1520,12 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             if is_excluded_url(entry_url):
                 excluded_entries += 1
                 continue
+            
+            # Increment sampler counter for naming (only for non-excluded entries)
+            sampler_counter += 1
+            
+            # Generate sampler name prefix if naming is enabled (TC01 for flat mode)
+            sampler_prefix = f"TC01_S{sampler_counter:02d}" if sampler_naming_enabled else None
             
             # Apply variable substitutions before creating sampler (Phase C)
             original_url = entry.get("url", "")
@@ -1512,9 +1547,15 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             
             method = entry.get("method", "GET").upper()
             if method == "GET":
-                sampler, header_manager = create_http_sampler_get(entry, hostname_var_map, exclude_http2_pseudo_headers)
+                sampler, header_manager = create_http_sampler_get(
+                    entry, hostname_var_map, exclude_http2_pseudo_headers,
+                    testname_prefix=sampler_prefix
+                )
             else:
-                sampler, header_manager = create_http_sampler_with_body(entry, hostname_var_map, exclude_http2_pseudo_headers)
+                sampler, header_manager = create_http_sampler_with_body(
+                    entry, hostname_var_map, exclude_http2_pseudo_headers,
+                    testname_prefix=sampler_prefix
+                )
             
             # Get extractors for this URL (correlation support - Phase B)
             # Note: Use original URL for extractor lookup since that matches correlation_naming

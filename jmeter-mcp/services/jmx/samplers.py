@@ -16,7 +16,7 @@ from services.jmx.config_elements import (
 )
 
 # === HTTP Sampler for GET Requests ===
-def create_http_sampler_get(entry, hostname_var_map=None, exclude_http2_pseudo_headers=True):
+def create_http_sampler_get(entry, hostname_var_map=None, exclude_http2_pseudo_headers=True, testname_prefix=None):
     """
     Creates an HTTP Sampler for a GET request.
     'entry' is a dictionary containing:
@@ -27,6 +27,7 @@ def create_http_sampler_get(entry, hostname_var_map=None, exclude_http2_pseudo_h
       - entry: The request entry dictionary
       - hostname_var_map: Optional mapping from hostname to JMeter variable name for header parameterization
       - exclude_http2_pseudo_headers: If True, exclude HTTP/2 pseudo-headers from Header Manager (default: True)
+      - testname_prefix: Optional prefix for the sampler name (e.g., "TC01_S01" for naming convention)
     Returns:
       - The HTTPSamplerProxy element
       - (Optionally) the HeaderManager element if headers exist, otherwise None.
@@ -41,10 +42,14 @@ def create_http_sampler_get(entry, hostname_var_map=None, exclude_http2_pseudo_h
     base_path = parsed_url.path if parsed_url.path else "/"
     path_with_query = base_path + ('?' + parsed_url.query if parsed_url.query else '')
     
+    # Build sampler name with optional prefix for naming convention
+    base_name = f"{method.upper()} {base_path}"
+    testname = f"{testname_prefix}_{base_name}" if testname_prefix else base_name
+    
     sampler = ET.Element("HTTPSamplerProxy", attrib={
         "guiclass": "HttpTestSampleGui",
         "testclass": "HTTPSamplerProxy",
-        "testname": f"{method.upper()} {base_path}"
+        "testname": testname
     })
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.domain"}).text = domain
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.protocol"}).text = protocol
@@ -57,7 +62,7 @@ def create_http_sampler_get(entry, hostname_var_map=None, exclude_http2_pseudo_h
     return sampler, header_manager
 
 # === HTTP Sampler for POST/PUT/DELETE Requests ===
-def create_http_sampler_with_body(entry, hostname_var_map=None, exclude_http2_pseudo_headers=True):
+def create_http_sampler_with_body(entry, hostname_var_map=None, exclude_http2_pseudo_headers=True, testname_prefix=None):
     """
     Creates an HTTP Sampler for POST/PUT/DELETE requests.
     'entry' should include:
@@ -66,6 +71,7 @@ def create_http_sampler_with_body(entry, hostname_var_map=None, exclude_http2_ps
       - entry: The request entry dictionary
       - hostname_var_map: Optional mapping from hostname to JMeter variable name for header parameterization
       - exclude_http2_pseudo_headers: If True, exclude HTTP/2 pseudo-headers from Header Manager (default: True)
+      - testname_prefix: Optional prefix for the sampler name (e.g., "TC01_S01" for naming convention)
     Returns:
       - The HTTPSamplerProxy element
       - (Optionally) the HeaderManager element if headers exist.
@@ -82,11 +88,15 @@ def create_http_sampler_with_body(entry, hostname_var_map=None, exclude_http2_ps
     base_path = parsed_url.path if parsed_url.path else "/"
     path_with_query = base_path + ('?' + parsed_url.query if parsed_url.query else '')
 
+    # Build sampler name with optional prefix for naming convention
+    base_name = f"{method.upper()} {base_path}"
+    testname = f"{testname_prefix}_{base_name}" if testname_prefix else base_name
+
     # Create the HTTPSamplerProxy element
     sampler = ET.Element("HTTPSamplerProxy", attrib={
         "guiclass": "HttpTestSampleGui",
         "testclass": "HTTPSamplerProxy",
-        "testname": f"{method.upper()} {base_path}"
+        "testname": testname
     })
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.domain"}).text = domain
     ET.SubElement(sampler, "stringProp", attrib={"name": "HTTPSampler.protocol"}).text = protocol
