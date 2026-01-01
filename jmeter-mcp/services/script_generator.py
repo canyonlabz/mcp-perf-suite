@@ -31,7 +31,8 @@ from services.jmx.controllers import (
 from services.jmx.samplers import (
     create_http_sampler_get,
     create_http_sampler_with_body,
-    append_sampler
+    append_sampler,
+    create_flow_control_action
 )
 from services.jmx.config_elements import (
     create_cookie_manager,
@@ -1387,6 +1388,7 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     orphan_subs_applied = 0  # Track orphan UDV substitutions (obs-3)
     excluded_entries = 0
     hostname_subs_applied = 0  # Track hostname substitutions
+    think_time_added = 0  # Track Think Time additions
     
     if use_controllers:
         ctrl_type = ctrl_cfg.get("controller_type", "simple").lower()
@@ -1396,8 +1398,21 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             "transaction": create_transaction_controller,
             # Add more controller types as needed
         }.get(ctrl_type, create_simple_controller)
+        
+        # === Think Time (Test Action) Configuration ===
+        # Add Flow Control Action at the end of each step to simulate realistic user behavior
+        test_action_cfg = JMETER_CONFIG.get("test_action_config", {})
+        test_action_enabled = test_action_cfg.get("enabled", False)
+        test_action_name = test_action_cfg.get("test_action_name", "Think Time")
+        test_action_type = test_action_cfg.get("action", "pause")
+        # Duration uses UDV variable reference by default for parameterization
+        test_action_duration = "${thinkTime}"
+        
+        # Get total number of steps to identify the last step
+        step_items = list(network_data.items())
+        total_steps = len(step_items)
 
-        for step_name, entries in network_data.items():
+        for step_index, (step_name, entries) in enumerate(step_items):
             # Transform "Step X: Description" to "TC0X_Description" for report sorting
             testcase_name = _transform_step_to_testcase(step_name)
             # create the Controller node + its hashTree
@@ -1449,6 +1464,19 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 extractors_added += len(extractors)
                 
                 append_sampler(ctrl_hash, sampler, header_manager, extractors=extractors)
+            
+            # === Add Think Time (Test Action) at end of each step (except last) ===
+            # This simulates realistic user think time between steps, matching browser automation behavior
+            is_last_step = (step_index == total_steps - 1)
+            if test_action_enabled and not is_last_step:
+                think_time_element = create_flow_control_action(
+                    action_type=test_action_type,
+                    testname=test_action_name,
+                    duration=test_action_duration
+                )
+                ctrl_hash.append(think_time_element)
+                ctrl_hash.append(ET.Element("hashTree"))
+                think_time_added += 1
     else:
         # === Create HTTP Request Samplers ===
         # Iterate through the network capture entries.
@@ -1517,6 +1545,8 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
         ctx.info(f"✅ Applied orphan UDV substitutions to {orphan_subs_applied} request(s)")
     if hostname_subs_applied > 0:
         ctx.info(f"✅ Applied hostname parameterization to {hostname_subs_applied} request(s)")
+    if think_time_added > 0:
+        ctx.info(f"✅ Added {think_time_added} Think Time element(s) between steps")
 
     # === Add Listeners (outside the Thread Group) ===
     results_cfg = JMETER_CONFIG.get("results_collector_config", {})

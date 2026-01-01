@@ -167,18 +167,65 @@ def append_sampler(parent, sampler, header_manager=None, extractors=None):
     parent.append(sampler_hash_tree)
     return sampler_hash_tree
 
-# === Flow Control Action Sampler ===
-def create_flow_control_action(action_type="pause", testname="Flow Control Action"):
+# === Flow Control Action (Test Action) Sampler ===
+def create_flow_control_action(
+    action_type: str = "pause",
+    testname: str = "Think Time",
+    duration: str = "${thinkTime}",
+    target: int = 0
+):
     """
-    Creates a Flow Control Action sampler.
-    'action_type' can be "pause", "stop", or "interrupt".
-    Returns the FlowControlAction element.
+    Creates a Test Action (Flow Control Action) element for JMeter 5.x.
+    
+    This is commonly used to add "Think Time" between steps to simulate
+    realistic user behavior in end-to-end workflows.
+    
+    Args:
+        action_type: The action to perform. Options:
+            - "pause" (1): Pause for the specified duration
+            - "stop" (0): Stop the current thread
+            - "stop_now" (2): Stop the test now
+            - "restart_next_loop" (3): Go to next iteration of current loop
+        testname: Display name for the element (e.g., "Think Time")
+        duration: Duration value in milliseconds. Can be:
+            - A literal value like "5000"
+            - A JMeter variable reference like "${thinkTime}"
+        target: Target for the action (0 = current thread, 1 = all threads)
+    
+    Returns:
+        The TestAction XML element
+        
+    Example XML output:
+        <TestAction guiclass="TestActionGui" testclass="TestAction" testname="Think Time">
+            <intProp name="ActionProcessor.action">1</intProp>
+            <intProp name="ActionProcessor.target">0</intProp>
+            <stringProp name="ActionProcessor.duration">${thinkTime}</stringProp>
+        </TestAction>
     """
-    action = ET.Element("FlowControlAction", attrib={
-        "guiclass": "FlowControlActionGui",
-        "testclass": "FlowControlAction",
+    # Map action types to JMeter numeric values
+    action_map = {
+        "stop": 0,
+        "pause": 1,
+        "stop_now": 2,
+        "restart_next_loop": 3,
+    }
+    action_value = action_map.get(action_type.lower(), 1)  # Default to pause (1)
+    
+    # Create the TestAction element
+    test_action = ET.Element("TestAction", attrib={
+        "guiclass": "TestActionGui",
+        "testclass": "TestAction",
         "testname": testname
     })
-    ET.SubElement(action, "stringProp", attrib={"name": "FlowControlAction.action"}).text = action_type.lower()
-    return action
+    
+    # Add action property (intProp)
+    ET.SubElement(test_action, "intProp", attrib={"name": "ActionProcessor.action"}).text = str(action_value)
+    
+    # Add target property (intProp) - 0 = current thread
+    ET.SubElement(test_action, "intProp", attrib={"name": "ActionProcessor.target"}).text = str(target)
+    
+    # Add duration property (stringProp) - supports JMeter variables
+    ET.SubElement(test_action, "stringProp", attrib={"name": "ActionProcessor.duration"}).text = duration
+    
+    return test_action
 
