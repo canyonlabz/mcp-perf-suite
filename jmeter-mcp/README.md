@@ -356,6 +356,9 @@ jmeter-mcp/
 │       ├── config_elements.py    # User Defined Variables, CSV Data Sets, etc.
 │       ├── controllers.py        # JMeter Controllers (Simple, Transaction, etc.)
 │       ├── listeners.py          # JMeter Listeners (View Results Tree, Aggregate Report)
+│       ├── oauth2.py             # OAuth 2.0 components for token capture and generation (e.g. code_challenge, code_verifier, etc.)
+│       ├── post_processor.py     # Post-Processor elements (e.g. JSON Extractors, RegEx Extractors, etc.)
+│       ├── pre_processor.py      # Pre-Processor elements (e.g. JSR223 PreProcessor, etc.)
 │       ├── plan.py               # JMeter Test Plan and Thread Groups
 │       └── samplers.py           # JMeter Samplers (HTTP Request GET/POST/PUT/DELETE)
 ├── utils/
@@ -363,11 +366,9 @@ jmeter-mcp/
 │   ├── config.py                 # Loads configuration YAML files
 │   └── file_utils.py             # File handling utilities
 ├── config.example.yaml           # Example configuration template
-├── config.windows.yaml           # Windows-specific configuration example
-├── jmeter_config.yaml            # JMeter script generation settings
+├── jmeter_config.example.yaml    # Example JMeter script generation settings
 ├── pyproject.toml                # Project metadata and dependencies
 ├── uv.lock                       # uv dependency lock file
-├── test_correlation_analyzer.py  # Standalone smoke test for correlation analyzer
 ├── README.md                     # This file
 └── test-specs/
     ├── web-flows/
