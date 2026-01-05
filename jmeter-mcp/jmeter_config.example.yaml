@@ -36,6 +36,12 @@ http_sampler:
   auto_redirects: true
   post_body_raw: true
 
+sampler_naming:
+  enabled: true                          # Enable/disable sampler naming convention (TC##_S##_METHOD /path)
+  # When enabled with controllers: TC01_S01_GET /, TC01_S02_POST /api, TC02_S01_GET /page, etc.
+  # When enabled without controllers (flat mode): TC01_S01_GET /, TC01_S02_POST /api, etc.
+  # When disabled: GET /, POST /api (default JMeter naming)
+
 http2_headers:
   exclude_pseudo_headers: true          # Exclude HTTP/2 pseudo-headers (:method, :path, :scheme, :authority, :status) from Header Manager
 
@@ -46,22 +52,22 @@ test_action_config:
   test_action_name: "Think Time"        # Name of the test action for identification
 
 results_collector_config:
-  view_results_tree: false              # Enable/disable the View Results Tree listener
+  view_results_tree: true               # Enable/disable the View Results Tree listener
   view_results_tree_settings: 
     save_response_data: false           # Save response data in the View Results Tree
     save_request_headers: false         # Save request headers in the View Results Tree
     save_response_headers: false        # Save response headers in the View Results Tree
-  aggregate_report: false               # Enable/disable the Aggregate Report listener
+  aggregate_report: true                # Enable/disable the Aggregate Report listener
   aggregate_report_settings: 
     save_response_data: false           # Save response data in the Aggregate Report
     save_request_headers: false         # Save request headers in the Aggregate Report
     save_response_headers: false        # Save response headers in the Aggregate Report
-  response_time_graph: true             # Enable/disable the Response Time Graph listener
+  response_time_graph: false            # Enable/disable the Response Time Graph listener
   response_time_graph_settings: 
     save_response_data: false           # Save response data in the Response Time Graph
     save_request_headers: false         # Save request headers in the Response Time Graph
     save_response_headers: false        # Save response headers in the Response Time Graph
-  summary_report: true                  # Enable/disable the Summary Report listener
+  summary_report: false                 # Enable/disable the Summary Report listener
   summary_report_settings: 
     save_response_data: false           # Save response data in the Summary Report
     save_request_headers: false         # Save request headers in the Summary Report
