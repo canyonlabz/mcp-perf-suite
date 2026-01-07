@@ -1148,7 +1148,10 @@ def _create_environment_csv_data_set(
 
 def _substitute_hostname_in_entry(entry: Dict, hostname_var_map: Dict[str, str]) -> bool:
     """
-    Substitute the hostname in an entry's URL with the JMeter variable.
+    Substitute hostnames in an entry's URL with JMeter variables.
+    
+    Handles both the main URL hostname AND nested hostnames in query parameters
+    like 'goto=' which contain URL-encoded redirect chains (common in OAuth flows).
     
     Modifies the entry in place.
     
@@ -1157,31 +1160,60 @@ def _substitute_hostname_in_entry(entry: Dict, hostname_var_map: Dict[str, str])
         hostname_var_map: Mapping from hostname to variable name
         
     Returns:
-        True if substitution was made, False otherwise
+        True if any substitution was made, False otherwise
     """
     url = entry.get("url", "")
     if not url:
         return False
     
-    parsed = urllib.parse.urlparse(url)
-    hostname = parsed.netloc
+    original_url = url
+    new_url = url
     
-    if hostname not in hostname_var_map:
-        return False
+    # Process each hostname in the map
+    for hostname, var_name in hostname_var_map.items():
+        jmeter_var = f"${{{var_name}}}"
+        
+        # === Direct (non-encoded) patterns ===
+        # Main URL hostname: ://hostname/ or ://hostname?
+        new_url = new_url.replace(f"://{hostname}/", f"://{jmeter_var}/")
+        new_url = new_url.replace(f"://{hostname}?", f"://{jmeter_var}?")
+        new_url = new_url.replace(f"://{hostname}:", f"://{jmeter_var}:")  # hostname:port
+        new_url = new_url.replace(f"://{hostname}&", f"://{jmeter_var}&")  # hostname followed by &
+        
+        # Handle URLs that end with hostname (no trailing slash)
+        if new_url.endswith(f"://{hostname}"):
+            new_url = new_url[:-len(hostname)] + jmeter_var
+        
+        # === Nested URL-encoded patterns (for OAuth redirect chains) ===
+        # These patterns appear in query params like goto=, redirect_uri=, etc.
+        
+        # URL-encode the hostname for pattern matching
+        encoded_hostname = urllib.parse.quote(hostname, safe='')
+        
+        # Double-encoded patterns (URL within URL within URL)
+        # Pattern: %253A%252F%252Fhostname (://hostname double-encoded)
+        new_url = new_url.replace(f"%253A%252F%252F{hostname}", f"%253A%252F%252F{jmeter_var}")
+        new_url = new_url.replace(f"%252F%252F{hostname}", f"%252F%252F{jmeter_var}")
+        
+        # Single-encoded patterns (nested URL in query param)
+        # Pattern: %3A%2F%2Fhostname (://hostname single-encoded, hostname raw)
+        new_url = new_url.replace(f"%3A%2F%2F{hostname}", f"%3A%2F%2F{jmeter_var}")
+        
+        # Pattern: %3A%2F%2F{encoded_hostname} (both encoded)
+        if encoded_hostname != hostname:
+            new_url = new_url.replace(f"%3A%2F%2F{encoded_hostname}", f"%3A%2F%2F{jmeter_var}")
+        
+        # Pattern: %2F%2Fhostname (//hostname single-encoded)
+        new_url = new_url.replace(f"%2F%2F{hostname}", f"%2F%2F{jmeter_var}")
+        if encoded_hostname != hostname:
+            new_url = new_url.replace(f"%2F%2F{encoded_hostname}", f"%2F%2F{jmeter_var}")
+        
+        # Mixed encoding pattern (common in OAuth)
+        # Pattern: :%2F%2Fhostname (only // is encoded, : is raw)
+        # Example: https:%2F%2Flogin-stg.pwc.com:443
+        new_url = new_url.replace(f":%2F%2F{hostname}", f":%2F%2F{jmeter_var}")
     
-    var_name = hostname_var_map[hostname]
-    jmeter_var = f"${{{var_name}}}"
-    
-    # Replace hostname in URL
-    # Handle both with and without port
-    new_url = url.replace(f"://{hostname}/", f"://{jmeter_var}/")
-    new_url = new_url.replace(f"://{hostname}?", f"://{jmeter_var}?")
-    
-    # Handle URLs that end with hostname (no trailing slash)
-    if new_url == url and url.endswith(hostname):
-        new_url = url[:-len(hostname)] + jmeter_var
-    
-    if new_url != url:
+    if new_url != original_url:
         entry["url"] = new_url
         return True
     

@@ -106,6 +106,9 @@ def _substitute_hostname_in_header_value(header_name: str, header_value: str, ho
     """
     Substitute hostnames in header values with JMeter variables.
     
+    Handles multiple levels of URL encoding for OAuth redirect chains where
+    hostnames appear in nested query parameters like 'goto=' or 'redirect_uri='.
+    
     Args:
         header_name: The header name (lowercase)
         header_value: The original header value
@@ -113,6 +116,13 @@ def _substitute_hostname_in_header_value(header_name: str, header_value: str, ho
         
     Returns:
         The header value with hostnames replaced by JMeter variables
+        
+    Encoding patterns handled:
+        - Direct: ://hostname/
+        - Single-encoded: %3A%2F%2Fhostname (://hostname encoded)
+        - Mixed: :%2F%2Fhostname (only // encoded, common in OAuth redirects)
+        - Double-encoded: %253A%252F%252Fhostname (for URL-within-URL)
+        - With ports: hostname:443, hostname%3A443, hostname%253A443
     """
     if not hostname_var_map or not header_value:
         return header_value
@@ -133,13 +143,43 @@ def _substitute_hostname_in_header_value(header_name: str, header_value: str, ho
                 
         elif header_name in ("origin", "referer", ":path"):
             # These headers contain URLs or paths with hostnames
-            # Replace hostname in URL patterns: ://hostname/ or ://hostname? or ://hostname (end)
+            # Process from most-encoded to least-encoded to avoid partial replacements
+            
+            # URL-encode the hostname for pattern matching
+            encoded_hostname = urllib.parse.quote(hostname, safe='')
+            
+            # === Double-encoded patterns (URL within URL within URL) ===
+            # Pattern: %253A%252F%252Fhostname (://hostname double-encoded)
+            result = result.replace(f"%253A%252F%252F{hostname}", f"%253A%252F%252F{jmeter_var}")
+            # Pattern: %252F%252Fhostname (//hostname double-encoded)
+            result = result.replace(f"%252F%252F{hostname}", f"%252F%252F{jmeter_var}")
+            
+            # === Single-encoded patterns (nested URL in query param) ===
+            # Pattern: %3A%2F%2Fhostname (://hostname single-encoded, hostname raw)
+            # This is the most common pattern in OAuth redirect chains
+            result = result.replace(f"%3A%2F%2F{hostname}", f"%3A%2F%2F{jmeter_var}")
+            
+            # Pattern: %3A%2F%2F{encoded_hostname} (://hostname single-encoded, hostname also encoded)
+            if encoded_hostname != hostname:
+                result = result.replace(f"%3A%2F%2F{encoded_hostname}", f"%3A%2F%2F{jmeter_var}")
+            
+            # Pattern: %2F%2Fhostname (//hostname single-encoded, without colon)
+            result = result.replace(f"%2F%2F{hostname}", f"%2F%2F{jmeter_var}")
+            if encoded_hostname != hostname:
+                result = result.replace(f"%2F%2F{encoded_hostname}", f"%2F%2F{jmeter_var}")
+            
+            # === Mixed encoding pattern (common in OAuth) ===
+            # Pattern: :%2F%2Fhostname (only // is encoded, : is raw)
+            # Example: https:%2F%2Flogin-stg.pwc.com:443
+            result = result.replace(f":%2F%2F{hostname}", f":%2F%2F{jmeter_var}")
+            
+            # === Direct (non-encoded) patterns ===
+            # Pattern: ://hostname/ or ://hostname? or ://hostname: (with port)
             result = result.replace(f"://{hostname}/", f"://{jmeter_var}/")
             result = result.replace(f"://{hostname}?", f"://{jmeter_var}?")
             result = result.replace(f"://{hostname}:", f"://{jmeter_var}:")  # hostname:port
-            # Handle URL-encoded versions (e.g., %3A%2F%2Fhostname)
-            encoded_hostname = urllib.parse.quote(hostname, safe='')
-            result = result.replace(f"%3A%2F%2F{encoded_hostname}", f"%3A%2F%2F{jmeter_var}")
+            result = result.replace(f"://{hostname}&", f"://{jmeter_var}&")  # hostname followed by query param
+            
             # Handle end of string
             if result.endswith(f"://{hostname}"):
                 result = result[:-len(hostname)] + jmeter_var
