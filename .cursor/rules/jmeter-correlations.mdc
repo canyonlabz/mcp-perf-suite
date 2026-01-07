@@ -119,11 +119,53 @@ Return a JSON object with:
 
 ## Naming Conventions
 
+### CRITICAL: Variable Names Must Be Unique
+
+**Every `correlation_id` MUST have a unique `variable_name`.** Duplicate variable names will cause JMeter scripts to fail because different values will overwrite each other.
+
+#### Uniqueness Rules (MANDATORY)
+
+1. **Never assign the same variable name to multiple correlations.**
+2. **Before finalizing output, verify ALL variable names are unique.**
+3. **If two correlations seem similar, differentiate them using:**
+   - The `source.source_key` field name
+   - The `usages[*].location_key` parameter name
+   - A numeric suffix (`_1`, `_2`) as a last resort
+
+#### Common Duplicate Name Mistakes to AVOID
+
+| BAD (Duplicates) | GOOD (Unique) | Reason |
+|------------------|---------------|--------|
+| `oauth_state` for both `state` and `client_id` | `oauth_state`, `oauth_client_id` | Different OAuth parameters |
+| `oauth_state` for both `state` and `nonce` | `oauth_state`, `oauth_nonce` | Different OAuth parameters |
+| `redirect_uri` for all redirect URLs | `oauth_redirect_uri`, `app_redirect_uri` | Different redirect contexts |
+| `transaction_id` for multiple headers | `request_transaction_id`, `response_transaction_id` | Different source locations |
+
+#### OAuth Parameters - Use Specific Names
+
+OAuth flows have many parameters. Each MUST have a distinct variable name:
+
+| OAuth Parameter | Required Variable Name |
+|-----------------|----------------------|
+| `state` | `oauth_state` |
+| `nonce` | `oauth_nonce` |
+| `code` | `oauth_code` or `authorization_code` |
+| `client_id` | `oauth_client_id` |
+| `redirect_uri` | `oauth_redirect_uri` |
+| `code_challenge` | `oauth_code_challenge` |
+| `code_verifier` | `oauth_code_verifier` |
+| `response_mode` | `oauth_response_mode` |
+| `scope` | `oauth_scope` |
+| `access_token` | `bearer_token` or `access_token` |
+| `id_token` | `id_token` |
+| `refresh_token` | `refresh_token` |
+
 ### General Rules
 - Use `snake_case` for all variable names.
 - Do not embed literal values in variable names.
 - Prefer short, descriptive names that reflect the domain.
 - Use singular nouns for IDs (e.g., `product_id` not `products_id`).
+- **Each correlation_id gets exactly ONE unique variable_name.**
 
 ### By Correlation Type
 
@@ -188,6 +230,59 @@ For correlations where `correlation_found: false`:
 - Suggest `user_defined_variable` for IDs appearing 1-2 times
 - Provide a `csv_column_suggestion` that matches the variable name
 
+### CRITICAL: Orphan Variable Naming Rules
+
+**Orphan variable names MUST NOT be:**
+- Empty/blank (NEVER leave `variable_name` empty)
+- Just a number suffix like `_22`, `_23`
+- Generic names like `value` or `value_19`
+
+**Naming Strategy for Orphans:**
+
+1. **If `source_key` exists and is meaningful** → Use it directly
+   - `source_key: "pageSize"` → `page_size`
+   - `source_key: "appGuid"` → `app_guid`
+   - `source_key: "teamId"` → `team_id`
+
+2. **If `source_key` is `"_"` (underscore)** → This is a cache-busting timestamp
+   - Common in SignalR, jQuery AJAX calls
+   - Name as `signalr_timestamp_N` or `cache_timestamp_N` where N is the step number
+   - Example: Step 8 with `source_key: "_"` → `signalr_timestamp_8`
+
+3. **If `source_key` is null and `source_location` is `"request_url_path"`**
+   - Examine the `request_url` to infer context
+   - `/ProductWidget/1` → `widget_id` or `product_widget_id`
+   - `/api/users/123` → `user_id`
+   - `/reports/456` → `report_id`
+
+4. **If `source_key` is null and no context is available**
+   - Use `orphan_<step_number>_<entry_index>` format
+   - Example: Step 5, entry 37 → `orphan_step5_entry37`
+   - This is better than `value_19` because it provides traceability
+
+### SignalR/WebSocket Specific Patterns
+
+| Pattern in URL | source_key | Variable Name |
+|----------------|------------|---------------|
+| `/signalr/negotiate?...&_=timestamp` | `_` | `signalr_timestamp_N` |
+| `/signalr/start?...&_=timestamp` | `_` | `signalr_start_timestamp_N` |
+| `/signalr/connect?...&connectionToken=` | `connectionToken` | `signalr_connection_token` |
+| `/signalr/...&connectionData=` | `connectionData` | `signalr_connection_data` |
+
+### URL Path Segment Naming
+
+When `source_location: "request_url_path"` and `source_key: null`:
+
+| URL Pattern | Example Value | Variable Name |
+|-------------|---------------|---------------|
+| `/api/.../Widget/N` | `1`, `2` | `widget_id` |
+| `/api/.../User/N` | `12345` | `user_id` |
+| `/api/.../Product/N` | `1119216` | `product_id` |
+| `/api/.../Report/N` | `456` | `report_id` |
+| Path segment is GUID | `326BABA4-...` | `path_guid` |
+
+**Rule: Extract the noun from the URL path preceding the value.**
+
 ## Instructions
 
 1. Read the entire `correlation_spec.json` file.
@@ -195,6 +290,7 @@ For correlations where `correlation_found: false`:
 2. For each correlation with `correlation_found: true`:
    - Infer the resource/purpose from source_key, source_json_path, URLs, and step labels
    - Generate a descriptive `variable_name` following naming conventions
+   - **IMPORTANT:** Check that this variable_name is not already used by another correlation
    - Set `jmeter_scope` to `"thread"` (default)
    - Set `jmeter_extractor_type` based on `source_location`
    - Generate `jmeter_extractor_expression` (JSONPath or regex)
@@ -206,8 +302,21 @@ For correlations where `correlation_found: false`:
    - Place in `orphan_variables` array
    - Suggest parameterization strategy based on `parameterization_hint`
    - Provide `csv_column_suggestion`
+   - **IMPORTANT:** Ensure orphan variable names are also unique
 
-4. Return only valid JSON matching the output schema, with no additional text.
+4. **VALIDATE UNIQUENESS (MANDATORY STEP):**
+   - Before returning output, collect ALL variable_name values from both `variables` and `orphan_variables`
+   - Verify there are NO duplicates
+   - If duplicates exist, rename using more specific context (source_key, location_key, step_number suffix)
+   - Example: If two correlations both want `transaction_id`, rename to `request_transaction_id` and `response_transaction_id`
+
+5. **VALIDATE VARIABLE NAMES (MANDATORY STEP):**
+   - Check that NO variable_name is empty (`""`)
+   - Check that NO variable_name is just a number suffix (`_22`, `_23`)
+   - Check that NO variable_name is overly generic (`value`, `value_19`, `id`)
+   - If any fail validation, re-derive the name using orphan naming rules above
+
+6. Return only valid JSON matching the output schema, with no additional text.
 
 ## Example Transformation
 
@@ -251,5 +360,56 @@ For correlations where `correlation_found: false`:
     "URL path parameter in product details API calls"
   ],
   "comments": "Product ID extracted from catalog list response, used in product detail endpoints."
+}
+```
+
+## BAD Example - Duplicate Variable Names (DO NOT DO THIS)
+
+The following shows INCORRECT output where multiple correlations have the same variable name.
+This WILL BREAK the JMeter script because values will overwrite each other.
+
+**BAD Output (WRONG - duplicates cause script failure):**
+```json
+{
+  "variables": [
+    {
+      "correlation_id": "corr_1",
+      "variable_name": "oauth_state",  // WRONG: Used for client_id
+      "source_key": "client_id"
+    },
+    {
+      "correlation_id": "corr_2", 
+      "variable_name": "oauth_state",  // WRONG: Duplicate! Used for state
+      "source_key": "state"
+    },
+    {
+      "correlation_id": "corr_3",
+      "variable_name": "oauth_state",  // WRONG: Duplicate! Used for nonce
+      "source_key": "nonce"
+    }
+  ]
+}
+```
+
+**CORRECT Output (each correlation has unique variable name):**
+```json
+{
+  "variables": [
+    {
+      "correlation_id": "corr_1",
+      "variable_name": "oauth_client_id",  // CORRECT: Unique name from source_key
+      "source_key": "client_id"
+    },
+    {
+      "correlation_id": "corr_2",
+      "variable_name": "oauth_state",  // CORRECT: Unique name
+      "source_key": "state"
+    },
+    {
+      "correlation_id": "corr_3",
+      "variable_name": "oauth_nonce",  // CORRECT: Unique name from source_key
+      "source_key": "nonce"
+    }
+  ]
 }
 ```
