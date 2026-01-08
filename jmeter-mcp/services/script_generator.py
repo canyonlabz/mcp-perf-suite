@@ -1210,8 +1210,18 @@ def _substitute_hostname_in_entry(entry: Dict, hostname_var_map: Dict[str, str])
         
         # Mixed encoding pattern (common in OAuth)
         # Pattern: :%2F%2Fhostname (only // is encoded, : is raw)
-        # Example: https:%2F%2Flogin-stg.pwc.com:443
+        # Example: https:%2F%2Flogin.example.com:443
         new_url = new_url.replace(f":%2F%2F{hostname}", f":%2F%2F{jmeter_var}")
+    
+    # === OAuth token substitution ===
+    # Substitute cdssotoken in URLs (regardless of hostname map)
+    # Pattern: cdssotoken=VALUE (value ends at & or end of string)
+    import re
+    new_url = re.sub(
+        r'cdssotoken=([^&\s]+)',
+        r'cdssotoken=${cdssotoken}',
+        new_url
+    )
     
     if new_url != original_url:
         entry["url"] = new_url

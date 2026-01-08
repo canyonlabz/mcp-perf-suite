@@ -78,7 +78,7 @@ def create_csv_data_set_config(csv_config):
 # === HTTP Header Manager Element ===
 # Headers to exclude from HTTP Header Manager (handled by other JMeter components)
 EXCLUDED_HEADERS = {
-    "cookie",      # Handled by HTTP Cookie Manager
+    "cookie",          # Handled by HTTP Cookie Manager
     "content-length",  # Automatically calculated by JMeter
 }
 
@@ -95,11 +95,22 @@ HTTP2_PSEUDO_HEADERS = {
 # Headers that should have hostname parameterization applied
 # These headers contain hostnames that should be replaced with JMeter variables
 HOSTNAME_HEADERS = {
-    "host",        # e.g., west-uat-restore.pwchalo.com
-    "origin",      # e.g., https://login-stg.pwc.com
-    "referer",     # e.g., https://login-stg.pwc.com/login/?goto=...
+    "host",        # e.g., app.example.com
+    "origin",      # e.g., https://login.example.com
+    "referer",     # e.g., https://login.example.com/login/?goto=...
     ":authority",  # HTTP/2 equivalent of Host header
     ":path",       # HTTP/2 path (may contain hostname in query params)
+}
+
+# OAuth token headers that need special substitution (standard OAuth headers only)
+# Note: Company-specific headers should be configured via oauth_config in jmeter_config.yaml
+OAUTH_TOKEN_HEADERS = {
+    "authorization",  # Bearer token: Authorization: Bearer eyJ0eXA...
+}
+
+# Default variable names for OAuth token headers
+OAUTH_TOKEN_VAR_DEFAULTS = {
+    "authorization": "bearer_token",
 }
 
 def _substitute_hostname_in_header_value(header_name: str, header_value: str, hostname_var_map: dict) -> str:
@@ -170,7 +181,7 @@ def _substitute_hostname_in_header_value(header_name: str, header_value: str, ho
             
             # === Mixed encoding pattern (common in OAuth) ===
             # Pattern: :%2F%2Fhostname (only // is encoded, : is raw)
-            # Example: https:%2F%2Flogin-stg.pwc.com:443
+            # Example: https:%2F%2Flogin.example.com:443
             result = result.replace(f":%2F%2F{hostname}", f":%2F%2F{jmeter_var}")
             
             # === Direct (non-encoded) patterns ===
@@ -186,11 +197,95 @@ def _substitute_hostname_in_header_value(header_name: str, header_value: str, ho
     
     return result
 
-def create_header_manager(headers, hostname_var_map=None, exclude_http2_pseudo_headers=True):
+
+def _substitute_oauth_token_in_header_value(
+    header_name: str, 
+    header_value: str,
+    oauth_token_var_map: dict = None
+) -> str:
+    """
+    Substitute OAuth tokens in specific header values with JMeter variables.
+    
+    Handles standard OAuth headers:
+    - Authorization: Bearer eyJ0eXA... -> Authorization: Bearer ${bearer_token}
+    
+    Custom SSO headers (like nonce headers) should be handled via correlation
+    configuration, not hardcoded here.
+    
+    Args:
+        header_name: The header name (lowercase)
+        header_value: The original header value
+        oauth_token_var_map: Optional custom mapping of header -> variable name
+        
+    Returns:
+        The header value with tokens replaced by JMeter variables
+    """
+    if not header_value:
+        return header_value
+    
+    header_lower = header_name.lower()
+    
+    # Merge default mapping with custom mapping
+    var_map = OAUTH_TOKEN_VAR_DEFAULTS.copy()
+    if oauth_token_var_map:
+        var_map.update(oauth_token_var_map)
+    
+    # Handle Authorization header (standard OAuth)
+    if header_lower == "authorization":
+        # Pattern: Bearer <token>
+        if header_value.lower().startswith("bearer "):
+            var_name = var_map.get("authorization", "bearer_token")
+            return f"Bearer ${{{var_name}}}"
+        # Pattern: Basic <credentials> - usually not dynamic, but handle if needed
+        elif header_value.lower().startswith("basic "):
+            # Don't substitute Basic auth - typically from CSV data
+            return header_value
+    
+    # Handle custom token headers via oauth_token_var_map
+    # This allows users to configure company-specific headers in config
+    elif header_lower in var_map:
+        var_name = var_map[header_lower]
+        return f"${{{var_name}}}"
+    
+    return header_value
+
+
+def _substitute_oauth_token_in_url(url: str) -> str:
+    """
+    Substitute OAuth tokens in URL query parameters with JMeter variables.
+    
+    Handles:
+    - ?cdssotoken=Lcdf6RsVK8B... -> ?cdssotoken=${cdssotoken}
+    
+    Args:
+        url: The URL string to process
+        
+    Returns:
+        The URL with OAuth tokens replaced by JMeter variables
+    """
+    import re
+    
+    if not url:
+        return url
+    
+    result = url
+    
+    # Pattern: cdssotoken=VALUE (where VALUE ends at & or end of string)
+    # Handle both encoded and non-encoded values
+    result = re.sub(
+        r'cdssotoken=([^&\s]+)',
+        r'cdssotoken=${cdssotoken}',
+        result
+    )
+    
+    return result
+
+
+def create_header_manager(headers, hostname_var_map=None, exclude_http2_pseudo_headers=True, oauth_token_var_map=None):
     """
     Creates a Header Manager element with the provided headers.
     Excludes headers that are handled by other JMeter components (e.g., 'cookie' is handled by Cookie Manager).
-    Optionally parameterizes hostname-related headers (host, origin, referer, :authority, :path).
+    Optionally parameterizes hostname-related headers and OAuth token headers.
     
     Args:
         headers: Dictionary of header name -> value pairs
@@ -198,6 +293,8 @@ def create_header_manager(headers, hostname_var_map=None, exclude_http2_pseudo_h
         exclude_http2_pseudo_headers: If True, exclude HTTP/2 pseudo-headers (:method, :path, :scheme, :authority, :status).
                                       JMeter uses HTTP/1.1 by default, and these headers cause errors on non-HTTP/2 backends.
                                       Default is True for compatibility with public websites.
+        oauth_token_var_map: Optional mapping from OAuth header name to JMeter variable name.
+                            Default mappings: authorization -> bearer_token, x-cdsso-nonce -> cdsso_nonce
         
     Returns:
         The HeaderManager XML element.
@@ -219,10 +316,15 @@ def create_header_manager(headers, hostname_var_map=None, exclude_http2_pseudo_h
         if name.lower() in headers_to_exclude:
             continue
         
-        # Apply hostname parameterization for relevant headers (only if not excluded)
         final_value = value
+        
+        # Apply hostname parameterization for relevant headers
         if hostname_var_map and name.lower() in HOSTNAME_HEADERS:
-            final_value = _substitute_hostname_in_header_value(name.lower(), value, hostname_var_map)
+            final_value = _substitute_hostname_in_header_value(name.lower(), final_value, hostname_var_map)
+        
+        # Apply OAuth token substitution for relevant headers
+        if name.lower() in OAUTH_TOKEN_HEADERS:
+            final_value = _substitute_oauth_token_in_header_value(name.lower(), final_value, oauth_token_var_map)
             
         header_element = ET.SubElement(collection, "elementProp", attrib={
             "name": "",

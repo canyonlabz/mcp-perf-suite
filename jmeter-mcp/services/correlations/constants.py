@@ -81,3 +81,27 @@ OAUTH_PARAMS: Set[str] = {
     "code_challenge", "code_verifier", "redirect_uri", "client_id",
 }
 
+# OAuth token field names in JSON responses (for extraction)
+# These are extracted from authentication endpoint responses
+OAUTH_TOKEN_FIELDS: Set[str] = {
+    "cdssotoken", "cdssoToken",  # Cross-domain SSO token (generic)
+    "ssotoken", "ssoToken",      # Generic SSO token
+    "tokenid", "tokenId",        # ForgeRock/OpenAM token ID
+    "access_token", "accessToken",
+    "id_token", "idToken",
+    "refresh_token", "refreshToken",
+}
+
+# Generic nonce cookie detection patterns (case-insensitive substrings)
+# Used to detect nonce values in Set-Cookie headers for OAuth/SSO flows
+# These are generic patterns, not company-specific
+NONCE_COOKIE_KEYWORDS: tuple = (
+    "nonce",      # Generic nonce cookie
+    "csrftoken",  # CSRF tokens that may be used as nonce
+)
+
+# OAuth token query parameters to parameterize in URLs
+# These tokens appear in URLs and need to be substituted with JMeter variables
+OAUTH_TOKEN_URL_PARAMS: Set[str] = {
+    "cdssotoken",
+}

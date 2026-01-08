@@ -116,6 +116,44 @@ extractor_placement:
     - "oauth_redirect_uri"
     - "oauth_response_mode"
     - "oauth_code"
+    - "access_token"
+    - "bearer_token"
+    - "id_token"
+    # Add custom SSO tokens here if needed:
+    # - "cdssotoken"
+    # - "sso_nonce"
+
+# OAuth/SSO token configuration
+oauth_config:
+  enabled: true
+  
+  # OAuth token headers to parameterize
+  # Maps header name (lowercase) to JMeter variable name
+  token_headers:
+    authorization: "bearer_token"     # Authorization: Bearer ${bearer_token}
+    # Add custom SSO nonce headers here if needed:
+    # x-sso-nonce: "sso_nonce"
+  
+  # OAuth token URL parameters to parameterize
+  # These tokens in URLs will be replaced with ${variable_name}
+  token_url_params:
+    cdssotoken: "cdssotoken"          # ?cdssotoken=... -> ?cdssotoken=${cdssotoken}
+    # Add other SSO tokens here if needed:
+    # ssotoken: "ssotoken"
+  
+  # Generic nonce cookie keywords (case-insensitive)
+  # Cookies containing these keywords will be extracted as nonce values
+  nonce_cookie_keywords:
+    - "nonce"
+    - "csrftoken"
+  
+  # JSON response fields containing OAuth tokens
+  # Maps field name (case-insensitive) to JMeter variable name
+  token_json_fields:
+    cdssoToken: "cdssotoken"
+    tokenId: "token_id"
+    access_token: "access_token"
+    id_token: "bearer_token"
 
 # Future extensions can include more settings such as:
 # advanced_options:
