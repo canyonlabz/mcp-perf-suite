@@ -195,6 +195,16 @@ def _substitute_hostname_in_header_value(header_name: str, header_value: str, ho
             if result.endswith(f"://{hostname}"):
                 result = result[:-len(hostname)] + jmeter_var
     
+    # === OAuth token substitution in header values ===
+    # Substitute cdssotoken in referer/origin headers (same as URL substitution)
+    if header_name in ("referer", "origin", ":path"):
+        import re
+        result = re.sub(
+            r'cdssotoken=([^&\s]+)',
+            r'cdssotoken=${cdssotoken}',
+            result
+        )
+    
     return result
 
 
