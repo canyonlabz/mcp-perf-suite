@@ -68,11 +68,57 @@ network_capture:
     # Advertising / Pixels
     - doubleclick.net
     - googlesyndication.com
+    - googletagservices.com
+    - adtrafficquality.google
     - facebook.net
     - connect.facebook.com
     - ads.linkedin.com
     - ads.twitter.com
     - bing.com/bat
+    
+    # Advertising / Ad Networks (Amazon-specific)
+    - amazon-adsystem.com
+    - amazon.partners.tremorhub.com
+    
+    # Third-Party Ad Networks / Exchanges
+    - ib.adnxs.com
+    - smartadserver.com
+    - 360yield.com
+    - casalemedia.com
+    - pbs.yahoo.com
+    - pixel.rubiconproject.com
+    - odr.mookie1.com
+    - bs.serving-sys.com
+    - c1.adform.net
+    - cookie-matching.mediarithmics.com
+    - csync.loopme.me
+    - ssum-sec.casalemedia.com
+    - image2.pubmatic.com
+    - crb.kargo.com
+    - lciapi.ninthdecimal.com
+    - loadus.exelator.com
+    - us-u.openx.net
+    - ads.yieldmo.com
+    - sync.taboola.com
+    - ih.adscale.de
+    - x.bidswitch.net
+    - dmxleo.com
+    - s0.2mdn.net
+    
+    # Content / Media Platforms
+    - capi.connatix.com
+    - geo.ads.audio.thisisdax.com
+    - www.imdb.com
+    - ads.samba.tv
+    
+    # Data / Identity Management
+    - dpm.demdex.net
+    
+    # Security / Tokens
+    - token.awswaf.com
+    
+    # Social Media
+    - www.facebook.com
     
     # Error Tracking
     - sentry.io
