@@ -1,4 +1,5 @@
 # Confluence API client
+import re
 from fastmcp import FastMCP, Context
 from services.confluence_api_v1 import (
     list_spaces_v1, 
@@ -24,6 +25,69 @@ from services.artifact_manager import list_available_reports, list_available_cha
 from services.content_parser import markdown_to_confluence_xhtml
 
 mcp = FastMCP(name="confluence")
+
+# -----------------------------
+# Validation Helper Functions
+# -----------------------------
+
+# Maximum title length for Confluence pages
+MAX_TITLE_LENGTH = 255
+
+# Allowed characters pattern for page titles:
+# - Alphanumeric (a-z, A-Z, 0-9)
+# - Whitespace
+# - Underscores, dashes
+# - Parentheses, square brackets
+# - Commas, periods, colons, semi-colons
+# - Hash (#), forward slash (/), percent (%), ampersand (&), apostrophe (')
+ALLOWED_TITLE_PATTERN = re.compile(r"^[a-zA-Z0-9\s_\-\(\)\[\],.:;#/%&']+$")
+
+def validate_page_title(title: str) -> dict:
+    """
+    Validates a Confluence page title for acceptable characters and length.
+    
+    Args:
+        title (str): The title to validate.
+    
+    Returns:
+        dict: Validation result with:
+            - 'valid': True if title passes validation, False otherwise
+            - 'error': Error message if validation failed, None otherwise
+    """
+    if not title or not title.strip():
+        return {"valid": False, "error": "Title cannot be empty or whitespace only."}
+    
+    title = title.strip()
+    
+    # Check length
+    if len(title) > MAX_TITLE_LENGTH:
+        return {
+            "valid": False,
+            "error": f"Title exceeds maximum length of {MAX_TITLE_LENGTH} characters. "
+                     f"Provided title is {len(title)} characters."
+        }
+    
+    # Check for allowed characters
+    if not ALLOWED_TITLE_PATTERN.match(title):
+        # Find the invalid characters to provide helpful feedback
+        invalid_chars = set()
+        for char in title:
+            if not re.match(r"[a-zA-Z0-9\s_\-\(\)\[\],.:;#/%&']", char):
+                invalid_chars.add(repr(char))
+        
+        return {
+            "valid": False,
+            "error": f"Title contains invalid characters: {', '.join(sorted(invalid_chars))}. "
+                     f"Allowed characters are: alphanumeric, whitespace, underscores, dashes, "
+                     f"parentheses (), square brackets [], commas, periods, colons, semi-colons, "
+                     f"hash (#), forward slash (/), percent (%), ampersand (&), and apostrophe (')."
+        }
+    
+    return {"valid": True, "error": None}
+
+# -----------------------------
+# MCP Tool Definitions
+# -----------------------------
 
 @mcp.tool
 async def list_spaces(mode: str, ctx: Context) -> list:
@@ -149,7 +213,7 @@ async def get_page_content(page_ref: str, mode: str, ctx: Context) -> dict:
         return await get_page_content_v1(page_ref, ctx)
 
 @mcp.tool
-async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str, ctx: Context, parent_id: str) -> dict:
+async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str, ctx: Context, parent_id: str, title: str = None) -> dict:
     """
     Creates a new Confluence page by importing a Markdown performance report.
     
@@ -160,14 +224,55 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
         mode (str): "cloud" or "onprem".
         ctx (Context): FastMCP context for error/status reporting.
         parent_id (str): Parent page ID to nest the new page under.
+        title (str, optional): Custom page title. If not provided, title is extracted from 
+            the markdown H1 heading, or falls back to the filename. Allowed characters:
+            alphanumeric, whitespace, underscores, dashes, parentheses, square brackets,
+            commas, periods, colons, semi-colons, hash, forward slash, percent, ampersand,
+            and apostrophe. Maximum length: 255 characters.
     
     Returns:
         dict with:
             - 'page_ref': Created page reference/ID.
             - 'url': New page URL.
-            - 'title': Extracted title from markdown.
+            - 'title': The title used for the page (user-provided or auto-extracted).
+            - 'title_source': Indicates where the title came from ("user_provided", "markdown_h1", or "filename").
             - 'status': Result status ("created" or "error").
     """
+    from pathlib import Path
+    
+    title_source = None
+    
+    # Determine title: user-provided or fallback to extraction
+    if title and title.strip():
+        # User provided a custom title - validate it
+        validation = validate_page_title(title)
+        if not validation["valid"]:
+            await ctx.error(f"Title validation failed: {validation['error']}")
+            return {
+                "error": validation["error"],
+                "status": "error",
+                "title_provided": title
+            }
+        title = title.strip()
+        title_source = "user_provided"
+        await ctx.info(f"Using user-provided title: '{title}'")
+    else:
+        # Fall back to extracting title from markdown or filename
+        try:
+            with open(filename, 'r', encoding='utf-8') as f:
+                first_line = f.readline().strip()
+                if first_line.startswith('#'):
+                    title = first_line.lstrip('#').strip()
+                    title_source = "markdown_h1"
+                else:
+                    title = Path(filename).stem
+                    title_source = "filename"
+        except Exception:
+            title = Path(filename).stem
+            title_source = "filename"
+        
+        await ctx.info(f"Using auto-extracted title from {title_source}: '{title}'")
+    
     # Convert markdown to Confluence XHTML
     xhtml_result = await markdown_to_confluence_xhtml(test_run_id, filename, ctx)
     
@@ -177,20 +282,17 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
     
     storage_xhtml = xhtml_result
     
-    # Extract title from markdown file
-    try:
-        from pathlib import Path
-        with open(filename, 'r', encoding='utf-8') as f:
-            first_line = f.readline().strip()
-            title = first_line.lstrip('#').strip() if first_line.startswith('#') else Path(filename).stem
-    except Exception:
-        title = Path(filename).stem
-    
     # Create page using appropriate API
     if mode == "cloud":
-        return await create_page_v2(space_ref, title, storage_xhtml, ctx, parent_id)
+        result = await create_page_v2(space_ref, title, storage_xhtml, ctx, parent_id)
     else:
-        return await create_page_v1(space_ref, title, storage_xhtml, ctx, parent_id)
+        result = await create_page_v1(space_ref, title, storage_xhtml, ctx, parent_id)
+    
+    # Add title_source to the result for transparency
+    if result.get("status") == "created":
+        result["title_source"] = title_source
+    
+    return result
 
 @mcp.tool
 async def attach_file(page_ref: str, filename: str, mode: str, ctx: Context) -> dict:
