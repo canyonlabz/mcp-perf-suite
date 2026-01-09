@@ -85,6 +85,12 @@
 
 [CHART_PLACEHOLDER: CPU Utilization Over Time]
 
+#### 4.2.1 CPU Core Usage by Service
+
+{{CPU_CORE_TABLE}}
+
+> **Note:** Peak and Average values show actual CPU cores consumed. mCPU = millicores (1 core = 1000 mCPU).
+
 ### 4.3 Memory Utilization
 
 | Metric | Value |
@@ -94,6 +100,12 @@
 | Memory Allocated | {{MEMORY_ALLOCATED}} GB |
 
 [CHART_PLACEHOLDER: Memory Utilization Over Time]
+
+#### 4.3.1 Memory Usage by Service
+
+{{MEMORY_USAGE_TABLE}}
+
+> **Note:** Peak and Average values show actual memory consumed. MB = Megabytes (1 GB = 1024 MB).
 
 ---
 

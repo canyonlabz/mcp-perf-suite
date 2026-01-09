@@ -224,8 +224,17 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
                     "entity_name": entity_name,
                     "cpu_peak_pct": cpu_analysis.get("peak_utilization_pct", 0),
                     "cpu_avg_pct": cpu_analysis.get("avg_utilization_pct", 0),
+                    # CPU core usage values (actual cores consumed)
+                    "cpu_peak_cores": cpu_analysis.get("peak_usage_cores", 0),
+                    "cpu_avg_cores": cpu_analysis.get("avg_usage_cores", 0),
+                    "cpu_allocated_cores": cpu_analysis.get("allocated_cores", 0),
                     "memory_peak_pct": mem_analysis.get("peak_utilization_pct", 0),
                     "memory_avg_pct": mem_analysis.get("avg_utilization_pct", 0),
+                    # Memory usage values (actual GB consumed)
+                    "memory_peak_gb": mem_analysis.get("peak_usage_gb", 0),
+                    "memory_avg_gb": mem_analysis.get("avg_usage_gb", 0),
+                    "memory_allocated_gb": mem_analysis.get("allocated_gb", 0),
+                    # Keep for backwards compatibility
                     "cpu_cores": res_alloc.get("cpus", 0),
                     "memory_gb": res_alloc.get("memory_gb", 0)
                 })
@@ -316,6 +325,9 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
                 "summary": {
                     "cpu_peak_pct": _safe_float(context.get("PEAK_CPU_USAGE")),
                     "cpu_avg_pct": _safe_float(context.get("AVG_CPU_USAGE")),
+                    # CPU core usage summary (max across all services)
+                    "cpu_peak_cores": _safe_float(context.get("PEAK_CPU_CORES")),
+                    "cpu_avg_cores": _safe_float(context.get("AVG_CPU_CORES")),
                     "memory_peak_pct": _safe_float(context.get("PEAK_MEMORY_USAGE")),
                     "memory_avg_pct": _safe_float(context.get("AVG_MEMORY_USAGE")),
                     "cpu_cores_allocated": _safe_float(context.get("CPU_CORES_ALLOCATED")),
@@ -428,7 +440,7 @@ def _build_report_context(
         env_str = ", ".join(unique_envs) if unique_envs else "Unknown"
         
         # Find peak CPU/Memory from detailed metrics
-        cpu_peak, cpu_avg, mem_peak, mem_avg, cpu_cores, mem_gb = _extract_infra_peaks(environment_type, infra_data)
+        cpu_peak, cpu_avg, mem_peak, mem_avg, cpu_cores, mem_gb, cpu_peak_cores, cpu_avg_cores = _extract_infra_peaks(environment_type, infra_data)
 
         context.update({
             "ENVIRONMENT": env_str,
@@ -438,15 +450,24 @@ def _build_report_context(
             "PEAK_MEMORY_USAGE": f"{mem_peak:.2f}",
             "AVG_MEMORY_USAGE": f"{mem_avg:.2f}",
             "MEMORY_ALLOCATED": f"{mem_gb:.2f}",
-            "INFRASTRUCTURE_SUMMARY": infra_md or "No infrastructure summary available"
+            "INFRASTRUCTURE_SUMMARY": infra_md or "No infrastructure summary available",
+            # CPU core usage summary (max across all services)
+            "PEAK_CPU_CORES": f"{cpu_peak_cores:.6f}",
+            "AVG_CPU_CORES": f"{cpu_avg_cores:.6f}",
+            # Per-service tables for CPU and memory usage
+            "CPU_CORE_TABLE": _build_cpu_core_table(infra_data, environment_type),
+            "MEMORY_USAGE_TABLE": _build_memory_usage_table(infra_data, environment_type)
         })
 
     else:
         _set_na_values(context, [
             "PEAK_CPU_USAGE", "AVG_CPU_USAGE", "CPU_CORES_ALLOCATED",
-            "PEAK_MEMORY_USAGE", "AVG_MEMORY_USAGE", "MEMORY_ALLOCATED"
+            "PEAK_MEMORY_USAGE", "AVG_MEMORY_USAGE", "MEMORY_ALLOCATED",
+            "PEAK_CPU_CORES", "AVG_CPU_CORES"
         ])
         context["INFRASTRUCTURE_SUMMARY"] = "No infrastructure data available"
+        context["CPU_CORE_TABLE"] = "No CPU core data available."
+        context["MEMORY_USAGE_TABLE"] = "No memory usage data available."
     
     # Extract correlation data
     if corr_data:
@@ -526,6 +547,158 @@ def _build_sla_summary(sla_analysis: Dict) -> str:
     compliance_rate = sla_analysis.get("compliance_rate", 0)
     
     return f"**SLA Compliance:** {compliant}/{total} APIs met SLA ({compliance_rate:.1f}%)"
+
+
+def _build_cpu_core_table(infra_data: Optional[Dict], environment_type: str) -> str:
+    """
+    Build Markdown table for per-service CPU core usage (K8s environments).
+    
+    Args:
+        infra_data: Infrastructure analysis data
+        environment_type: 'host' or 'kubernetes'
+    
+    Returns:
+        Markdown table string with CPU core metrics per service
+    """
+    # TODO: Add host-based CPU core table support when host infrastructure_analysis.json is available
+    if not infra_data or environment_type != "kubernetes":
+        return "Host CPU Core Data Pending."
+    
+    detailed = infra_data.get("detailed_metrics", {})
+    k8s_data = detailed.get("kubernetes", {})
+    services = k8s_data.get("services", {})
+    
+    if not services:
+        return "No Kubernetes services found."
+    
+    # Build table header
+    lines = [
+        "| Service Name | Peak (Cores) | Peak (mCPU) | Avg (Cores) | Avg (mCPU) | Allocated (Cores) |",
+        "|--------------|--------------|-------------|-------------|------------|-------------------|"
+    ]
+    
+    # Sort services alphabetically
+    sorted_services = sorted(services.items(), key=lambda x: x[0])
+    
+    for service_name, service_data in sorted_services:
+        cpu_analysis = service_data.get("cpu_analysis", {})
+        
+        if not cpu_analysis:
+            # Handle missing cpu_analysis gracefully
+            lines.append(f"| {service_name} | N/A | N/A | N/A | N/A | N/A |")
+            continue
+        
+        peak_cores = cpu_analysis.get("peak_usage_cores")
+        avg_cores = cpu_analysis.get("avg_usage_cores")
+        allocated_cores = cpu_analysis.get("allocated_cores")
+        
+        # Format values, using N/A for missing data
+        if peak_cores is not None:
+            peak_cores_str = f"{peak_cores:.4f}"
+            peak_mcpu_str = f"{peak_cores * 1000:.2f}"
+        else:
+            peak_cores_str = "N/A"
+            peak_mcpu_str = "N/A"
+        
+        if avg_cores is not None:
+            avg_cores_str = f"{avg_cores:.4f}"
+            avg_mcpu_str = f"{avg_cores * 1000:.2f}"
+        else:
+            avg_cores_str = "N/A"
+            avg_mcpu_str = "N/A"
+        
+        allocated_str = f"{allocated_cores:.2f}" if allocated_cores is not None else "N/A"
+        
+        # TODO: Consider stripping environment prefix (e.g., "Perf::") and trailing "*" from service names
+        display_name = service_name
+        
+        line = (
+            f"| {display_name} | "
+            f"{peak_cores_str} | "
+            f"{peak_mcpu_str} | "
+            f"{avg_cores_str} | "
+            f"{avg_mcpu_str} | "
+            f"{allocated_str} |"
+        )
+        lines.append(line)
+    
+    return "\n".join(lines)
+
+
+def _build_memory_usage_table(infra_data: Optional[Dict], environment_type: str) -> str:
+    """
+    Build Markdown table for per-service memory usage (K8s environments).
+    
+    Args:
+        infra_data: Infrastructure analysis data
+        environment_type: 'host' or 'kubernetes'
+    
+    Returns:
+        Markdown table string with memory usage metrics per service
+    """
+    # TODO: Add host-based memory usage table support when host infrastructure_analysis.json is available
+    if not infra_data or environment_type != "kubernetes":
+        return "Host Memory Usage Data Pending."
+    
+    detailed = infra_data.get("detailed_metrics", {})
+    k8s_data = detailed.get("kubernetes", {})
+    services = k8s_data.get("services", {})
+    
+    if not services:
+        return "No Kubernetes services found."
+    
+    # Build table header
+    lines = [
+        "| Service Name | Peak (GB) | Peak (MB) | Avg (GB) | Avg (MB) | Allocated (GB) |",
+        "|--------------|-----------|-----------|----------|----------|----------------|"
+    ]
+    
+    # Sort services alphabetically
+    sorted_services = sorted(services.items(), key=lambda x: x[0])
+    
+    for service_name, service_data in sorted_services:
+        mem_analysis = service_data.get("memory_analysis", {})
+        
+        if not mem_analysis:
+            # Handle missing memory_analysis gracefully
+            lines.append(f"| {service_name} | N/A | N/A | N/A | N/A | N/A |")
+            continue
+        
+        peak_gb = mem_analysis.get("peak_usage_gb")
+        avg_gb = mem_analysis.get("avg_usage_gb")
+        allocated_gb = mem_analysis.get("allocated_gb")
+        
+        # Format values, using N/A for missing data
+        if peak_gb is not None:
+            peak_gb_str = f"{peak_gb:.4f}"
+            peak_mb_str = f"{peak_gb * 1024:.2f}"
+        else:
+            peak_gb_str = "N/A"
+            peak_mb_str = "N/A"
+        
+        if avg_gb is not None:
+            avg_gb_str = f"{avg_gb:.4f}"
+            avg_mb_str = f"{avg_gb * 1024:.2f}"
+        else:
+            avg_gb_str = "N/A"
+            avg_mb_str = "N/A"
+        
+        allocated_str = f"{allocated_gb:.2f}" if allocated_gb is not None else "N/A"
+        
+        # TODO: Consider stripping environment prefix (e.g., "Perf::") and trailing "*" from service names
+        display_name = service_name
+        
+        line = (
+            f"| {display_name} | "
+            f"{peak_gb_str} | "
+            f"{peak_mb_str} | "
+            f"{avg_gb_str} | "
+            f"{avg_mb_str} | "
+            f"{allocated_str} |"
+        )
+        lines.append(line)
+    
+    return "\n".join(lines)
 
 def _build_executive_summary(perf_data: Optional[Dict], infra_data: Optional[Dict], corr_data: Optional[Dict]) -> str:
     """Generate executive summary"""
@@ -643,7 +816,8 @@ def _extract_infra_peaks(environment_type: str, infra_data: Dict) -> tuple:
         infra_data: Infrastructure analysis data
     
     Returns:
-        Tuple of (cpu_peak, cpu_avg, mem_peak, mem_avg, cpu_cores, mem_gb)
+        Tuple of (cpu_peak, cpu_avg, mem_peak, mem_avg, cpu_cores, mem_gb,
+                  cpu_peak_cores, cpu_avg_cores)
     """
     cpu_peak = 0.0
     cpu_avg = 0.0
@@ -651,6 +825,9 @@ def _extract_infra_peaks(environment_type: str, infra_data: Dict) -> tuple:
     mem_avg = 0.0
     cpu_cores = 0.0
     mem_gb = 0.0
+    # Track CPU core usage values (actual cores, not percentages)
+    cpu_peak_cores = 0.0
+    cpu_avg_cores = 0.0
     
     detailed = infra_data.get("detailed_metrics", {})
     # Choose platform branch based on environment type
@@ -666,13 +843,16 @@ def _extract_infra_peaks(environment_type: str, infra_data: Dict) -> tuple:
         mem_analysis = entity_data.get("memory_analysis", {})
         cpu_peak = max(cpu_peak, cpu_analysis.get("peak_utilization_pct", 0))
         cpu_avg = max(cpu_avg, cpu_analysis.get("avg_utilization_pct", 0))
+        # Extract CPU core values (max across all services)
+        cpu_peak_cores = max(cpu_peak_cores, cpu_analysis.get("peak_usage_cores", 0))
+        cpu_avg_cores = max(cpu_avg_cores, cpu_analysis.get("avg_usage_cores", 0))
         mem_peak = max(mem_peak, mem_analysis.get("peak_utilization_pct", 0))
         mem_avg = max(mem_avg, mem_analysis.get("avg_utilization_pct", 0))
         res_alloc = entity_data.get("resource_allocation", {})
         cpu_cores = max(cpu_cores, _parse_numeric(res_alloc.get("cpus", 0), default=0.0))
         mem_gb = max(mem_gb, res_alloc.get("memory_gb", 0))
     
-    return cpu_peak, cpu_avg, mem_peak, mem_avg, cpu_cores, mem_gb
+    return cpu_peak, cpu_avg, mem_peak, mem_avg, cpu_cores, mem_gb, cpu_peak_cores, cpu_avg_cores
 
 def _set_na_values(context: Dict, keys: List[str]):
     """Set N/A for missing keys"""
