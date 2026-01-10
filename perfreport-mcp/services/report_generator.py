@@ -442,8 +442,12 @@ def _build_report_context(
         # Find peak CPU/Memory from detailed metrics
         cpu_peak, cpu_avg, mem_peak, mem_avg, cpu_cores, mem_gb, cpu_peak_cores, cpu_avg_cores = _extract_infra_peaks(environment_type, infra_data)
 
+        # Determine the entity type label for section titles (Service vs Host)
+        infra_entity_type = "Service" if environment_type == "kubernetes" else "Host"
+        
         context.update({
             "ENVIRONMENT": env_str,
+            "INFRA_ENTITY_TYPE": infra_entity_type,
             "PEAK_CPU_USAGE": f"{cpu_peak:.2f}",
             "AVG_CPU_USAGE": f"{cpu_avg:.2f}",
             "CPU_CORES_ALLOCATED": f"{cpu_cores:.2f}",
@@ -454,7 +458,7 @@ def _build_report_context(
             # CPU core usage summary (max across all services)
             "PEAK_CPU_CORES": f"{cpu_peak_cores:.6f}",
             "AVG_CPU_CORES": f"{cpu_avg_cores:.6f}",
-            # Per-service tables for CPU and memory usage
+            # Per-service/host tables for CPU and memory usage
             "CPU_CORE_TABLE": _build_cpu_core_table(infra_data, environment_type),
             "MEMORY_USAGE_TABLE": _build_memory_usage_table(infra_data, environment_type)
         })
@@ -465,6 +469,7 @@ def _build_report_context(
             "PEAK_MEMORY_USAGE", "AVG_MEMORY_USAGE", "MEMORY_ALLOCATED",
             "PEAK_CPU_CORES", "AVG_CPU_CORES"
         ])
+        context["INFRA_ENTITY_TYPE"] = "Service"  # Default to Service when no infra data
         context["INFRASTRUCTURE_SUMMARY"] = "No infrastructure data available"
         context["CPU_CORE_TABLE"] = "No CPU core data available."
         context["MEMORY_USAGE_TABLE"] = "No memory usage data available."
@@ -551,154 +556,273 @@ def _build_sla_summary(sla_analysis: Dict) -> str:
 
 def _build_cpu_core_table(infra_data: Optional[Dict], environment_type: str) -> str:
     """
-    Build Markdown table for per-service CPU core usage (K8s environments).
+    Build Markdown table for per-service/host CPU core usage.
     
     Args:
         infra_data: Infrastructure analysis data
         environment_type: 'host' or 'kubernetes'
     
     Returns:
-        Markdown table string with CPU core metrics per service
+        Markdown table string with CPU core metrics per service/host
     """
-    # TODO: Add host-based CPU core table support when host infrastructure_analysis.json is available
-    if not infra_data or environment_type != "kubernetes":
-        return "Host CPU Core Data Pending."
+    if not infra_data:
+        return "No CPU core data available."
     
     detailed = infra_data.get("detailed_metrics", {})
-    k8s_data = detailed.get("kubernetes", {})
-    services = k8s_data.get("services", {})
     
-    if not services:
-        return "No Kubernetes services found."
+    # Handle Kubernetes environments
+    if environment_type == "kubernetes":
+        k8s_data = detailed.get("kubernetes", {})
+        services = k8s_data.get("services", {})
     
-    # Build table header
-    lines = [
-        "| Service Name | Peak (Cores) | Peak (mCPU) | Avg (Cores) | Avg (mCPU) | Allocated (Cores) |",
-        "|--------------|--------------|-------------|-------------|------------|-------------------|"
-    ]
+        if not services:
+            return "No Kubernetes services found."
+        
+        # Build table header
+        lines = [
+            "| Service Name | Peak (Cores) | Peak (mCPU) | Avg (Cores) | Avg (mCPU) | Allocated (Cores) |",
+            "|--------------|--------------|-------------|-------------|------------|-------------------|"
+        ]
+        
+        # Sort services alphabetically
+        sorted_services = sorted(services.items(), key=lambda x: x[0])
+        
+        for service_name, service_data in sorted_services:
+            cpu_analysis = service_data.get("cpu_analysis", {})
+            
+            if not cpu_analysis:
+                # Handle missing cpu_analysis gracefully
+                lines.append(f"| {service_name} | N/A | N/A | N/A | N/A | N/A |")
+                continue
+            
+            peak_cores = cpu_analysis.get("peak_usage_cores")
+            avg_cores = cpu_analysis.get("avg_usage_cores")
+            allocated_cores = cpu_analysis.get("allocated_cores")
+            
+            # Format values, using N/A for missing data
+            if peak_cores is not None:
+                peak_cores_str = f"{peak_cores:.4f}"
+                peak_mcpu_str = f"{peak_cores * 1000:.2f}"
+            else:
+                peak_cores_str = "N/A"
+                peak_mcpu_str = "N/A"
+            
+            if avg_cores is not None:
+                avg_cores_str = f"{avg_cores:.4f}"
+                avg_mcpu_str = f"{avg_cores * 1000:.2f}"
+            else:
+                avg_cores_str = "N/A"
+                avg_mcpu_str = "N/A"
+            
+            allocated_str = f"{allocated_cores:.2f}" if allocated_cores is not None else "N/A"
+            
+            # TODO: Consider stripping environment prefix (e.g., "Perf::") and trailing "*" from service names
+            display_name = service_name
+            
+            line = (
+                f"| {display_name} | "
+                f"{peak_cores_str} | "
+                f"{peak_mcpu_str} | "
+                f"{avg_cores_str} | "
+                f"{avg_mcpu_str} | "
+                f"{allocated_str} |"
+            )
+            lines.append(line)
+        
+        return "\n".join(lines)
     
-    # Sort services alphabetically
-    sorted_services = sorted(services.items(), key=lambda x: x[0])
+    # Handle Host environments
+    # TODO: Update Datadog-MCP query to include raw CPU core metrics (e.g., system.cpu.num_cores 
+    #       or similar) to enable actual core usage calculations. Currently, Datadog only provides 
+    #       CPU as percentages (system.cpu.user, system.cpu.system), which cannot be reliably 
+    #       converted to core usage without assuming the allocated CPUs value in environments.json 
+    #       is correct.
+    if environment_type == "host":
+        host_data = detailed.get("hosts", {})
+        hosts = host_data.get("hosts", {})
+        
+        if not hosts:
+            return "No host data found."
+        
+        # Build table with N/A for core values since only percentages are available
+        lines = [
+            "| Host Name | Peak (Cores) | Peak (mCPU) | Avg (Cores) | Avg (mCPU) | Allocated (Cores) |",
+            "|-----------|--------------|-------------|-------------|------------|-------------------|"
+        ]
+        
+        # Sort hosts alphabetically
+        sorted_hosts = sorted(hosts.items(), key=lambda x: x[0])
+        
+        for host_name, host_data_item in sorted_hosts:
+            cpu_analysis = host_data_item.get("cpu_analysis", {})
+            
+            # Host CPU is in percentages only - core values are not available
+            # TODO: Consider stripping environment prefix from host names
+            display_name = host_name
+            
+            line = (
+                f"| {display_name} | "
+                f"N/A | "
+                f"N/A | "
+                f"N/A | "
+                f"N/A | "
+                f"N/A |"
+            )
+            lines.append(line)
+        
+        # Add explanatory note
+        lines.append("")
+        lines.append("*Note: CPU core usage is not available for host-based environments. "
+                    "Datadog provides CPU metrics as percentages only. See CPU Utilization section for percentage values.*")
+        
+        return "\n".join(lines)
     
-    for service_name, service_data in sorted_services:
-        cpu_analysis = service_data.get("cpu_analysis", {})
-        
-        if not cpu_analysis:
-            # Handle missing cpu_analysis gracefully
-            lines.append(f"| {service_name} | N/A | N/A | N/A | N/A | N/A |")
-            continue
-        
-        peak_cores = cpu_analysis.get("peak_usage_cores")
-        avg_cores = cpu_analysis.get("avg_usage_cores")
-        allocated_cores = cpu_analysis.get("allocated_cores")
-        
-        # Format values, using N/A for missing data
-        if peak_cores is not None:
-            peak_cores_str = f"{peak_cores:.4f}"
-            peak_mcpu_str = f"{peak_cores * 1000:.2f}"
-        else:
-            peak_cores_str = "N/A"
-            peak_mcpu_str = "N/A"
-        
-        if avg_cores is not None:
-            avg_cores_str = f"{avg_cores:.4f}"
-            avg_mcpu_str = f"{avg_cores * 1000:.2f}"
-        else:
-            avg_cores_str = "N/A"
-            avg_mcpu_str = "N/A"
-        
-        allocated_str = f"{allocated_cores:.2f}" if allocated_cores is not None else "N/A"
-        
-        # TODO: Consider stripping environment prefix (e.g., "Perf::") and trailing "*" from service names
-        display_name = service_name
-        
-        line = (
-            f"| {display_name} | "
-            f"{peak_cores_str} | "
-            f"{peak_mcpu_str} | "
-            f"{avg_cores_str} | "
-            f"{avg_mcpu_str} | "
-            f"{allocated_str} |"
-        )
-        lines.append(line)
-    
-    return "\n".join(lines)
+    return "Unknown environment type for CPU core table."
 
 
 def _build_memory_usage_table(infra_data: Optional[Dict], environment_type: str) -> str:
     """
-    Build Markdown table for per-service memory usage (K8s environments).
+    Build Markdown table for per-service/host memory usage.
     
     Args:
         infra_data: Infrastructure analysis data
         environment_type: 'host' or 'kubernetes'
     
     Returns:
-        Markdown table string with memory usage metrics per service
+        Markdown table string with memory usage metrics per service/host
     """
-    # TODO: Add host-based memory usage table support when host infrastructure_analysis.json is available
-    if not infra_data or environment_type != "kubernetes":
-        return "Host Memory Usage Data Pending."
+    if not infra_data:
+        return "No memory usage data available."
     
     detailed = infra_data.get("detailed_metrics", {})
-    k8s_data = detailed.get("kubernetes", {})
-    services = k8s_data.get("services", {})
     
-    if not services:
-        return "No Kubernetes services found."
+    # Handle Kubernetes environments
+    if environment_type == "kubernetes":
+        k8s_data = detailed.get("kubernetes", {})
+        services = k8s_data.get("services", {})
     
-    # Build table header
-    lines = [
-        "| Service Name | Peak (GB) | Peak (MB) | Avg (GB) | Avg (MB) | Allocated (GB) |",
-        "|--------------|-----------|-----------|----------|----------|----------------|"
-    ]
+        if not services:
+            return "No Kubernetes services found."
+        
+        # Build table header
+        lines = [
+            "| Service Name | Peak (GB) | Peak (MB) | Avg (GB) | Avg (MB) | Allocated (GB) |",
+            "|--------------|-----------|-----------|----------|----------|----------------|"
+        ]
+        
+        # Sort services alphabetically
+        sorted_services = sorted(services.items(), key=lambda x: x[0])
+        
+        for service_name, service_data in sorted_services:
+            mem_analysis = service_data.get("memory_analysis", {})
+            
+            if not mem_analysis:
+                # Handle missing memory_analysis gracefully
+                lines.append(f"| {service_name} | N/A | N/A | N/A | N/A | N/A |")
+                continue
+            
+            peak_gb = mem_analysis.get("peak_usage_gb")
+            avg_gb = mem_analysis.get("avg_usage_gb")
+            allocated_gb = mem_analysis.get("allocated_gb")
+            
+            # Format values, using N/A for missing data
+            if peak_gb is not None:
+                peak_gb_str = f"{peak_gb:.4f}"
+                peak_mb_str = f"{peak_gb * 1024:.2f}"
+            else:
+                peak_gb_str = "N/A"
+                peak_mb_str = "N/A"
+            
+            if avg_gb is not None:
+                avg_gb_str = f"{avg_gb:.4f}"
+                avg_mb_str = f"{avg_gb * 1024:.2f}"
+            else:
+                avg_gb_str = "N/A"
+                avg_mb_str = "N/A"
+            
+            allocated_str = f"{allocated_gb:.2f}" if allocated_gb is not None else "N/A"
+            
+            # TODO: Consider stripping environment prefix (e.g., "Perf::") and trailing "*" from service names
+            display_name = service_name
+            
+            line = (
+                f"| {display_name} | "
+                f"{peak_gb_str} | "
+                f"{peak_mb_str} | "
+                f"{avg_gb_str} | "
+                f"{avg_mb_str} | "
+                f"{allocated_str} |"
+            )
+            lines.append(line)
+        
+        return "\n".join(lines)
     
-    # Sort services alphabetically
-    sorted_services = sorted(services.items(), key=lambda x: x[0])
+    # Handle Host environments
+    # Host memory data is available from Datadog (system.mem.used, system.mem.total)
+    # and PerfAnalysis-MCP calculates peak_usage_gb and avg_usage_gb from raw bytes
+    if environment_type == "host":
+        host_data = detailed.get("hosts", {})
+        hosts = host_data.get("hosts", {})
+        
+        if not hosts:
+            return "No host data found."
+        
+        # Build table header
+        lines = [
+            "| Host Name | Peak (GB) | Peak (MB) | Avg (GB) | Avg (MB) | Allocated (GB) |",
+            "|-----------|-----------|-----------|----------|----------|----------------|"
+        ]
+        
+        # Sort hosts alphabetically
+        sorted_hosts = sorted(hosts.items(), key=lambda x: x[0])
+        
+        for host_name, host_data_item in sorted_hosts:
+            mem_analysis = host_data_item.get("memory_analysis", {})
+            res_alloc = host_data_item.get("resource_allocation", {})
+            
+            if not mem_analysis:
+                # Handle missing memory_analysis gracefully
+                lines.append(f"| {host_name} | N/A | N/A | N/A | N/A | N/A |")
+                continue
+            
+            # Get memory values from PerfAnalysis-MCP output
+            peak_gb = mem_analysis.get("peak_usage_gb")
+            avg_gb = mem_analysis.get("avg_usage_gb")
+            allocated_gb = res_alloc.get("memory_gb")
+            
+            # Format values, using N/A for missing data
+            if peak_gb is not None:
+                peak_gb_str = f"{peak_gb:.4f}"
+                peak_mb_str = f"{peak_gb * 1024:.2f}"
+            else:
+                peak_gb_str = "N/A"
+                peak_mb_str = "N/A"
+            
+            if avg_gb is not None:
+                avg_gb_str = f"{avg_gb:.4f}"
+                avg_mb_str = f"{avg_gb * 1024:.2f}"
+            else:
+                avg_gb_str = "N/A"
+                avg_mb_str = "N/A"
+            
+            allocated_str = f"{allocated_gb:.2f}" if allocated_gb is not None else "N/A"
+            
+            # TODO: Consider stripping environment prefix from host names
+            display_name = host_name
+            
+            line = (
+                f"| {display_name} | "
+                f"{peak_gb_str} | "
+                f"{peak_mb_str} | "
+                f"{avg_gb_str} | "
+                f"{avg_mb_str} | "
+                f"{allocated_str} |"
+            )
+            lines.append(line)
+        
+        return "\n".join(lines)
     
-    for service_name, service_data in sorted_services:
-        mem_analysis = service_data.get("memory_analysis", {})
-        
-        if not mem_analysis:
-            # Handle missing memory_analysis gracefully
-            lines.append(f"| {service_name} | N/A | N/A | N/A | N/A | N/A |")
-            continue
-        
-        peak_gb = mem_analysis.get("peak_usage_gb")
-        avg_gb = mem_analysis.get("avg_usage_gb")
-        allocated_gb = mem_analysis.get("allocated_gb")
-        
-        # Format values, using N/A for missing data
-        if peak_gb is not None:
-            peak_gb_str = f"{peak_gb:.4f}"
-            peak_mb_str = f"{peak_gb * 1024:.2f}"
-        else:
-            peak_gb_str = "N/A"
-            peak_mb_str = "N/A"
-        
-        if avg_gb is not None:
-            avg_gb_str = f"{avg_gb:.4f}"
-            avg_mb_str = f"{avg_gb * 1024:.2f}"
-        else:
-            avg_gb_str = "N/A"
-            avg_mb_str = "N/A"
-        
-        allocated_str = f"{allocated_gb:.2f}" if allocated_gb is not None else "N/A"
-        
-        # TODO: Consider stripping environment prefix (e.g., "Perf::") and trailing "*" from service names
-        display_name = service_name
-        
-        line = (
-            f"| {display_name} | "
-            f"{peak_gb_str} | "
-            f"{peak_mb_str} | "
-            f"{avg_gb_str} | "
-            f"{avg_mb_str} | "
-            f"{allocated_str} |"
-        )
-        lines.append(line)
-    
-    return "\n".join(lines)
+    return "Unknown environment type for memory usage table."
 
 def _build_executive_summary(perf_data: Optional[Dict], infra_data: Optional[Dict], corr_data: Optional[Dict]) -> str:
     """Generate executive summary"""

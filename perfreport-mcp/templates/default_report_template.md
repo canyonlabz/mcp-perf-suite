@@ -85,7 +85,7 @@
 
 [CHART_PLACEHOLDER: CPU Utilization Over Time]
 
-#### 4.2.1 CPU Core Usage by Service
+#### 4.2.1 CPU Core Usage by {{INFRA_ENTITY_TYPE}}
 
 {{CPU_CORE_TABLE}}
 
@@ -101,7 +101,7 @@
 
 [CHART_PLACEHOLDER: Memory Utilization Over Time]
 
-#### 4.3.1 Memory Usage by Service
+#### 4.3.1 Memory Usage by {{INFRA_ENTITY_TYPE}}
 
 {{MEMORY_USAGE_TABLE}}
 

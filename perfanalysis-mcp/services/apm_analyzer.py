@@ -410,6 +410,8 @@ def analyze_host_system_metrics(host_data: pd.DataFrame, resource_allocation: Di
                 }
     
     # Memory Analysis (align by timestamp to avoid NaNs)
+    # Always extract GB values from raw bytes (system.mem.used) when available,
+    # and use direct percentage (mem_util_pct) for percentage values if present.
     if not memory_data.empty:
         try:
             mem_wide = (
@@ -417,6 +419,23 @@ def analyze_host_system_metrics(host_data: pd.DataFrame, resource_allocation: Di
                 .pivot_table(index='timestamp_utc', columns='metric', values='value', aggfunc='mean')
                 .sort_index()
             )
+            
+            # Extract raw memory bytes for GB calculations (if available)
+            used = mem_wide.get('system.mem.used')
+            total = mem_wide.get('system.mem.total')
+            
+            # Calculate GB values from raw bytes
+            peak_usage_gb = None
+            avg_usage_gb = None
+            detected_total_gb = None
+            if used is not None:
+                used_gb = used.astype(float) / 1e9
+                peak_usage_gb = float(np.nanmax(used_gb.values) if len(used_gb.values) else 0.0)
+                avg_usage_gb = float(np.nanmean(used_gb.values) if len(used_gb.values) else 0.0)
+            if total is not None:
+                total_gb = total.astype(float) / 1e9
+                detected_total_gb = float(np.nanmean(total_gb.values) if len(total_gb.values) else 0.0)
+            
             # Direct percentage if present (mem_util_pct or mem_used_pct)
             direct_pct = None
             if 'mem_util_pct' in mem_wide.columns:
@@ -434,26 +453,31 @@ def analyze_host_system_metrics(host_data: pd.DataFrame, resource_allocation: Di
                     "samples_count": int(pct_series.shape[0]),
                     "calculation_method": "direct_percentage"
                 }
-            else:
-                used = mem_wide.get('system.mem.used')
-                total = mem_wide.get('system.mem.total')
-                if used is not None and total is not None:
-                    used_gb = used.astype(float) / 1e9
-                    total_gb = total.astype(float) / 1e9
-                    # Avoid division misalignment and divide-by-zero
-                    total_gb_clean = total_gb.replace(0, np.nan)
-                    util_pct = (used_gb / total_gb_clean) * 100
-                    util_pct = util_pct.replace([np.inf, -np.inf], np.nan).fillna(0)
-                    host_metrics["memory_analysis"] = {
-                        "allocated_gb": resource_allocation['memory_gb'],
-                        "peak_usage_gb": float(np.nanmax(used_gb.values) if len(used_gb.values) else 0.0),
-                        "avg_usage_gb": float(np.nanmean(used_gb.values) if len(used_gb.values) else 0.0),
-                        "detected_total_gb": float(np.nanmean(total_gb.values) if len(total_gb.values) else 0.0),
-                        "peak_utilization_pct": float(np.nanmax(util_pct.values) if len(util_pct.values) else 0.0),
-                        "avg_utilization_pct": float(np.nanmean(util_pct.values) if len(util_pct.values) else 0.0),
-                        "samples_count": int(util_pct.shape[0]),
-                        "calculation_method": "calculated_from_raw"
-                    }
+                # Also include GB values from raw bytes if available
+                if peak_usage_gb is not None:
+                    host_metrics["memory_analysis"]["peak_usage_gb"] = peak_usage_gb
+                if avg_usage_gb is not None:
+                    host_metrics["memory_analysis"]["avg_usage_gb"] = avg_usage_gb
+                if detected_total_gb is not None:
+                    host_metrics["memory_analysis"]["detected_total_gb"] = detected_total_gb
+            elif used is not None and total is not None:
+                # Calculate percentage from raw values
+                used_gb = used.astype(float) / 1e9
+                total_gb = total.astype(float) / 1e9
+                # Avoid division misalignment and divide-by-zero
+                total_gb_clean = total_gb.replace(0, np.nan)
+                util_pct = (used_gb / total_gb_clean) * 100
+                util_pct = util_pct.replace([np.inf, -np.inf], np.nan).fillna(0)
+                host_metrics["memory_analysis"] = {
+                    "allocated_gb": resource_allocation['memory_gb'],
+                    "peak_usage_gb": float(np.nanmax(used_gb.values) if len(used_gb.values) else 0.0),
+                    "avg_usage_gb": float(np.nanmean(used_gb.values) if len(used_gb.values) else 0.0),
+                    "detected_total_gb": float(np.nanmean(total_gb.values) if len(total_gb.values) else 0.0),
+                    "peak_utilization_pct": float(np.nanmax(util_pct.values) if len(util_pct.values) else 0.0),
+                    "avg_utilization_pct": float(np.nanmean(util_pct.values) if len(util_pct.values) else 0.0),
+                    "samples_count": int(util_pct.shape[0]),
+                    "calculation_method": "calculated_from_raw"
+                }
         except Exception:
             # Fallback: best-effort calculation over raw values
             try:
