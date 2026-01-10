@@ -458,7 +458,10 @@ def _build_report_context(
             # CPU core usage summary (max across all services)
             "PEAK_CPU_CORES": f"{cpu_peak_cores:.6f}",
             "AVG_CPU_CORES": f"{cpu_avg_cores:.6f}",
-            # Per-service/host tables for CPU and memory usage
+            # Per-service/host tables for CPU and memory % utilization
+            "CPU_UTILIZATION_TABLE": _build_cpu_utilization_table(infra_data, environment_type),
+            "MEMORY_UTILIZATION_TABLE": _build_memory_utilization_table(infra_data, environment_type),
+            # Per-service/host tables for CPU core and memory GB usage
             "CPU_CORE_TABLE": _build_cpu_core_table(infra_data, environment_type),
             "MEMORY_USAGE_TABLE": _build_memory_usage_table(infra_data, environment_type)
         })
@@ -471,6 +474,8 @@ def _build_report_context(
         ])
         context["INFRA_ENTITY_TYPE"] = "Service"  # Default to Service when no infra data
         context["INFRASTRUCTURE_SUMMARY"] = "No infrastructure data available"
+        context["CPU_UTILIZATION_TABLE"] = "No CPU utilization data available."
+        context["MEMORY_UTILIZATION_TABLE"] = "No memory utilization data available."
         context["CPU_CORE_TABLE"] = "No CPU core data available."
         context["MEMORY_USAGE_TABLE"] = "No memory usage data available."
     
@@ -554,6 +559,134 @@ def _build_sla_summary(sla_analysis: Dict) -> str:
     return f"**SLA Compliance:** {compliant}/{total} APIs met SLA ({compliance_rate:.1f}%)"
 
 
+def _build_cpu_utilization_table(infra_data: Optional[Dict], environment_type: str) -> str:
+    """
+    Build Markdown table for per-service/host CPU % utilization.
+    
+    Args:
+        infra_data: Infrastructure analysis data
+        environment_type: 'host' or 'kubernetes'
+    
+    Returns:
+        Markdown table string with CPU utilization percentages per service/host
+    """
+    if not infra_data:
+        return "No CPU utilization data available."
+    
+    detailed = infra_data.get("detailed_metrics", {})
+    
+    # Determine entity type and get entities
+    if environment_type == "kubernetes":
+        platform_data = detailed.get("kubernetes", {})
+        # Support both "entities" (new) and "services" (old) for backwards compatibility
+        entities = platform_data.get("entities", {}) or platform_data.get("services", {})
+        entity_label = "Service Name"
+    else:  # host
+        platform_data = detailed.get("hosts", {})
+        entities = platform_data.get("hosts", {})
+        entity_label = "Host Name"
+    
+    if not entities:
+        return f"No {environment_type} CPU data found."
+    
+    # Build table header
+    lines = [
+        f"| {entity_label} | Peak (%) | Avg (%) | Min (%) | Allocated |",
+        "|" + "-" * (len(entity_label) + 2) + "|----------|---------|---------|-----------|"
+    ]
+    
+    # Sort entities alphabetically
+    sorted_entities = sorted(entities.items(), key=lambda x: x[0])
+    
+    for entity_name, entity_data in sorted_entities:
+        cpu_analysis = entity_data.get("cpu_analysis", {})
+        res_alloc = entity_data.get("resource_allocation", {})
+        
+        if not cpu_analysis:
+            lines.append(f"| {entity_name} | N/A | N/A | N/A | N/A |")
+            continue
+        
+        peak_pct = cpu_analysis.get("peak_utilization_pct")
+        avg_pct = cpu_analysis.get("avg_utilization_pct")
+        min_pct = cpu_analysis.get("min_utilization_pct")
+        allocated = res_alloc.get("cpus", cpu_analysis.get("allocated_cpus", "N/A"))
+        
+        # Format values
+        peak_str = f"{peak_pct:.2f}" if peak_pct is not None else "N/A"
+        avg_str = f"{avg_pct:.2f}" if avg_pct is not None else "N/A"
+        min_str = f"{min_pct:.2f}" if min_pct is not None else "N/A"
+        allocated_str = str(allocated) if allocated else "N/A"
+        
+        line = f"| {entity_name} | {peak_str} | {avg_str} | {min_str} | {allocated_str} |"
+        lines.append(line)
+    
+    return "\n".join(lines)
+
+
+def _build_memory_utilization_table(infra_data: Optional[Dict], environment_type: str) -> str:
+    """
+    Build Markdown table for per-service/host Memory % utilization.
+    
+    Args:
+        infra_data: Infrastructure analysis data
+        environment_type: 'host' or 'kubernetes'
+    
+    Returns:
+        Markdown table string with memory utilization percentages per service/host
+    """
+    if not infra_data:
+        return "No memory utilization data available."
+    
+    detailed = infra_data.get("detailed_metrics", {})
+    
+    # Determine entity type and get entities
+    if environment_type == "kubernetes":
+        platform_data = detailed.get("kubernetes", {})
+        # Support both "entities" (new) and "services" (old) for backwards compatibility
+        entities = platform_data.get("entities", {}) or platform_data.get("services", {})
+        entity_label = "Service Name"
+    else:  # host
+        platform_data = detailed.get("hosts", {})
+        entities = platform_data.get("hosts", {})
+        entity_label = "Host Name"
+    
+    if not entities:
+        return f"No {environment_type} memory data found."
+    
+    # Build table header
+    lines = [
+        f"| {entity_label} | Peak (%) | Avg (%) | Min (%) | Allocated |",
+        "|" + "-" * (len(entity_label) + 2) + "|----------|---------|---------|-----------|"
+    ]
+    
+    # Sort entities alphabetically
+    sorted_entities = sorted(entities.items(), key=lambda x: x[0])
+    
+    for entity_name, entity_data in sorted_entities:
+        mem_analysis = entity_data.get("memory_analysis", {})
+        res_alloc = entity_data.get("resource_allocation", {})
+        
+        if not mem_analysis:
+            lines.append(f"| {entity_name} | N/A | N/A | N/A | N/A |")
+            continue
+        
+        peak_pct = mem_analysis.get("peak_utilization_pct")
+        avg_pct = mem_analysis.get("avg_utilization_pct")
+        min_pct = mem_analysis.get("min_utilization_pct")
+        allocated_gb = res_alloc.get("memory_gb", mem_analysis.get("allocated_gb"))
+        
+        # Format values
+        peak_str = f"{peak_pct:.2f}" if peak_pct is not None else "N/A"
+        avg_str = f"{avg_pct:.2f}" if avg_pct is not None else "N/A"
+        min_str = f"{min_pct:.2f}" if min_pct is not None else "N/A"
+        allocated_str = f"{allocated_gb:.2f} GB" if allocated_gb is not None else "N/A"
+        
+        line = f"| {entity_name} | {peak_str} | {avg_str} | {min_str} | {allocated_str} |"
+        lines.append(line)
+    
+    return "\n".join(lines)
+
+
 def _build_cpu_core_table(infra_data: Optional[Dict], environment_type: str) -> str:
     """
     Build Markdown table for per-service/host CPU core usage.
@@ -573,9 +706,10 @@ def _build_cpu_core_table(infra_data: Optional[Dict], environment_type: str) -> 
     # Handle Kubernetes environments
     if environment_type == "kubernetes":
         k8s_data = detailed.get("kubernetes", {})
-        services = k8s_data.get("services", {})
+        # Support both "entities" (new) and "services" (old) for backwards compatibility
+        entities = k8s_data.get("entities", {}) or k8s_data.get("services", {})
     
-        if not services:
+        if not entities:
             return "No Kubernetes services found."
         
         # Build table header
@@ -584,10 +718,10 @@ def _build_cpu_core_table(infra_data: Optional[Dict], environment_type: str) -> 
             "|--------------|--------------|-------------|-------------|------------|-------------------|"
         ]
         
-        # Sort services alphabetically
-        sorted_services = sorted(services.items(), key=lambda x: x[0])
+        # Sort entities alphabetically
+        sorted_entities = sorted(entities.items(), key=lambda x: x[0])
         
-        for service_name, service_data in sorted_services:
+        for service_name, service_data in sorted_entities:
             cpu_analysis = service_data.get("cpu_analysis", {})
             
             if not cpu_analysis:
@@ -699,9 +833,10 @@ def _build_memory_usage_table(infra_data: Optional[Dict], environment_type: str)
     # Handle Kubernetes environments
     if environment_type == "kubernetes":
         k8s_data = detailed.get("kubernetes", {})
-        services = k8s_data.get("services", {})
+        # Support both "entities" (new) and "services" (old) for backwards compatibility
+        entities = k8s_data.get("entities", {}) or k8s_data.get("services", {})
     
-        if not services:
+        if not entities:
             return "No Kubernetes services found."
         
         # Build table header
@@ -710,10 +845,10 @@ def _build_memory_usage_table(infra_data: Optional[Dict], environment_type: str)
             "|--------------|-----------|-----------|----------|----------|----------------|"
         ]
         
-        # Sort services alphabetically
-        sorted_services = sorted(services.items(), key=lambda x: x[0])
+        # Sort entities alphabetically
+        sorted_entities = sorted(entities.items(), key=lambda x: x[0])
         
-        for service_name, service_data in sorted_services:
+        for service_name, service_data in sorted_entities:
             mem_analysis = service_data.get("memory_analysis", {})
             
             if not mem_analysis:

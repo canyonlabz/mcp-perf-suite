@@ -462,22 +462,22 @@ def analyze_host_system_metrics(host_data: pd.DataFrame, resource_allocation: Di
                     host_metrics["memory_analysis"]["detected_total_gb"] = detected_total_gb
             elif used is not None and total is not None:
                 # Calculate percentage from raw values
-                used_gb = used.astype(float) / 1e9
-                total_gb = total.astype(float) / 1e9
-                # Avoid division misalignment and divide-by-zero
-                total_gb_clean = total_gb.replace(0, np.nan)
-                util_pct = (used_gb / total_gb_clean) * 100
-                util_pct = util_pct.replace([np.inf, -np.inf], np.nan).fillna(0)
-                host_metrics["memory_analysis"] = {
-                    "allocated_gb": resource_allocation['memory_gb'],
-                    "peak_usage_gb": float(np.nanmax(used_gb.values) if len(used_gb.values) else 0.0),
-                    "avg_usage_gb": float(np.nanmean(used_gb.values) if len(used_gb.values) else 0.0),
-                    "detected_total_gb": float(np.nanmean(total_gb.values) if len(total_gb.values) else 0.0),
-                    "peak_utilization_pct": float(np.nanmax(util_pct.values) if len(util_pct.values) else 0.0),
-                    "avg_utilization_pct": float(np.nanmean(util_pct.values) if len(util_pct.values) else 0.0),
-                    "samples_count": int(util_pct.shape[0]),
-                    "calculation_method": "calculated_from_raw"
-                }
+                    used_gb = used.astype(float) / 1e9
+                    total_gb = total.astype(float) / 1e9
+                    # Avoid division misalignment and divide-by-zero
+                    total_gb_clean = total_gb.replace(0, np.nan)
+                    util_pct = (used_gb / total_gb_clean) * 100
+                    util_pct = util_pct.replace([np.inf, -np.inf], np.nan).fillna(0)
+                    host_metrics["memory_analysis"] = {
+                        "allocated_gb": resource_allocation['memory_gb'],
+                        "peak_usage_gb": float(np.nanmax(used_gb.values) if len(used_gb.values) else 0.0),
+                        "avg_usage_gb": float(np.nanmean(used_gb.values) if len(used_gb.values) else 0.0),
+                        "detected_total_gb": float(np.nanmean(total_gb.values) if len(total_gb.values) else 0.0),
+                        "peak_utilization_pct": float(np.nanmax(util_pct.values) if len(util_pct.values) else 0.0),
+                        "avg_utilization_pct": float(np.nanmean(util_pct.values) if len(util_pct.values) else 0.0),
+                        "samples_count": int(util_pct.shape[0]),
+                        "calculation_method": "calculated_from_raw"
+                    }
         except Exception:
             # Fallback: best-effort calculation over raw values
             try:

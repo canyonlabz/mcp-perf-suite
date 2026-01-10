@@ -218,7 +218,8 @@ def calculate_correlation_matrix(performance_data: Dict, infrastructure_data: Di
         k8s_summary = infra_summary.get('kubernetes_summary', {})
         host_summary = infra_summary.get('host_summary', {})
         
-        has_k8s = k8s_summary.get('total_services', 0) > 0
+        # Check for K8s: support both 'total_entities' and 'total_services' field names
+        has_k8s = k8s_summary.get('total_entities', 0) > 0 or k8s_summary.get('total_services', 0) > 0
         has_hosts = host_summary.get('total_hosts', 0) > 0
 
         if has_k8s and not has_hosts:

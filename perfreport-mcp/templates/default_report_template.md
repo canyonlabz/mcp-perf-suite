@@ -75,13 +75,9 @@
 
 {{INFRASTRUCTURE_SUMMARY}}
 
-### 4.2 CPU Utilization
+### 4.2 CPU Utilization by {{INFRA_ENTITY_TYPE}}
 
-| Metric | Value |
-|--------|-------|
-| Peak CPU Usage | {{PEAK_CPU_USAGE}}% |
-| Average CPU Usage | {{AVG_CPU_USAGE}}% |
-| CPU Cores Allocated | {{CPU_CORES_ALLOCATED}} |
+{{CPU_UTILIZATION_TABLE}}
 
 [CHART_PLACEHOLDER: CPU Utilization Over Time]
 
@@ -91,13 +87,9 @@
 
 > **Note:** Peak and Average values show actual CPU cores consumed. mCPU = millicores (1 core = 1000 mCPU).
 
-### 4.3 Memory Utilization
+### 4.3 Memory Utilization by {{INFRA_ENTITY_TYPE}}
 
-| Metric | Value |
-|--------|-------|
-| Peak Memory Usage | {{PEAK_MEMORY_USAGE}} GB |
-| Average Memory Usage | {{AVG_MEMORY_USAGE}} GB |
-| Memory Allocated | {{MEMORY_ALLOCATED}} GB |
+{{MEMORY_UTILIZATION_TABLE}}
 
 [CHART_PLACEHOLDER: Memory Utilization Over Time]
 
