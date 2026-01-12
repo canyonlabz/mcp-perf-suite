@@ -1,0 +1,331 @@
+# End-to-End Performance Testing Workflow
+
+This workflow orchestrates the complete performance testing pipeline from retrieving BlazeMeter/JMeter test results through publishing reports to Confluence. It coordinates multiple MCP workflows sequentially, ensuring data flows correctly between each step and handles both single and multiple test run scenarios.
+
+## Workflow Overview
+
+The end-to-end workflow executes the following MCP workflows in sequence:
+1. **BlazeMeter MCP** - Retrieves and processes test results
+2. **Datadog MCP** - Collects infrastructure metrics and logs
+3. **PerfAnalysis MCP** - Analyzes performance data and correlates results
+4. **PerfReport MCP** - Generates formatted reports and charts
+5. **Confluence MCP** (Optional) - Publishes reports to Confluence
+
+Each workflow can also be run independently if needed (e.g., running Datadog workflow days after test completion).
+
+---
+
+## 0. Prerequisites Collection
+
+**Before starting, collect ALL required information from the user:**
+
+### Performance Test Details
+
+Ask the user if this is for:
+- **Single test run** (most common)
+- **Multiple test runs** (sequential processing)
+
+For each test run, collect:
+- **Test run ID** (run_id) - e.g., "7654321"
+- **Test name** (optional, for informational purposes)
+- **Environment name** - e.g., "QA", "UAT", etc.
+- **Environment type** (optional, for validation) - "Hosts-based" or "Kubernetes-based"
+
+### Confluence Details (Optional - only if publishing to Confluence)
+
+If the user provides Confluence information, assume they want to publish results:
+- **Confluence mode** - "cloud" or "onprem"
+- **Confluence Space name** - e.g., "Quality Engineering"
+- **Parent Page name** - e.g., "AI Generated Test Reports"
+- **Parent Page ID** (optional, if provided) - e.g., "123456789"
+
+**Do not proceed until all required information is collected.**
+
+---
+
+## 1. Initialize Task Tracking
+
+For each test run, create granular task items using task tracking to monitor progress:
+- BlazeMeter workflow steps (8 steps)
+- Datadog workflow steps (4 steps)
+- PerfAnalysis workflow steps (4 steps)
+- PerfReport workflow steps (4 steps)
+- Confluence workflow steps (5 steps, if applicable)
+
+This allows tracking progress and resuming if context is lost. Update task status as each step completes.
+
+---
+
+## 2. Process Each Test Run Sequentially
+
+**Important:** Process test runs sequentially (Run 1 complete → Run 2 complete) to maintain context and avoid confusion.
+
+For each test run:
+
+### 2.1 BlazeMeter MCP Workflow
+
+1. Use tool `get_run_results` for the given performance test using test_run_id.
+   - Extract and store the start_time and end_time from the test run results (required for downstream Datadog workflow).
+   - If start/end times cannot be extracted from this step, fallback to extracting from the aggregate report
+2. Use tool `get_artifacts_path` which returns the location of where test results will be stored locally.
+3. Use tool `get_artifact_file_list` for given test_run_id. If there is a failure, try getting the test run results again, and resume the workflow.
+   - Returns a dict of downloadable artifact/log files for a given BlazeMeter test_run_id.
+   - Keys are filenames, values are their URLs.
+4. Use tool `download_artifacts_zip` for given test_run_id and artifact_zip_url.
+   - If download fails, retry.
+   - Re-fetch run details and artifact list before retrying
+5. Use tool `extract_artifact_zip` for given test_run_id.
+6. Use tool `process_extracted_files` for given test_run_id and path to files from zip extraction.
+7. Use tool `get_public_report` which retrieves a public BlazeMeter report URL for the given test_run_id.
+8. Use tool `get_aggregate_report` which retrieves the BlazeMeter aggregate performance report for a given test_run_id.
+9. **Error Handling:**
+   - If API calls fail, retry up to 3 times
+   - If retries fail, stop workflow and report error
+   - Do not proceed to next workflow if BlazeMeter workflow fails
+10. **Validation:** Verify required files exist:
+   - `artifacts/{run_id}/blazemeter/aggregate_performance_report.csv`
+   - `artifacts/{run_id}/blazemeter/test-results.csv`
+   - `artifacts/{run_id}/blazemeter/jmeter.log`
+11. Update task tracking: Mark all BlazeMeter steps as completed.
+
+**Data to pass forward:**
+- `run_id` → to all downstream workflows
+- `start_time` → to Datadog workflow
+- `end_time` → to Datadog workflow
+
+---
+
+### 2.2 Datadog MCP Workflow
+
+0. **Prerequisites:** 
+   - Environment name (env_name) should be provided by the user (e.g., 'QA', 'UAT', etc.)
+   - Test run ID (run_id) should be the same as the BlazeMeter run_id from the previous workflow
+   - Start and end times should be extracted from the BlazeMeter test run results
+   Do not proceed until environment name is provided and BlazeMeter workflow has completed.
+1. Use tool `load_environment` with the provided environment name from step 0. This tool automatically:
+   - Loads the complete environment configuration
+   - Identifies the environment type (host-based or k8s-based)
+   - Loads all resources (hosts with CPU/Memory specs or k8s services with CPU/Memory specs)
+2. Based on the loaded environment configuration:
+   - If environment type is host-based → use `get_host_metrics`
+   - If environment type is k8s-based → use `get_kubernetes_metrics`
+   - Use the start and end dates from the BlazeMeter test run results to get metrics. NOTE: metrics pulled should be CPU and Memory only.
+3. Use tool `get_logs` for the given environment, query type, custom query (optional), start/end dates from BlazeMeter test run.
+   - Log queries can be template-based (e.g. "warnings", "all_errors", "api_errors", "service_errors", "host_errors", "kubernetes_errors", or "custom").
+   - For custom log queries, these can be defined in the `datadog-mcp\custom_queries.json` using "Keys" for `query_type`.
+4. Use tool `get_apm_traces` for the given environment, query type, custom query (optional), start/end dates from BlazeMeter test run.
+   - APM queries can be template-based (e.g. "all_errors", "service_errors", "http_500_errors", "http_errors", "slow_requests", "custom")
+   - For custom APM queries, these can be defined in the `datadog-mcp\custom_queries.json` using "Keys" for `query_type`.
+5. **Error Handling:**
+   - If API calls fail, retry up to 3 times
+   - If retries fail, stop workflow and report error
+   - Do not proceed to next workflow if Datadog workflow fails
+6. **Validation:** Verify required files exist:
+   - `artifacts/{run_id}/datadog/host_metrics_*.csv` OR
+   - `artifacts/{run_id}/datadog/k8s_metrics_*.csv`
+   - `artifacts/{run_id}/datadog/logs_*.csv` (optional)
+7. Update task tracking: Mark all Datadog steps as completed.
+
+**Data to pass forward:**
+- `run_id` → to all downstream workflows
+- `environment name` → to PerfAnalysis and PerfReport workflows
+
+---
+
+### 2.3 PerfAnalysis MCP Workflow
+
+0. **Prerequisites:**
+   - Test run ID (test_run_id) should be the same as the BlazeMeter run_id from the BlazeMeter workflow
+   - Environment name (environment) should be the same as the environment name used in the Datadog workflow
+   - BlazeMeter workflow must be completed first (required files: `artifacts/{test_run_id}/blazemeter/aggregate_performance_report.csv`)
+   - Datadog workflow must be completed first (required files: `artifacts/{test_run_id}/datadog/host_metrics_*.csv` or `k8s_metrics_*.csv`)
+   Do not proceed until both BlazeMeter and Datadog workflows have completed successfully.
+1. Use tool `analyze_test_results` with the test_run_id.
+   - This analyzes BlazeMeter JMeter test results and must be run BEFORE steps 2 and 3.
+   - Requires: `artifacts/{test_run_id}/blazemeter/aggregate_performance_report.csv`
+2. Use tool `analyze_environment_metrics` with the test_run_id and environment name.
+   - This analyzes Datadog infrastructure metrics (CPU/Memory) from hosts or Kubernetes services.
+   - Requires: `artifacts/{test_run_id}/datadog/host_metrics_*.csv` or `k8s_metrics_*.csv`
+3. Use tool `correlate_test_results` with the test_run_id.
+   - This cross-correlates BlazeMeter and Datadog data to identify relationships.
+   - Requires: Outputs from steps 1 and 2 must be completed first.
+4. Use tool `analyze_logs` with the test_run_id.
+   - This analyzes JMeter/BlazeMeter logs and Datadog APM logs for errors and performance issues.
+   - Requires: `artifacts/{test_run_id}/blazemeter/jmeter.log` and `artifacts/{test_run_id}/datadog/logs_*.csv`
+5. **Error Handling:**
+   - These are Python code executions (not API calls)
+   - Do NOT retry on failure
+   - Analyze the error and report back to user:
+     - Error message from MCP tool
+     - Missing file paths (if any)
+     - Expected vs. actual file structure
+     - Root cause analysis
+   - Do NOT attempt to fix code or modify files
+   - Stop workflow and report issue to user
+6. **Validation:** Verify required analysis files exist:
+   - `artifacts/{run_id}/analysis/performance_analysis.json`
+   - `artifacts/{run_id}/analysis/infrastructure_analysis.json`
+   - `artifacts/{run_id}/analysis/correlation_analysis.json`
+7. Update task tracking: Mark all PerfAnalysis steps as completed.
+
+**Data to pass forward:**
+- `run_id` → to PerfReport workflow
+- `environment name` → to PerfReport workflow
+
+---
+
+### 2.4 PerfReport MCP Workflow
+
+0. **Prerequisites:**
+   - Test run ID (run_id) should be the same as the test_run_id from the PerfAnalysis workflow
+   - Environment name (env_name) should be the same as the environment name used in the Datadog and PerfAnalysis workflows (required for infrastructure charts)
+   - PerfAnalysis workflow must be completed first (required files: `artifacts/{run_id}/analysis/performance_analysis.json`, `infrastructure_analysis.json`, `correlation_analysis.json`)
+   Do not proceed until the PerfAnalysis workflow has completed successfully.
+1. Use tool `create_performance_test_report` with the run_id.
+   - Default format is Markdown ("md"), but can also generate PDF ("pdf") or Word ("docx") formats.
+   - Optional: Specify a template name if a custom template should be used.
+   - Requires: `artifacts/{run_id}/analysis/performance_analysis.json` and other analysis JSON files from PerfAnalysis workflow.
+2. Use tool `list_chart_types` to see all available chart options.
+   - This helps identify the correct chart_id values for chart creation.
+3. Use tool `create_chart` with the run_id:
+   - Create chart with chart_id "CPU_UTILIZATION_LINE" (requires env_name parameter for infrastructure charts).
+   - Create chart with chart_id "MEMORY_UTILIZATION_LINE" (requires env_name parameter for infrastructure charts).
+   - These charts visualize CPU and Memory utilization over time for the test run.
+4. Use tool `create_chart` with the run_id:
+   - Create chart with chart_id "RESP_TIME_P90_VUSERS_DUALAXIS".
+   - This dual-axis chart shows the correlation between 90th percentile response time and virtual users over time.
+5. **Error Handling:**
+   - These are Python code executions (not API calls)
+   - Do NOT retry on failure
+   - Analyze the error and report back to user:
+     - Error message from MCP tool
+     - Missing file paths (if any)
+     - Expected vs. actual file structure
+     - Root cause analysis
+   - Do NOT attempt to fix code or modify files
+   - Stop workflow and report issue to user
+6. **Validation:** Verify required report files exist:
+   - `artifacts/{run_id}/reports/performance_report_{run_id}.md`
+   - `artifacts/{run_id}/charts/*.png` (at least CPU, Memory, and P90 charts)
+7. Update task tracking: Mark all PerfReport steps as completed.
+
+**Data to pass forward:**
+- `run_id` → to Confluence workflow (if applicable)
+- Report file paths → to Confluence workflow (if applicable)
+
+---
+
+### 2.5 Confluence MCP Workflow (Optional)
+
+**Only execute if Confluence details were provided in prerequisites.**
+
+0. **Prerequisites:**
+   - Test run ID (test_run_id) should be the same as the run_id from the PerfReport workflow
+   - Confluence mode (mode) must be provided by the user: either "cloud" or "onprem"
+   - Confluence Space name should be provided by the user (e.g., "Quality Engineering")
+   - Parent Page information is REQUIRED - user must provide either:
+     - Parent Page name (e.g., "AI Generated Test Reports"), OR
+     - Parent Page ID (e.g., "1234567890")
+   - PerfReport workflow must be completed first (required files: `artifacts/{test_run_id}/reports/*.md`)
+   Do not proceed until mode, Confluence Space name, parent page information (name or ID), and test_run_id are provided, and PerfReport workflow has completed successfully.
+1. Use tool `list_spaces` with the provided mode.
+   - This lists all available Confluence spaces.
+   - Search for the space that matches the provided Confluence Space name.
+   - Extract the space_ref (space_id for cloud, space_key for onprem) from the matching space result.
+2. Use tool `get_space_details` with the space_ref and mode from step 1.
+   - This retrieves detailed metadata for the selected space.
+3. **Locate the parent Page** (REQUIRED):
+   - If parent page ID is provided by the user, use `get_page_by_id` with the parent_id and mode to get page details and verify it exists.
+   - If parent page name is provided, use `list_pages` with the space_ref and mode to search for the parent page by name, then extract its page_ref (page ID).
+   - Store the parent page ID (parent_id) for use in step 5.
+4. Use tool `get_available_reports` with the test_run_id.
+   - This lists all available Markdown reports for the given test_run_id from `artifacts/{test_run_id}/reports/`.
+   - Select the report filename to publish (typically `performance_report_{test_run_id}.md`).
+5. Use tool `create_page` with:
+   - space_ref: The space_ref (space_id for cloud, space_key for onprem) from step 1
+   - test_run_id: The test run ID from prerequisites
+   - filename: The report filename selected from step 4 (e.g., `performance_report_{test_run_id}.md`)
+   - mode: The Confluence mode ("cloud" or "onprem") from prerequisites
+   - parent_id: The parent page ID from step 3 (REQUIRED - must be provided)
+   - The tool will automatically convert the Markdown report to Confluence XHTML format and create the page nested under the parent page. 
+6. **Error Handling:**
+   - If API calls fail, retry up to 3 times
+   - If retries fail, report error but continue (don't block other runs)
+7. **Validation:** Verify page was created successfully (check for page_ref and URL in response)
+8. Update task tracking: Mark all Confluence steps as completed.
+
+---
+
+## 3. Generate End-to-End Summary
+
+After all test runs are processed, generate a comprehensive summary:
+
+### 3.1 File Locations Summary
+
+For each test run, list all generated artifacts:
+- BlazeMeter artifacts location: `artifacts/{run_id}/blazemeter/`
+- Datadog artifacts location: `artifacts/{run_id}/datadog/`
+- Analysis artifacts location: `artifacts/{run_id}/analysis/`
+- Report artifacts location: `artifacts/{run_id}/reports/`
+- Chart artifacts location: `artifacts/{run_id}/charts/`
+- Confluence page URLs (if published)
+
+### 3.2 Aggregate Metrics Summary
+
+For each test run, provide aggregate metrics in a table format:
+
+**BlazeMeter Metrics:**
+- Total samples
+- Success rate (%)
+- Average response time (ms)
+- P90 response time (ms)
+- P95 response time (ms)
+- Peak throughput (req/sec)
+- Error rate (%)
+
+**Datadog Infrastructure Metrics:**
+- Peak CPU Cores/mCPU Usage - per Host or per k8s service
+- Average CPU Cores/mCPU Usage - per Host or per k8s service
+- Peak Memory Usage MB/GB - per Host or per k8s service
+- Average Memory Usage MB/GB - per Host or per k8s service
+
+**Note:** Do not include per-API breakdowns, only aggregate metrics.
+
+### 3.3 Multiple Test Runs Comparison (if applicable)
+
+If multiple test runs were processed, provide a side-by-side comparison table showing:
+- Test run IDs
+- Key performance metrics (response times, throughput, error rates)
+- Infrastructure metrics (CPU/Memory KPIs)
+- Any notable differences or trends
+
+---
+
+## 4. Final Task Status
+
+Display final task tracking status:
+- Total test runs processed
+- Completed workflows per test run
+- Any failed steps (with error details)
+- Overall workflow status (Success/Partial Success/Failed)
+
+---
+
+## Important Notes
+
+1. **Sequential Execution:** Each workflow must complete successfully before proceeding to the next. If any workflow fails, stop and report the error.
+
+2. **Data Flow:** Ensure these values are passed correctly through all workflows:
+   - `run_id` → All workflows
+   - `environment name` → Datadog → PerfAnalysis → PerfReport
+   - `start_time` / `end_time` → BlazeMeter → Datadog
+   - `workspace_id` → BlazeMeter only (looked up from workspace name)
+
+3. **Error Recovery:** 
+   - API-based workflows (BlazeMeter, Datadog, Confluence): Retry up to 3 times
+   - Code-based workflows (PerfAnalysis, PerfReport): Report errors, do not retry
+
+4. **Independence:** Each individual workflow can be run standalone if needed. The E2E workflow is for convenience and automation.
+
+5. **Context Management:** Use task tracking to maintain state. If context is lost, the task list can be referenced to resume from the last completed step.
+

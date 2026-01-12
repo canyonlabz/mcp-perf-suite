@@ -279,3 +279,14 @@ perfreport-mcp/tests/**
 
 # Ignore all Playwright output files
 .playwright-mcp/*
+
+# Ignore all custom JMeter MCP test-spec files
+jmeter-mcp/test-specs/*
+!jmeter-mcp/test-specs/README.md
+!jmeter-mcp/test-specs/web-flows/blazedemo_product_purchase.md
+
+# Ignore all custom Cursor Rules files, except the below
+.cursor/rules/*.mdc 
+!.cursor/rules/jmeter-correlations.mdc
+!.cursor/rules/playwright-browser-automation.mdc
+!.cursor/rules/performance-testing-workflow.mdc
