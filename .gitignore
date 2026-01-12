@@ -266,8 +266,9 @@ jmeter-mcp/test_correlation_analyzer.py
 
 # ignore temp documentation files
 docs/*
-!docs/template_guidelines.md
+!docs/report_template_guidelines.md
 !docs/datadog_query_guide.md
+!docs/jmeter_mcp_configuration_guide.md
 !docs/README.md
 
 # Ignore test folders and scripts in perfanalysis-mcp and perfreport-mcp
