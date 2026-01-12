@@ -136,8 +136,14 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
     for candidate in source_candidates:
         usages = find_usages(candidate, entries)
         
-        # Only emit correlations where value flows forward at least once
-        if not usages:
+        # Check if this is an OAuth form_post token (always include these)
+        is_oauth_form_post = (
+            candidate.get("source_location") == "response_html_form" and
+            candidate.get("source_key", "").lower() in {"id_token", "code", "access_token"}
+        )
+        
+        # Emit correlations where value flows forward OR is an OAuth form_post token
+        if not usages and not is_oauth_form_post:
             continue
         
         correlation_counter += 1
@@ -148,15 +154,27 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
         if candidate.get("source_location") == "response_json":
             extractor_type = "json"
         
-        param_hint = classify_parameterization_strategy(True, len(usages))
-        param_hint["extractor_type"] = extractor_type
+        # For form_post tokens without usages, use special hint
+        if is_oauth_form_post and not usages:
+            param_hint = {
+                "strategy": "extract_for_bearer",
+                "extractor_type": "regex",
+                "reason": "OAuth form_post token - typically used as Authorization: Bearer header"
+            }
+            confidence = "medium"
+            correlation_found = False
+        else:
+            param_hint = classify_parameterization_strategy(True, len(usages))
+            param_hint["extractor_type"] = extractor_type
+            confidence = "high"
+            correlation_found = True
         
         correlation = {
             "correlation_id": correlation_id,
             "type": candidate.get("candidate_type", "unknown"),
             "value_type": candidate.get("value_type", "unknown"),
-            "confidence": "high",
-            "correlation_found": True,
+            "confidence": confidence,
+            "correlation_found": correlation_found,
             "source": {
                 "step_number": candidate.get("step_number"),
                 "step_label": candidate.get("step_label"),
@@ -173,6 +191,18 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
             "usages": usages,
             "parameterization_hint": param_hint,
         }
+        
+        # Add suggested variable name for OAuth form_post tokens
+        if candidate.get("suggested_var_name"):
+            correlation["suggested_var_name"] = candidate.get("suggested_var_name")
+        
+        # Add note for form_post tokens without detected usages
+        if is_oauth_form_post and not usages:
+            correlation["notes"] = (
+                "OAuth token extracted from form_post response. "
+                "Typically used in subsequent requests as 'Authorization: Bearer {token}' header. "
+                "Usage not detected in captured traffic - verify and parameterize manually if needed."
+            )
         
         correlations.append(correlation)
     
