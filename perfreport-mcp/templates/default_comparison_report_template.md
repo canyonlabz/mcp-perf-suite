@@ -119,27 +119,39 @@
 
 ## 5.0 Infrastructure Metrics Comparison
 
-### 5.1 CPU Utilization
+### 5.1 CPU Utilization by {{INFRA_ENTITY_TYPE}}
 
-| Service/Host | {{RUN_1_LABEL}} | {{RUN_2_LABEL}} | {{RUN_3_LABEL}} | {{RUN_4_LABEL}} | {{RUN_5_LABEL}} | Trend | Δ vs Run 1 |
+| {{INFRA_ENTITY_TYPE}} Name | {{RUN_1_LABEL}} | {{RUN_2_LABEL}} | {{RUN_3_LABEL}} | {{RUN_4_LABEL}} | {{RUN_5_LABEL}} | Trend | Δ vs Run 1 |
 |--------------|-----------------|-----------------|-----------------|-----------------|-----------------|-------|------------|
 {{CPU_COMPARISON_ROWS}}
 
 **Summary:**
-- **Improved:** {{CPU_IMPROVED_COUNT}} service(s) ⬆️
-- **Degraded:** {{CPU_DEGRADED_COUNT}} service(s) ⬇️
-- **Stable:** {{CPU_STABLE_COUNT}} service(s) ➡️
+- **Improved:** {{CPU_IMPROVED_COUNT}} {{INFRA_ENTITY_TYPE_LOWER}}(s) ⬆️
+- **Degraded:** {{CPU_DEGRADED_COUNT}} {{INFRA_ENTITY_TYPE_LOWER}}(s) ⬇️
+- **Stable:** {{CPU_STABLE_COUNT}} {{INFRA_ENTITY_TYPE_LOWER}}(s) ➡️
 
-### 5.2 Memory Utilization
+#### 5.1.1 CPU Core Usage by {{INFRA_ENTITY_TYPE}}
 
-| Service/Host | {{RUN_1_LABEL}} | {{RUN_2_LABEL}} | {{RUN_3_LABEL}} | {{RUN_4_LABEL}} | {{RUN_5_LABEL}} | Trend | Δ vs Run 1 |
+{{CPU_CORE_COMPARISON_ROWS}}
+
+> **Note:** Peak and Average values show actual CPU cores consumed. mCPU = millicores (1 core = 1000 mCPU). For host-based environments, CPU core values may not be available from Datadog metrics.
+
+### 5.2 Memory Utilization by {{INFRA_ENTITY_TYPE}}
+
+| {{INFRA_ENTITY_TYPE}} Name | {{RUN_1_LABEL}} | {{RUN_2_LABEL}} | {{RUN_3_LABEL}} | {{RUN_4_LABEL}} | {{RUN_5_LABEL}} | Trend | Δ vs Run 1 |
 |--------------|-----------------|-----------------|-----------------|-----------------|-----------------|-------|------------|
 {{MEMORY_COMPARISON_ROWS}}
 
 **Summary:**
-- **Improved:** {{MEMORY_IMPROVED_COUNT}} service(s) ⬆️
-- **Degraded:** {{MEMORY_DEGRADED_COUNT}} service(s) ⬇️
-- **Stable:** {{MEMORY_STABLE_COUNT}} service(s) ➡️
+- **Improved:** {{MEMORY_IMPROVED_COUNT}} {{INFRA_ENTITY_TYPE_LOWER}}(s) ⬆️
+- **Degraded:** {{MEMORY_DEGRADED_COUNT}} {{INFRA_ENTITY_TYPE_LOWER}}(s) ⬇️
+- **Stable:** {{MEMORY_STABLE_COUNT}} {{INFRA_ENTITY_TYPE_LOWER}}(s) ➡️
+
+#### 5.2.1 Memory Usage by {{INFRA_ENTITY_TYPE}}
+
+{{MEMORY_USAGE_COMPARISON_ROWS}}
+
+> **Note:** Peak and Average values show actual memory consumed. MB = Megabytes (1 GB = 1024 MB).
 
 ### 5.3 Resource Efficiency Assessment
 

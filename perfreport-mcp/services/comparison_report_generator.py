@@ -192,6 +192,9 @@ def _build_comparison_context(run_id_list: List[str], run_metadata_list: List[Di
         else:
             _populate_empty_run_column(context, i + 1)
     
+    # Determine infrastructure entity type (Host vs Service)
+    infra_entity_type = _determine_environment_type(run_metadata_list)
+    
     # Build comparison summaries and tables
     context.update({
         "EXECUTIVE_SUMMARY": _build_executive_summary(run_metadata_list),
@@ -219,7 +222,11 @@ def _build_comparison_context(run_id_list: List[str], run_metadata_list: List[Di
         "PEAK_THROUGHPUT_TREND": _format_trend_symbol(_calculate_metric_trend(run_metadata_list, ["performance_metrics", "peak_throughput"], lower_is_better=False)),
         "THROUGHPUT_SUMMARY": _build_throughput_summary(run_metadata_list),
         
-        # Infrastructure
+        # Infrastructure - Entity type for dynamic labels
+        "INFRA_ENTITY_TYPE": infra_entity_type,
+        "INFRA_ENTITY_TYPE_LOWER": infra_entity_type.lower(),
+        
+        # Infrastructure - Utilization (%) tables
         "CPU_COMPARISON_ROWS": _build_cpu_comparison_table(run_metadata_list),
         "MEMORY_COMPARISON_ROWS": _build_memory_comparison_table(run_metadata_list),
         "CPU_IMPROVED_COUNT": "0",
@@ -228,6 +235,11 @@ def _build_comparison_context(run_id_list: List[str], run_metadata_list: List[Di
         "MEMORY_IMPROVED_COUNT": "0",
         "MEMORY_DEGRADED_COUNT": str(_count_degraded_services(run_metadata_list, "memory")),
         "MEMORY_STABLE_COUNT": "0",
+        
+        # Infrastructure - Raw usage tables (Cores/GB)
+        "CPU_CORE_COMPARISON_ROWS": _build_cpu_core_comparison_table(run_metadata_list),
+        "MEMORY_USAGE_COMPARISON_ROWS": _build_memory_usage_comparison_table(run_metadata_list),
+        
         "RESOURCE_EFFICIENCY_SUMMARY": _build_resource_efficiency(run_metadata_list),
         
         # Correlation (optional)
@@ -575,25 +587,227 @@ def _build_throughput_summary(run_metadata_list: List[Dict]) -> str:
         return f"Throughput varies from {min(throughputs):.2f} to {max(throughputs):.2f} req/sec across runs."
 
 
-def _build_cpu_comparison_table(run_metadata_list: List[Dict]) -> str:
-    """Build CPU comparison table."""
-    # Get all services from first run
-    services = run_metadata_list[0]["infrastructure_metrics"].get("services", [])
+def _determine_environment_type(run_metadata_list: List[Dict]) -> str:
+    """
+    Determine if infrastructure is host-based or kubernetes-based.
     
-    if not services:
-        return "| No service data available | N/A | N/A | N/A | N/A | N/A | - | - |"
+    Returns:
+        'Host' for host-based environments, 'Service' for Kubernetes.
+    """
+    # Check the first run's entities for naming patterns
+    entities = run_metadata_list[0]["infrastructure_metrics"].get("entities", [])
+    
+    if not entities:
+        return "Service"  # Default to Service
+    
+    # Check entity names for host patterns (typically contain :: separator with hostname)
+    # Kubernetes services typically have patterns like "Perf::service-name*"
+    first_entity_name = entities[0].get("entity_name", "")
+    
+    # Host-based environments typically have hostnames with patterns like:
+    # "Environment::hostname" where hostname looks like a server name
+    # Kubernetes services have patterns like "Environment::service-name*"
+    
+    # Simple heuristic: if cpu_peak_cores is 0 for all entities, likely host-based
+    # (since Datadog doesn't provide raw core data for hosts)
+    all_zero_cores = all(
+        entity.get("cpu_peak_cores", 0) == 0 
+        for entity in entities
+    )
+    
+    if all_zero_cores:
+        return "Host"
+    else:
+        return "Service"
+
+
+def _get_entities_from_metadata(run_metadata_list: List[Dict]) -> List[str]:
+    """Get unique entity names across all runs."""
+    all_entities = set()
+    for meta in run_metadata_list:
+        entities = meta["infrastructure_metrics"].get("entities", [])
+        for entity in entities:
+            all_entities.add(entity.get("entity_name", "Unknown"))
+    return sorted(list(all_entities))
+
+
+def _build_cpu_core_comparison_table(run_metadata_list: List[Dict]) -> str:
+    """
+    Build CPU core comparison table with one row per entity,
+    columns for each run showing Peak (Cores), Avg (Cores).
+    """
+    env_type = _determine_environment_type(run_metadata_list)
+    entity_names = _get_entities_from_metadata(run_metadata_list)
+    run_count = len(run_metadata_list)
+    
+    if not entity_names:
+        return "No infrastructure data available for CPU core comparison."
+    
+    # Build dynamic header based on number of runs
+    header_cols = [f"{env_type} Name"]
+    for i in range(run_count):
+        header_cols.append(f"Run {i+1} Peak (Cores)")
+        header_cols.append(f"Run {i+1} Avg (Cores)")
+    header_cols.extend(["Trend", "Δ vs Run 1"])
+    
+    # Pad header for up to 5 runs
+    while len(header_cols) < 13:  # Name + (5 runs * 2 cols) + Trend + Delta
+        header_cols.insert(-2, "N/A")
+    
+    header = "| " + " | ".join(header_cols[:13]) + " |"
+    separator = "|" + "|".join(["---"] * 13) + "|"
+    
+    rows = [header, separator]
+    
+    for entity_name in entity_names[:10]:  # Limit to 10 entities
+        row_data = [entity_name]
+        first_peak = None
+        last_peak = None
+        
+        for i, meta in enumerate(run_metadata_list):
+            entities = meta["infrastructure_metrics"].get("entities", [])
+            entity = next((e for e in entities if e.get("entity_name") == entity_name), None)
+            
+            if entity:
+                peak_cores = entity.get("cpu_peak_cores", 0)
+                avg_cores = entity.get("cpu_avg_cores", 0)
+                
+                # Track first and last for trend calculation
+                if i == 0:
+                    first_peak = peak_cores
+                if i == len(run_metadata_list) - 1:
+                    last_peak = peak_cores
+                
+                # Format values - show N/A if zero (host environments)
+                if peak_cores == 0 and avg_cores == 0:
+                    row_data.append("N/A")
+                    row_data.append("N/A")
+                else:
+                    row_data.append(f"{peak_cores:.4f}")
+                    row_data.append(f"{avg_cores:.4f}")
+            else:
+                row_data.append("N/A")
+                row_data.append("N/A")
+        
+        # Pad with N/A for missing runs
+        while len(row_data) < 11:  # Name + (5 runs * 2 cols)
+            row_data.append("N/A")
+        
+        # Add trend and delta
+        if first_peak is not None and last_peak is not None and first_peak > 0:
+            delta, trend = _calculate_delta(last_peak, first_peak, lower_is_better=True)
+            row_data.append(trend)
+            row_data.append(f"{delta:+.2f}%")
+        else:
+            row_data.append("N/A")
+            row_data.append("N/A")
+        
+        rows.append("| " + " | ".join(str(x) for x in row_data[:13]) + " |")
+    
+    # Add note for host environments
+    if env_type == "Host":
+        rows.append("")
+        rows.append("*Note: CPU core usage is not available for host-based environments. Datadog provides CPU metrics as percentages only. See CPU Utilization section for percentage values.*")
+    
+    return "\n".join(rows)
+
+
+def _build_memory_usage_comparison_table(run_metadata_list: List[Dict]) -> str:
+    """
+    Build memory usage comparison table with one row per entity,
+    columns for each run showing Peak (GB), Avg (GB).
+    """
+    env_type = _determine_environment_type(run_metadata_list)
+    entity_names = _get_entities_from_metadata(run_metadata_list)
+    run_count = len(run_metadata_list)
+    
+    if not entity_names:
+        return "No infrastructure data available for memory usage comparison."
+    
+    # Build dynamic header based on number of runs
+    header_cols = [f"{env_type} Name"]
+    for i in range(run_count):
+        header_cols.append(f"Run {i+1} Peak (GB)")
+        header_cols.append(f"Run {i+1} Avg (GB)")
+    header_cols.extend(["Trend", "Δ vs Run 1"])
+    
+    # Pad header for up to 5 runs
+    while len(header_cols) < 13:  # Name + (5 runs * 2 cols) + Trend + Delta
+        header_cols.insert(-2, "N/A")
+    
+    header = "| " + " | ".join(header_cols[:13]) + " |"
+    separator = "|" + "|".join(["---"] * 13) + "|"
+    
+    rows = [header, separator]
+    
+    for entity_name in entity_names[:10]:  # Limit to 10 entities
+        row_data = [entity_name]
+        first_peak = None
+        last_peak = None
+        
+        for i, meta in enumerate(run_metadata_list):
+            entities = meta["infrastructure_metrics"].get("entities", [])
+            entity = next((e for e in entities if e.get("entity_name") == entity_name), None)
+            
+            if entity:
+                peak_gb = entity.get("memory_peak_gb", 0)
+                avg_gb = entity.get("memory_avg_gb", 0)
+                
+                # Track first and last for trend calculation
+                if i == 0:
+                    first_peak = peak_gb
+                if i == len(run_metadata_list) - 1:
+                    last_peak = peak_gb
+                
+                # Format values
+                if peak_gb == 0 and avg_gb == 0:
+                    row_data.append("N/A")
+                    row_data.append("N/A")
+                else:
+                    row_data.append(f"{peak_gb:.2f}")
+                    row_data.append(f"{avg_gb:.2f}")
+            else:
+                row_data.append("N/A")
+                row_data.append("N/A")
+        
+        # Pad with N/A for missing runs
+        while len(row_data) < 11:  # Name + (5 runs * 2 cols)
+            row_data.append("N/A")
+        
+        # Add trend and delta
+        if first_peak is not None and last_peak is not None and first_peak > 0:
+            delta, trend = _calculate_delta(last_peak, first_peak, lower_is_better=True)
+            row_data.append(trend)
+            row_data.append(f"{delta:+.2f}%")
+        else:
+            row_data.append("N/A")
+            row_data.append("N/A")
+        
+        rows.append("| " + " | ".join(str(x) for x in row_data[:13]) + " |")
+    
+    return "\n".join(rows)
+
+
+def _build_cpu_comparison_table(run_metadata_list: List[Dict]) -> str:
+    """Build CPU utilization (%) comparison table."""
+    # Get all entities from first run (use 'entities' key from metadata)
+    entities = run_metadata_list[0]["infrastructure_metrics"].get("entities", [])
+    
+    if not entities:
+        return "| No infrastructure data available | N/A | N/A | N/A | N/A | N/A | - | - |"
     
     rows = []
-    for service in services[:5]:  # Limit to 5 services
-        service_name = service.get("service_name", "Unknown")
-        row_data = [service_name]
+    for entity in entities[:5]:  # Limit to 5 entities
+        entity_name = entity.get("entity_name", "Unknown")
+        row_data = [entity_name]
         
         cpu_values = []
         for meta in run_metadata_list:
-            svc = next((s for s in meta["infrastructure_metrics"].get("services", []) 
-                       if s.get("service_name") == service_name), None)
-            if svc:
-                cpu_peak = svc.get("cpu_peak_pct", 0)
+            meta_entities = meta["infrastructure_metrics"].get("entities", [])
+            found_entity = next((e for e in meta_entities 
+                                if e.get("entity_name") == entity_name), None)
+            if found_entity:
+                cpu_peak = found_entity.get("cpu_peak_pct", 0)
                 cpu_values.append(cpu_peak)
                 row_data.append(f"{cpu_peak:.2f}%")
             else:
@@ -618,23 +832,25 @@ def _build_cpu_comparison_table(run_metadata_list: List[Dict]) -> str:
 
 
 def _build_memory_comparison_table(run_metadata_list: List[Dict]) -> str:
-    """Build memory comparison table (similar to CPU)."""
-    services = run_metadata_list[0]["infrastructure_metrics"].get("services", [])
+    """Build memory utilization (%) comparison table."""
+    # Get all entities from first run (use 'entities' key from metadata)
+    entities = run_metadata_list[0]["infrastructure_metrics"].get("entities", [])
     
-    if not services:
-        return "| No service data available | N/A | N/A | N/A | N/A | N/A | - | - |"
+    if not entities:
+        return "| No infrastructure data available | N/A | N/A | N/A | N/A | N/A | - | - |"
     
     rows = []
-    for service in services[:5]:
-        service_name = service.get("service_name", "Unknown")
-        row_data = [service_name]
+    for entity in entities[:5]:  # Limit to 5 entities
+        entity_name = entity.get("entity_name", "Unknown")
+        row_data = [entity_name]
         
         mem_values = []
         for meta in run_metadata_list:
-            svc = next((s for s in meta["infrastructure_metrics"].get("services", []) 
-                       if s.get("service_name") == service_name), None)
-            if svc:
-                mem_peak = svc.get("memory_peak_pct", 0)
+            meta_entities = meta["infrastructure_metrics"].get("entities", [])
+            found_entity = next((e for e in meta_entities 
+                                if e.get("entity_name") == entity_name), None)
+            if found_entity:
+                mem_peak = found_entity.get("memory_peak_pct", 0)
                 mem_values.append(mem_peak)
                 row_data.append(f"{mem_peak:.2f}%")
             else:
@@ -657,23 +873,23 @@ def _build_memory_comparison_table(run_metadata_list: List[Dict]) -> str:
 
 
 def _count_degraded_services(run_metadata_list: List[Dict], resource_type: str) -> int:
-    """Count services with degraded metrics."""
+    """Count entities with degraded metrics."""
     if len(run_metadata_list) < 2:
         return 0
     
-    services = run_metadata_list[0]["infrastructure_metrics"].get("services", [])
+    entities = run_metadata_list[0]["infrastructure_metrics"].get("entities", [])
     degraded_count = 0
     
     metric_key = f"{resource_type}_peak_pct"
     
-    for service in services:
-        service_name = service.get("service_name")
-        first_val = service.get(metric_key, 0)
+    for entity in entities:
+        entity_name = entity.get("entity_name")
+        first_val = entity.get(metric_key, 0)
         
-        last_svc = next((s for s in run_metadata_list[-1]["infrastructure_metrics"].get("services", [])
-                        if s.get("service_name") == service_name), None)
-        if last_svc:
-            last_val = last_svc.get(metric_key, 0)
+        last_entity = next((e for e in run_metadata_list[-1]["infrastructure_metrics"].get("entities", [])
+                           if e.get("entity_name") == entity_name), None)
+        if last_entity:
+            last_val = last_entity.get(metric_key, 0)
             delta, trend = _calculate_delta(last_val, first_val)
             if trend == "⬇️":
                 degraded_count += 1

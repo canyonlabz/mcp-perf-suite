@@ -220,7 +220,8 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
     Args:
         space_ref (str): Space identifier (space_id for cloud, space_key for on-prem) from list_spaces.
         test_run_id (str): ID of the test run (used for artifact path).
-        filename (str): Markdown report filename, as returned by list_available_reports.
+                           Use "comparisons" for comparison reports stored in artifacts/comparisons/.
+        filename (str): Markdown report filename, as returned by get_available_reports.
         mode (str): "cloud" or "onprem".
         ctx (Context): FastMCP context for error/status reporting.
         parent_id (str): Parent page ID to nest the new page under.
@@ -237,8 +238,30 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
             - 'title': The title used for the page (user-provided or auto-extracted).
             - 'title_source': Indicates where the title came from ("user_provided", "markdown_h1", or "filename").
             - 'status': Result status ("created" or "error").
+    
+    Examples:
+        # Single-run report
+        create_page(space_ref="MYQA", test_run_id="80247571", 
+                    filename="performance_report_80247571.md", mode="onprem", ...)
+        
+        # Comparison report
+        create_page(space_ref="MYQA", test_run_id="comparisons", 
+                    filename="comparison_report_run1_run2.md", mode="onprem", ...)
     """
     from pathlib import Path
+    from utils.config import load_config
+    
+    # Load artifacts path from config
+    config = load_config()
+    artifacts_path = config['artifacts']['artifacts_path']
+    
+    # Construct full path to markdown file based on test_run_id
+    if test_run_id == "comparisons":
+        # Comparison reports are stored directly in comparisons folder
+        markdown_file_path = Path(artifacts_path) / "comparisons" / filename
+    else:
+        # Single-run reports are in test_run_id/reports/ folder
+        markdown_file_path = Path(artifacts_path) / test_run_id / "reports" / filename
     
     title_source = None
     
@@ -259,7 +282,7 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
     else:
         # Fall back to extracting title from markdown or filename
         try:
-            with open(filename, 'r', encoding='utf-8') as f:
+            with open(markdown_file_path, 'r', encoding='utf-8') as f:
                 first_line = f.readline().strip()
                 if first_line.startswith('#'):
                     title = first_line.lstrip('#').strip()
@@ -322,11 +345,20 @@ async def get_available_reports(test_run_id: str = None, ctx: Context = None) ->
     Lists available Markdown performance reports that can be published to Confluence.
     
     Args:
-        test_run_id: Optional test run ID for single-run reports. If omitted, lists comparison reports.
+        test_run_id: Test run ID for single-run reports.
+                     Use None or "comparisons" to list comparison reports.
         ctx: FastMCP context.
     
     Returns:
         List of report metadata dicts with filename, type, and test run IDs.
+    
+    Examples:
+        # List single-run reports for a specific test
+        get_available_reports(test_run_id="80247571")
+        
+        # List comparison reports (either approach works)
+        get_available_reports()
+        get_available_reports(test_run_id="comparisons")
     """
     return await list_available_reports(test_run_id, ctx)
 

@@ -17,15 +17,28 @@ async def markdown_to_confluence_xhtml(test_run_id: str, filename: str, ctx: Con
     
     Args:
         test_run_id: ID of the test run (used for artifact path).
+                     Use "comparisons" for comparison reports stored in artifacts/comparisons/.
         filename: Filename of the markdown report.
         ctx: FastMCP context for logging.
     
     Returns:
         str: Flattened Confluence-compatible XHTML markup (newlines removed), 
              or error dict if conversion fails.
+    
+    Examples:
+        # Single-run report
+        markdown_to_confluence_xhtml("80247571", "performance_report_80247571.md")
+        
+        # Comparison report
+        markdown_to_confluence_xhtml("comparisons", "comparison_report_run1_run2.md")
     """
-    # Check if file exists
-    markdown_path = Path(ARTIFACTS_PATH) / test_run_id / "reports" / filename
+    # Check if this is a comparison report or single-run report
+    if test_run_id == "comparisons":
+        # Comparison reports are stored directly in comparisons folder
+        markdown_path = Path(ARTIFACTS_PATH) / "comparisons" / filename
+    else:
+        # Single-run reports are in test_run_id/reports/ folder
+        markdown_path = Path(ARTIFACTS_PATH) / test_run_id / "reports" / filename
     file_path = Path(markdown_path)
     if not file_path.exists():
         error_msg = f"Markdown file not found: {markdown_path}"

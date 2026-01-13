@@ -14,7 +14,7 @@ async def list_available_reports(test_run_id: Optional[str] = None, ctx: Context
     
     Args:
         test_run_id: If provided, lists single-run reports for that run_id.
-                     If None, lists comparison reports from 'comparisons/' folder.
+                     If None or "comparisons", lists comparison reports from 'comparisons/' folder.
         ctx: FastMCP context for logging.
     
     Returns:
@@ -24,10 +24,18 @@ async def list_available_reports(test_run_id: Optional[str] = None, ctx: Context
         - report_type ("single" or "comparison")
         - test_run_ids (list)
         - display_name (parsed title or filename)
+    
+    Examples:
+        # List single-run reports
+        list_available_reports("80247571")
+        
+        # List comparison reports (either works)
+        list_available_reports()
+        list_available_reports("comparisons")
     """
     reports = []
     
-    if test_run_id:
+    if test_run_id and test_run_id != "comparisons":
         # Single test run reports: artifacts/<test_run_id>/reports/
         report_dir = Path(ARTIFACTS_PATH) / test_run_id / "reports"
         report_type = "single"
