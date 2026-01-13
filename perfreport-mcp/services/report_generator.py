@@ -154,6 +154,16 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
         datadog_path = run_path / "datadog"
         apm_trace_summary = await _load_apm_trace_summary(datadog_path, source_files, warnings)
         
+        # Load BlazeMeter test configuration (optional - contains max_virtual_users, actual test dates)
+        blazemeter_path = run_path / "blazemeter"
+        blazemeter_config = await _load_json_safe(
+            blazemeter_path / "test_config.json",
+            "blazemeter_test_config",
+            source_files,
+            warnings,
+            []  # Don't add to missing_sections - this is optional
+        )
+        
         # Select template
         template_name = template or "default_report_template.md"
         template_path = TEMPLATES_PATH / template_name
@@ -180,7 +190,8 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             infra_summary_md,
             corr_summary_md,
             log_data,
-            apm_trace_summary
+            apm_trace_summary,
+            blazemeter_config
         )
 
         # Extract key metrics for metadata (needed for comparison reports)
@@ -297,12 +308,15 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             
             # Add detailed metrics for comparison report generator
             "test_config": {
-                "test_date": generated_timestamp,
+                "test_date": context.get("TEST_DATE", "N/A"),  # Actual test date from BlazeMeter
+                "start_time": context.get("START_TIME", "N/A"),  # Full start timestamp
+                "end_time": context.get("END_TIME", "N/A"),  # Full end timestamp
                 "test_duration": overall_stats.get("test_duration", 0),
                 "total_samples": overall_stats.get("total_samples", 0),
                 "success_rate": overall_stats.get("success_rate", 0),
                 "environment": context.get("ENVIRONMENT", "Unknown"),
-                "test_type": context.get("TEST_TYPE", "Load Test")
+                "test_type": context.get("TEST_TYPE", "Load Test"),
+                "max_virtual_users": context.get("MAX_VIRTUAL_USERS", "N/A")  # From BlazeMeter config
             },
             
             "performance_metrics": {
@@ -375,16 +389,35 @@ def _build_report_context(
     infra_md: Optional[str],
     corr_md: Optional[str],
     log_data: Optional[Dict] = None,
-    apm_trace_summary: Optional[Dict] = None
+    apm_trace_summary: Optional[Dict] = None,
+    blazemeter_config: Optional[Dict] = None
 ) -> Dict:
     """Build context dictionary for template rendering"""
+    
+    # Extract BlazeMeter test configuration (max_virtual_users, actual test dates/times)
+    max_virtual_users = "N/A"
+    test_date = "N/A"
+    start_time_full = "N/A"
+    end_time_full = "N/A"
+    if blazemeter_config:
+        max_virtual_users = blazemeter_config.get("max_virtual_users", "N/A")
+        # Get full start/end times (format: "2025-12-16 07:03:53 UTC")
+        start_time_full = blazemeter_config.get("start_time", "N/A")
+        end_time_full = blazemeter_config.get("end_time", "N/A")
+        # Extract just the date portion (YYYY-MM-DD) for test_date
+        if start_time_full and start_time_full != "N/A":
+            test_date = start_time_full.split(" ")[0] if " " in start_time_full else start_time_full[:10]
     
     context = {
         "RUN_ID": run_id,
         "GENERATED_TIMESTAMP": timestamp,
         "MCP_VERSION": MCP_VERSION,
         "ENVIRONMENT": "Unknown",
-        "TEST_TYPE": "Load Test"
+        "TEST_TYPE": "Load Test",
+        "MAX_VIRTUAL_USERS": max_virtual_users,
+        "TEST_DATE": test_date,
+        "START_TIME": start_time_full,
+        "END_TIME": end_time_full
     }
     
     # Extract performance data

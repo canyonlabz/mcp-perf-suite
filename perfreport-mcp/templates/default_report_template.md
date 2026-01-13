@@ -15,6 +15,10 @@
 | Configuration Item | Value |
 |-------------------|-------|
 | Test Run ID | {{RUN_ID}} |
+| Test Date | {{TEST_DATE}} |
+| Start Time | {{START_TIME}} |
+| End Time | {{END_TIME}} |
+| Max Virtual Users | {{MAX_VIRTUAL_USERS}} |
 | Test Duration | {{TEST_DURATION}} |
 | Total Samples | {{TOTAL_SAMPLES}} |
 | Success Rate | {{SUCCESS_RATE}}% |

@@ -279,10 +279,21 @@ def _populate_run_column(context: Dict, run_num: int, metadata: Dict, index: int
         # Will be calculated in table builders
         delta_str = ""
     
+    # Extract max_virtual_users (may be int or string)
+    max_vu = test_config.get("max_virtual_users", "N/A")
+    max_vu_str = str(max_vu) if max_vu != "N/A" else "N/A"
+    
+    # Extract start/end times
+    start_time = test_config.get("start_time", "N/A")
+    end_time = test_config.get("end_time", "N/A")
+    
     context.update({
         f"{prefix}ID": metadata.get("run_id", "N/A"),
         f"{prefix}LABEL": f"Run {run_num}",
         f"{prefix}DATE": test_config.get("test_date", "N/A")[:10] if test_config.get("test_date") else "N/A",
+        f"{prefix}START_TIME": start_time,
+        f"{prefix}END_TIME": end_time,
+        f"{prefix}MAX_VU": max_vu_str,
         f"{prefix}DURATION": f"{test_config.get('test_duration', 0)} seconds",
         f"{prefix}SAMPLES": str(test_config.get("total_samples", 0)),
         f"{prefix}SUCCESS_RATE": f"{test_config.get('success_rate', 0):.2f}",
@@ -303,9 +314,9 @@ def _populate_empty_run_column(context: Dict, run_num: int):
     """Populate context with N/A for missing run columns."""
     prefix = f"RUN_{run_num}_"
     
-    for key in ["ID", "LABEL", "DATE", "DURATION", "SAMPLES", "SUCCESS_RATE", 
-                "ENV", "TYPE", "AVG_THROUGHPUT", "PEAK_THROUGHPUT", "ERROR_COUNT",
-                "ERROR_RATE", "ERROR_DELTA", "TOP_ERROR"]:
+    for key in ["ID", "LABEL", "DATE", "START_TIME", "END_TIME", "MAX_VU", "DURATION", 
+                "SAMPLES", "SUCCESS_RATE", "ENV", "TYPE", "AVG_THROUGHPUT", "PEAK_THROUGHPUT", 
+                "ERROR_COUNT", "ERROR_RATE", "ERROR_DELTA", "TOP_ERROR"]:
         context[f"{prefix}{key}"] = "N/A"
 
 

@@ -26,6 +26,9 @@
 |--------------------|-----------------|-----------------|-----------------|-----------------|-----------------|
 | **Test Run ID** | {{RUN_1_ID}} | {{RUN_2_ID}} | {{RUN_3_ID}} | {{RUN_4_ID}} | {{RUN_5_ID}} |
 | **Test Date** | {{RUN_1_DATE}} | {{RUN_2_DATE}} | {{RUN_3_DATE}} | {{RUN_4_DATE}} | {{RUN_5_DATE}} |
+| **Start Time** | {{RUN_1_START_TIME}} | {{RUN_2_START_TIME}} | {{RUN_3_START_TIME}} | {{RUN_4_START_TIME}} | {{RUN_5_START_TIME}} |
+| **End Time** | {{RUN_1_END_TIME}} | {{RUN_2_END_TIME}} | {{RUN_3_END_TIME}} | {{RUN_4_END_TIME}} | {{RUN_5_END_TIME}} |
+| **Max Virtual Users** | {{RUN_1_MAX_VU}} | {{RUN_2_MAX_VU}} | {{RUN_3_MAX_VU}} | {{RUN_4_MAX_VU}} | {{RUN_5_MAX_VU}} |
 | **Test Duration** | {{RUN_1_DURATION}} | {{RUN_2_DURATION}} | {{RUN_3_DURATION}} | {{RUN_4_DURATION}} | {{RUN_5_DURATION}} |
 | **Total Samples** | {{RUN_1_SAMPLES}} | {{RUN_2_SAMPLES}} | {{RUN_3_SAMPLES}} | {{RUN_4_SAMPLES}} | {{RUN_5_SAMPLES}} |
 | **Success Rate** | {{RUN_1_SUCCESS_RATE}}% | {{RUN_2_SUCCESS_RATE}}% | {{RUN_3_SUCCESS_RATE}}% | {{RUN_4_SUCCESS_RATE}}% | {{RUN_5_SUCCESS_RATE}}% |
