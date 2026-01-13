@@ -210,10 +210,10 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             # Choose platform branch based on environment type
             if environment_type == "kubernetes":
                 platform = detailed.get("kubernetes", {})
-                entities = platform.get("services", {})
+                entities = platform.get("entities", {})  # Key is "entities" in infrastructure_analysis.json
             else:  # host
                 platform = detailed.get("hosts", {})
-                entities = platform.get("hosts", {})
+                entities = platform.get("entities", {})  # Key is "entities" in infrastructure_analysis.json
             
             for entity_name, entity_data in entities.items():
                 cpu_analysis = entity_data.get("cpu_analysis", {})
@@ -1092,10 +1092,10 @@ def _extract_infra_peaks(environment_type: str, infra_data: Dict) -> tuple:
     # Choose platform branch based on environment type
     if environment_type == "kubernetes":
         platform = detailed.get("kubernetes", {})
-        entities = platform.get("services", {})
+        entities = platform.get("entities", {})  # Key is "entities" in infrastructure_analysis.json
     else:
         platform = detailed.get("hosts", {})
-        entities = platform.get("hosts", {})
+        entities = platform.get("entities", {})  # Key is "entities" in infrastructure_analysis.json
 
     for entity_data in entities.values():
         cpu_analysis = entity_data.get("cpu_analysis", {})
