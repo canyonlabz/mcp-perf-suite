@@ -101,7 +101,15 @@
 - ⬇️ **Degraded** (response time increased)
 - ➡️ **Stable** (±5% or less)
 
-### 4.2 Top Response Time Offenders
+### 4.2 90th Percentile Response Time by API
+
+**P90 response times across runs (lower is better):**
+
+{{P90_COMPARISON_ROWS}}
+
+> **Note:** P90 (90th percentile) means 90% of requests completed faster than this time. This metric is more representative of user experience than average response time.
+
+### 4.3 Top Response Time Offenders
 
 **APIs with consistently high response times across runs:**
 
@@ -109,7 +117,7 @@
 |----------|---------------------|---------------------|---------------------|---------------------|---------------------|-------|
 {{TOP_OFFENDERS_ROWS}}
 
-### 4.3 Throughput Comparison
+### 4.4 Throughput Comparison
 
 | Metric | {{RUN_1_LABEL}} | {{RUN_2_LABEL}} | {{RUN_3_LABEL}} | {{RUN_4_LABEL}} | {{RUN_5_LABEL}} | Trend |
 |--------|-----------------|-----------------|-----------------|-----------------|-----------------|-------|

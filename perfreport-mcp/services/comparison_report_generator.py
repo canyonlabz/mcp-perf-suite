@@ -216,6 +216,7 @@ def _build_comparison_context(run_id_list: List[str], run_metadata_list: List[Di
         # API Performance
         "API_COMPARISON_ROWS": _build_api_comparison_table(run_metadata_list),
         "TOP_OFFENDERS_ROWS": _build_top_offenders_table(run_metadata_list),
+        "P90_COMPARISON_ROWS": _build_p90_comparison_table(run_id_list, run_metadata_list),
         
         # Throughput
         "THROUGHPUT_TREND": _format_trend_symbol(_calculate_metric_trend(run_metadata_list, ["performance_metrics", "avg_throughput"], lower_is_better=False)),
@@ -287,6 +288,10 @@ def _populate_run_column(context: Dict, run_num: int, metadata: Dict, index: int
     start_time = test_config.get("start_time", "N/A")
     end_time = test_config.get("end_time", "N/A")
     
+    # Format duration as human-readable
+    duration_seconds = test_config.get('test_duration', 0)
+    duration_formatted = _format_duration(duration_seconds)
+    
     context.update({
         f"{prefix}ID": metadata.get("run_id", "N/A"),
         f"{prefix}LABEL": f"Run {run_num}",
@@ -294,7 +299,7 @@ def _populate_run_column(context: Dict, run_num: int, metadata: Dict, index: int
         f"{prefix}START_TIME": start_time,
         f"{prefix}END_TIME": end_time,
         f"{prefix}MAX_VU": max_vu_str,
-        f"{prefix}DURATION": f"{test_config.get('test_duration', 0)} seconds",
+        f"{prefix}DURATION": duration_formatted,
         f"{prefix}SAMPLES": str(test_config.get("total_samples", 0)),
         f"{prefix}SUCCESS_RATE": f"{test_config.get('success_rate', 0):.2f}",
         f"{prefix}ENV": test_config.get("environment", "Unknown"),
@@ -330,6 +335,31 @@ def _render_comparison_template(template: str, context: Dict) -> str:
 
 
 # ===== CALCULATION HELPERS =====
+
+def _format_duration(seconds: int) -> str:
+    """
+    Format duration in seconds to human-readable format.
+    
+    Args:
+        seconds: Duration in seconds
+        
+    Returns:
+        Formatted string like "90m 28s" or "1h 30m 28s"
+    """
+    if seconds <= 0:
+        return "0s"
+    
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    secs = seconds % 60
+    
+    if hours > 0:
+        return f"{hours}h {minutes}m {secs}s"
+    elif minutes > 0:
+        return f"{minutes}m {secs}s"
+    else:
+        return f"{secs}s"
+
 
 def _calculate_delta(current: float, previous: float, lower_is_better: bool = True) -> Tuple[float, str]:
     """
@@ -640,6 +670,142 @@ def _get_entities_from_metadata(run_metadata_list: List[Dict]) -> List[str]:
         for entity in entities:
             all_entities.add(entity.get("entity_name", "Unknown"))
     return sorted(list(all_entities))
+
+
+def _load_performance_analysis(run_id: str) -> Dict:
+    """
+    Load performance_analysis.json for a given run.
+    
+    Args:
+        run_id: Test run identifier
+        
+    Returns:
+        Dict containing performance analysis data, or empty dict if not found
+    """
+    perf_analysis_path = ARTIFACTS_PATH / run_id / "analysis" / "performance_analysis.json"
+    
+    if not perf_analysis_path.exists():
+        return {}
+    
+    try:
+        with open(perf_analysis_path, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _get_api_names_from_perf_analysis(run_id_list: List[str]) -> List[str]:
+    """
+    Get unique API names across all runs from performance analysis files.
+    Filters out non-API entries (like 'Duration Check', 'Assign Users', etc.)
+    
+    Args:
+        run_id_list: List of test run IDs
+        
+    Returns:
+        Sorted list of unique API names
+    """
+    all_apis = set()
+    
+    # Patterns to exclude (test framework artifacts, not actual APIs)
+    exclude_patterns = [
+        "Duration Check",
+        "Assign Users",
+        "Loop Start",
+        "Loop End",
+        "Initialize",
+        "Launch",
+        "Microsoft_Login",
+        "Login Successful"
+    ]
+    
+    for run_id in run_id_list:
+        perf_data = _load_performance_analysis(run_id)
+        api_analysis = perf_data.get("api_analysis", {})
+        
+        for api_name in api_analysis.keys():
+            # Filter out non-API entries
+            if not any(pattern in api_name for pattern in exclude_patterns):
+                all_apis.add(api_name)
+    
+    return sorted(list(all_apis))
+
+
+def _build_p90_comparison_table(run_id_list: List[str], run_metadata_list: List[Dict]) -> str:
+    """
+    Build P90 response time comparison table by API.
+    Reads directly from performance_analysis.json files.
+    
+    Args:
+        run_id_list: List of test run IDs
+        run_metadata_list: List of metadata dicts (used for run labels)
+        
+    Returns:
+        Markdown table string
+    """
+    run_count = len(run_id_list)
+    api_names = _get_api_names_from_perf_analysis(run_id_list)
+    
+    if not api_names:
+        return "| No API performance data available | N/A | N/A | N/A | N/A | N/A | - | - |"
+    
+    # Build dynamic header based on number of runs
+    header_cols = ["API Name"]
+    for i in range(run_count):
+        header_cols.append(f"Run {i+1} P90 (ms)")
+    
+    # Pad for up to 5 runs
+    while len(header_cols) < 6:
+        header_cols.append("N/A")
+    
+    header_cols.extend(["Trend", "Δ vs Run 1"])
+    
+    header = "| " + " | ".join(header_cols[:8]) + " |"
+    separator = "|" + "|".join(["---"] * 8) + "|"
+    
+    rows = [header, separator]
+    
+    # Load performance data for each run once
+    perf_data_list = [_load_performance_analysis(run_id) for run_id in run_id_list]
+    
+    for api_name in api_names[:15]:  # Limit to 15 APIs for readability
+        row_data = [api_name]
+        first_p90 = None
+        last_p90 = None
+        
+        for i, perf_data in enumerate(perf_data_list):
+            api_analysis = perf_data.get("api_analysis", {})
+            api_data = api_analysis.get(api_name, {})
+            
+            p90 = api_data.get("p90_response_time", 0)
+            
+            # Track first and last for trend calculation
+            if i == 0 and p90 > 0:
+                first_p90 = p90
+            if i == len(perf_data_list) - 1 and p90 > 0:
+                last_p90 = p90
+            
+            if p90 > 0:
+                row_data.append(f"{p90:.0f}")
+            else:
+                row_data.append("N/A")
+        
+        # Pad with N/A for missing runs
+        while len(row_data) < 6:
+            row_data.append("N/A")
+        
+        # Add trend and delta (for P90, lower is better)
+        if first_p90 is not None and last_p90 is not None and first_p90 > 0:
+            delta, trend = _calculate_delta(last_p90, first_p90, lower_is_better=True)
+            row_data.append(trend)
+            row_data.append(f"{delta:+.1f}%")
+        else:
+            row_data.append("N/A")
+            row_data.append("N/A")
+        
+        rows.append("| " + " | ".join(str(x) for x in row_data[:8]) + " |")
+    
+    return "\n".join(rows)
 
 
 def _build_cpu_core_comparison_table(run_metadata_list: List[Dict]) -> str:
