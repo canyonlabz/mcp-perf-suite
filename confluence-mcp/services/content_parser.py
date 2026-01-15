@@ -230,11 +230,17 @@ def _markdown_to_confluence_storage_format(markdown: str) -> str:
             xhtml_lines.append(f'<ul><li>{content}</li></ul>')
             continue
         
-        # Handle chart placeholders
+        # Handle chart placeholders - PRESERVE for later image substitution
+        # New format: {{CHART_PLACEHOLDER: SCHEMA_ID}}
+        if '{{CHART_PLACEHOLDER:' in line:
+            # Keep placeholder as-is wrapped in <p> tags (will be replaced by update_page tool)
+            xhtml_lines.append(f'<p>{line.strip()}</p>')
+            continue
+        
+        # Legacy format: [CHART_PLACEHOLDER: ...] - convert to new format notice
         if '[CHART_PLACEHOLDER:' in line:
-            chart_name = re.search(r'$$CHART_PLACEHOLDER:\s*([^$$]+)$$', line)
-            if chart_name:
-                xhtml_lines.append(f'<p><em>[Chart: {chart_name.group(1)}]</em></p>')
+            # Warn about old format - should be updated to use {{}} format
+            xhtml_lines.append(f'<p><em>[Legacy placeholder - update to curly brace format]</em></p>')
             continue
         
         # Handle blockquotes
@@ -294,4 +300,79 @@ def _escape_html(text: str) -> str:
             .replace('>', '&gt;')
             .replace('"', '&quot;')
             .replace("'", '&#39;'))
+
+
+# -----------------------------------------------
+# Confluence Image XHTML Generation Functions
+# -----------------------------------------------
+
+def generate_confluence_image_xhtml(filename: str, height: int = 250) -> str:
+    """
+    Generate Confluence storage-format XHTML for an embedded image.
+    
+    Args:
+        filename: Image filename (just the name, not full path).
+        height: Image height in pixels (default 250).
+    
+    Returns:
+        str: Confluence ac:image XHTML markup.
+    
+    Note:
+        Does NOT use ac:align attribute to avoid float behavior.
+        Confluence will left-align by default, with content flowing below.
+    
+    Example:
+        >>> generate_confluence_image_xhtml("CPU_UTILIZATION_MULTILINE.png", 300)
+        '<ac:image ac:height="300"><ri:attachment ri:filename="CPU_UTILIZATION_MULTILINE.png" /></ac:image>'
+    """
+    return f'<ac:image ac:height="{height}"><ri:attachment ri:filename="{filename}" /></ac:image>'
+
+
+def replace_chart_placeholders(xhtml: str, chart_mapping: dict, default_height: int = 250) -> str:
+    """
+    Replace chart placeholders in XHTML with ac:image markup.
+    
+    This function finds all {{CHART_PLACEHOLDER: SCHEMA_ID}} markers in the XHTML
+    and replaces them with the appropriate Confluence image macro XHTML.
+    
+    Args:
+        xhtml: XHTML content with {{CHART_PLACEHOLDER: ID}} markers.
+        chart_mapping: Dict mapping chart_id to {filename, height}.
+            Example:
+            {
+                "CPU_UTILIZATION_MULTILINE": {
+                    "filename": "CPU_UTILIZATION_MULTILINE.png",
+                    "height": 300
+                },
+                "MEMORY_UTILIZATION_MULTILINE": {
+                    "filename": "MEMORY_UTILIZATION_MULTILINE.png",
+                    "height": 300
+                }
+            }
+        default_height: Default image height if not specified in mapping.
+    
+    Returns:
+        str: XHTML with placeholders replaced by ac:image markup.
+        
+    Note:
+        - Placeholders without a matching chart in chart_mapping are left unchanged.
+        - The replacement wraps the image in a <p> tag for proper formatting.
+    """
+    # Pattern: {{CHART_PLACEHOLDER: CHART_ID}} - captures the ID
+    # Allows for optional whitespace around the colon and ID
+    pattern = r'\{\{CHART_PLACEHOLDER:\s*([A-Z0-9_]+)\s*\}\}'
+    
+    def replacer(match):
+        chart_id = match.group(1)
+        if chart_id in chart_mapping:
+            info = chart_mapping[chart_id]
+            filename = info.get('filename', f'{chart_id}.png')
+            height = info.get('height', default_height)
+            image_xhtml = generate_confluence_image_xhtml(filename, height)
+            return image_xhtml
+        else:
+            # Keep placeholder if no mapping found (will show as text in final page)
+            return match.group(0)
+    
+    return re.sub(pattern, replacer, xhtml)
 

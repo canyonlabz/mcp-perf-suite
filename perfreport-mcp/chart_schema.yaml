@@ -21,12 +21,14 @@ defaults:
     axis_label: 12
     tick_label: 10
     legend: 10
+  confluence:
+    image_height: 250  # Default height (px) for embedded images in Confluence
 
 charts:
   # ===== SECTION 2: SLA & ERRORS =====
   
   - id: "ERROR_RATE_LINE"
-    placeholder: "[CHART_PLACEHOLDER: ERROR_RATE_LINE]"
+    placeholder: "{{CHART_PLACEHOLDER: ERROR_RATE_LINE}}"
     chart_type: "single_axis_line"
     title: "Error Rate Over Time"
     description: "Time-series view of error occurrences during test execution"
@@ -41,7 +43,7 @@ charts:
   # ===== SECTION 3: RESPONSE TIME & THROUGHPUT =====
   
   - id: "RESP_TIME_P90_VUSERS_DUALAXIS"
-    placeholder: "[CHART_PLACEHOLDER: RESP_TIME_P90_VUSERS_DUALAXIS]"
+    placeholder: "{{CHART_PLACEHOLDER: RESP_TIME_P90_VUSERS_DUALAXIS}}"
     chart_type: "dual_axis_line"
     title: "Response Time (P90) vs Virtual Users"
     description: "Correlation between load and 90th percentile response time"
@@ -56,7 +58,7 @@ charts:
     include_legend: false
     
   - id: "THROUGHPUT_HITS_LINE"
-    placeholder: "[CHART_PLACEHOLDER: THROUGHPUT_HITS_LINE]"
+    placeholder: "{{CHART_PLACEHOLDER: THROUGHPUT_HITS_LINE}}"
     chart_type: "single_axis_line"
     title: "Throughput Over Time"
     description: "Transaction throughput (hits/sec) throughout test execution"
@@ -69,7 +71,7 @@ charts:
     include_legend: false
     
   - id: "TOP_SLOWEST_APIS_BAR"
-    placeholder: "[CHART_PLACEHOLDER: TOP_SLOWEST_APIS_BAR]"
+    placeholder: "{{CHART_PLACEHOLDER: TOP_SLOWEST_APIS_BAR}}"
     chart_type: "horizontal_bar"
     title: "Top API SLA Violators"
     description: "APIs with highest average response times exceeding SLA"
@@ -99,7 +101,7 @@ charts:
   # ===== SECTION 4: INFRASTRUCTURE (LINE CHARTS) =====
 
   - id: "CPU_UTILIZATION_LINE"
-    placeholder: "[CHART_PLACEHOLDER: CPU_UTILIZATION_LINE]"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_UTILIZATION_LINE}}"
     chart_type: "single_axis_line"
     title: "CPU Utilization - {resource_name}"
     description: "CPU utilization (%) for a specific host or Kubernetes service"
@@ -112,7 +114,7 @@ charts:
     include_legend: false
 
   - id: "MEMORY_UTILIZATION_LINE"
-    placeholder: "[CHART_PLACEHOLDER: MEMORY_UTILIZATION_LINE]"
+    placeholder: "{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_LINE}}"
     chart_type: "single_axis_line"
     title: "Memory Utilization - {resource_name}"
     description: "Memory utilization (%) for a specific host or Kubernetes service"
@@ -124,10 +126,46 @@ charts:
     show_grid: true
     include_legend: false
 
+  # ===== SECTION 4B: INFRASTRUCTURE (MULTI-LINE) =====
+  # Multi-line charts show ALL hosts/services on a single chart
+  # Used in default report template for consolidated view
+
+  - id: "CPU_UTILIZATION_MULTILINE"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_UTILIZATION_MULTILINE}}"
+    chart_type: "multi_line"
+    title: "CPU Utilization - All Services"
+    description: "CPU utilization (%) for all hosts/services on a single chart"
+    confluence:
+      image_height: 300  # Slightly larger for multi-line readability
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "CPU Utilization (%)"
+    colors: ["primary", "secondary", "info", "warning", "error"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper right"
+
+  - id: "MEMORY_UTILIZATION_MULTILINE"
+    placeholder: "{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_MULTILINE}}"
+    chart_type: "multi_line"
+    title: "Memory Utilization - All Services"
+    description: "Memory utilization (%) for all hosts/services on a single chart"
+    confluence:
+      image_height: 300  # Slightly larger for multi-line readability
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "Memory Utilization (%)"
+    colors: ["secondary", "primary", "warning", "info", "error"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper right"
+
   # ===== SECTION 5: INFRASTRUCTURE (STACKED AREA) =====
   
   - id: "CPU_UTILIZATION_STACKED"
-    placeholder: "[CHART_PLACEHOLDER: CPU_UTILIZATION_STACKED]"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_UTILIZATION_STACKED}}"
     chart_type: "stacked_area"
     title: "CPU Utilization (%)"
     description: "Cumulative CPU usage per service showing total resource consumption"
@@ -154,7 +192,7 @@ charts:
     legend_location: "upper left"
     
   - id: "MEM_UTILIZATION_STACKED"
-    placeholder: "[CHART_PLACEHOLDER: MEM_UTILIZATION_STACKED]"
+    placeholder: "{{CHART_PLACEHOLDER: MEM_UTILIZATION_STACKED}}"
     chart_type: "stacked_area"
     title: "Memory Utilization (%)"
     description: "Cumulative memory usage per service showing total resource consumption"
@@ -183,7 +221,7 @@ charts:
   # ===== SECTION 6: CORRELATION =====
   
   - id: "CORR_HEATMAP_MATRIX"
-    placeholder: "[CHART_PLACEHOLDER: CORR_HEATMAP_MATRIX]"
+    placeholder: "{{CHART_PLACEHOLDER: CORR_HEATMAP_MATRIX}}"
     chart_type: "heatmap"
     title: "Performance-Infrastructure Correlation Matrix"
     description: "Heatmap showing correlation strength between metrics"

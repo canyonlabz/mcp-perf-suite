@@ -40,8 +40,6 @@
 
 {{SLA_SUMMARY}}
 
-[CHART_PLACEHOLDER: Error Rate Over Time]
-
 ---
 
 ## 3.0 Performance Analysis
@@ -58,7 +56,7 @@
 | 99th Percentile | {{P99_RESPONSE_TIME}} |
 | Maximum | {{MAX_RESPONSE_TIME}} |
 
-[CHART_PLACEHOLDER: Response Time Distribution]
+{{CHART_PLACEHOLDER: RESP_TIME_P90_VUSERS_DUALAXIS}}
 
 ### 3.2 API Performance Details
 
@@ -68,8 +66,6 @@
 
 - **Average Throughput:** {{AVG_THROUGHPUT}} req/sec
 - **Peak Throughput:** {{PEAK_THROUGHPUT}} req/sec
-
-[CHART_PLACEHOLDER: Throughput Over Time]
 
 ---
 
@@ -83,7 +79,7 @@
 
 {{CPU_UTILIZATION_TABLE}}
 
-[CHART_PLACEHOLDER: CPU Utilization Over Time]
+{{CHART_PLACEHOLDER: CPU_UTILIZATION_MULTILINE}}
 
 #### 4.2.1 CPU Core Usage by {{INFRA_ENTITY_TYPE}}
 
@@ -95,7 +91,7 @@
 
 {{MEMORY_UTILIZATION_TABLE}}
 
-[CHART_PLACEHOLDER: Memory Utilization Over Time]
+{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_MULTILINE}}
 
 #### 4.3.1 Memory Usage by {{INFRA_ENTITY_TYPE}}
 
@@ -112,8 +108,6 @@
 ### 5.1 Performance-Infrastructure Correlations
 
 {{CORRELATION_DETAILS}}
-
-[CHART_PLACEHOLDER: Correlation Matrix]
 
 ---
 
