@@ -525,7 +525,7 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context) 
         return {"error": error_msg, "status": "error", "page_ref": page_ref, "test_run_id": test_run_id}
     
     # Load chart schema for heights
-    chart_schema_path = Path(__file__).parent.parent.parent / "perfreport-mcp" / "chart_schema.yaml"
+    chart_schema_path = Path(__file__).parent.parent / "perfreport-mcp" / "chart_schema.yaml"
     chart_heights = {}
     default_height = 250
     
