@@ -9,7 +9,7 @@ from services.confluence_api_v1 import (
     get_page_content_v1,
     create_page_v1, 
     search_content_v1,
-    #attach_file_v1,
+    attach_file_v1,
 )
 from services.confluence_api_v2 import (
     list_spaces_v2, 
@@ -19,7 +19,7 @@ from services.confluence_api_v2 import (
     get_page_content_v2,
     create_page_v2,
     search_content_v2,
-    #attach_file_v2,
+    attach_file_v2,
 )
 from services.artifact_manager import list_available_reports, list_available_charts
 from services.content_parser import markdown_to_confluence_xhtml
@@ -318,26 +318,135 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
     return result
 
 @mcp.tool
-async def attach_file(page_ref: str, filename: str, mode: str, ctx: Context) -> dict:
+async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context) -> dict:
     """
-    Attaches a PNG chart image to an existing Confluence report page.
-
+    Attaches all PNG chart images from a test run to an existing Confluence page.
+    
+    Uploads all PNG files from artifacts/<test_run_id>/charts/ to the specified page.
+    Continues on partial failures and reports which images succeeded/failed.
+    
     Args:
-        page_ref (str): Unique reference for target page (from create_page or list_pages).
-        filename (str): PNG image file name, from list_available_charts.
+        page_ref (str): Page ID to attach images to (from create_page or list_pages).
+        test_run_id (str): Test run ID whose charts to upload.
         mode (str): "cloud" or "onprem".
         ctx (Context): FastMCP context for chaining/error handling.
-
+    
     Returns:
-        Dict containing:
-            - 'page_ref': Target page.
-            - 'filename': Attached chart file.
-            - 'attachment_url': Final URL for attachment.
-            - 'status': Result status.
+        dict containing:
+            - 'page_ref': Target page ID
+            - 'test_run_id': Test run ID
+            - 'attached': List of successfully attached images with details
+            - 'failed': List of failed attachments with error details
+            - 'total_attempted': Total number of files attempted
+            - 'total_attached': Number of files successfully attached
+            - 'status': "success" (all attached), "partial" (some failed), or "error" (all failed)
+    
+    Example:
+        result = await attach_images(
+            page_ref="123456789",
+            test_run_id="80593110",
+            mode="onprem",
+            ctx=ctx
+        )
+        # Returns: {
+        #     "page_ref": "123456789",
+        #     "test_run_id": "80593110",
+        #     "attached": [
+        #         {"filename": "CPU_UTILIZATION_MULTILINE.png", "attachment_id": "...", ...},
+        #         {"filename": "RESP_TIME_P90_VUSERS_DUALAXIS.png", "attachment_id": "...", ...}
+        #     ],
+        #     "failed": [],
+        #     "total_attempted": 2,
+        #     "total_attached": 2,
+        #     "status": "success"
+        # }
     """
-    #if mode == "cloud":
-    #    return await attach_file_v2(page_ref, filename, ctx)
-    #return await attach_file_v1(page_ref, filename, ctx)
+    from pathlib import Path
+    from utils.config import load_config
+    
+    # Load artifacts path from config
+    config = load_config()
+    artifacts_path = Path(config['artifacts']['artifacts_path'])
+    
+    # Construct path to charts folder
+    charts_folder = artifacts_path / test_run_id / "charts"
+    
+    if not charts_folder.exists():
+        error_msg = f"Charts folder not found: {charts_folder}"
+        await ctx.error(error_msg)
+        return {
+            "error": error_msg,
+            "page_ref": page_ref,
+            "test_run_id": test_run_id,
+            "status": "error"
+        }
+    
+    # Find all PNG files in the charts folder
+    png_files = list(charts_folder.glob("*.png"))
+    
+    if not png_files:
+        error_msg = f"No PNG files found in: {charts_folder}"
+        await ctx.warning(error_msg)
+        return {
+            "page_ref": page_ref,
+            "test_run_id": test_run_id,
+            "attached": [],
+            "failed": [],
+            "total_attempted": 0,
+            "total_attached": 0,
+            "status": "error",
+            "message": error_msg
+        }
+    
+    await ctx.info(f"Found {len(png_files)} PNG files to attach in {charts_folder}")
+    
+    # Select the appropriate attach function based on mode
+    attach_func = attach_file_v2 if mode == "cloud" else attach_file_v1
+    
+    attached = []
+    failed = []
+    
+    # Attach each file, continuing on errors
+    for png_file in png_files:
+        try:
+            result = await attach_func(page_ref, str(png_file), ctx)
+            
+            if result.get("status") == "attached":
+                attached.append(result)
+            else:
+                failed.append(result)
+                
+        except Exception as e:
+            error_msg = f"Unexpected error attaching {png_file.name}: {str(e)}"
+            await ctx.error(error_msg)
+            failed.append({
+                "filename": png_file.name,
+                "error": error_msg,
+                "status": "error"
+            })
+    
+    # Determine overall status
+    total_attempted = len(png_files)
+    total_attached = len(attached)
+    
+    if total_attached == total_attempted:
+        status = "success"
+    elif total_attached > 0:
+        status = "partial"
+    else:
+        status = "error"
+    
+    await ctx.info(f"Attachment complete: {total_attached}/{total_attempted} images attached to page {page_ref}")
+    
+    return {
+        "page_ref": page_ref,
+        "test_run_id": test_run_id,
+        "attached": attached,
+        "failed": failed,
+        "total_attempted": total_attempted,
+        "total_attached": total_attached,
+        "status": status
+    }
 
 @mcp.tool()
 async def get_available_reports(test_run_id: str = None, ctx: Context = None) -> list:

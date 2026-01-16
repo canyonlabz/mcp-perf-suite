@@ -306,6 +306,97 @@ async def search_content_v2(query: str, space_key: str = None, ctx: Context = No
     return results
 
 
+async def attach_file_v2(page_ref: str, file_path: str, ctx: Context) -> dict:
+    """
+    Attaches a file (typically a PNG chart image) to an existing Confluence Cloud page.
+    
+    Uses the v1 attachment endpoint: POST /wiki/rest/api/content/{pageId}/child/attachment
+    (Cloud uses v1-style endpoints for attachments)
+    
+    Args:
+        page_ref (str): Page ID to attach the file to.
+        file_path (str): Full path to the file to upload.
+        ctx (Context): FastMCP invocation context.
+    
+    Returns:
+        dict: Attachment result including:
+            - attachment_id: ID of the created attachment
+            - filename: Name of the attached file
+            - page_ref: Page the file was attached to
+            - download_url: URL to download the attachment
+            - status: "attached" on success, "error" on failure
+    
+    Example:
+        result = await attach_file_v2("123456789", "/path/to/CPU_UTILIZATION_MULTILINE.png", ctx)
+    """
+    from pathlib import Path
+    
+    file_path_obj = Path(file_path)
+    if not file_path_obj.exists():
+        error_msg = f"File not found: {file_path}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "filename": file_path_obj.name}
+    
+    base_url = CONFLUENCE_V2_BASE_URL
+    # Cloud uses v1-style attachment endpoint
+    url = f"{base_url}/wiki/rest/api/content/{page_ref}/child/attachment"
+    
+    # Headers for multipart upload - no Content-Type header (httpx sets it with boundary)
+    # X-Atlassian-Token: nocheck is required to bypass XSRF protection
+    headers = get_headers({
+        "Accept": "application/json",
+        "X-Atlassian-Token": "nocheck"
+    })
+    
+    filename = file_path_obj.name
+    
+    try:
+        # Read file content
+        with open(file_path, 'rb') as f:
+            file_content = f.read()
+        
+        # Determine content type
+        content_type = "image/png" if filename.lower().endswith('.png') else "application/octet-stream"
+        
+        # Create multipart form data
+        files = {
+            'file': (filename, file_content, content_type)
+        }
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(url, headers=headers, files=files)
+            response.raise_for_status()
+            result = response.json()
+        
+        # Parse response - v1 API returns results array
+        results = result.get("results", [result])
+        if results:
+            attachment = results[0]
+            download_link = attachment.get("_links", {}).get("download", "")
+            attachment_data = {
+                "attachment_id": attachment.get("id"),
+                "filename": attachment.get("title", filename),
+                "page_ref": page_ref,
+                "download_url": f"{base_url}/wiki{download_link}" if download_link else "",
+                "status": "attached"
+            }
+            await ctx.info(f"Successfully attached '{filename}' to page {page_ref} (v2/cloud).")
+            return attachment_data
+        else:
+            error_msg = "No attachment returned in response"
+            await ctx.error(error_msg)
+            return {"error": error_msg, "status": "error", "filename": filename}
+            
+    except httpx.HTTPStatusError as e:
+        error_msg = f"Failed to attach file: {e.response.status_code} - {e.response.text}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "filename": filename}
+    except Exception as e:
+        error_msg = f"Failed to attach file: {str(e)}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "filename": filename}
+
+
 # -----------------------------
 # Helper functions
 # -----------------------------
