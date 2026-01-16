@@ -60,7 +60,7 @@ To ensure perfect compatibility with the Confluence MCP parser—**especially af
 | Lists              | ✔         | Ordered + unordered          |
 | Blockquotes        | ✔         | `> Note`                     |
 | Horizontal rule    | ✔         | `---`                        |
-| Chart placeholders | ✔         | `[CHART_PLACEHOLDER: Title]` |
+| Chart placeholders | ✔         | `{{CHART_PLACEHOLDER: SCHEMA_ID}}` |
 
 ### ❌ Not Allowed
 
@@ -220,6 +220,39 @@ Found via `_extract_infra_peaks()` and infra summaries:
 | Placeholder             | Meaning                |
 | ----------------------- | ---------------------- |
 | `{{SOURCE_FILES_LIST}}` | List of artifacts used |
+
+---
+
+### 📊 5.11 Chart Placeholders
+
+Chart placeholders are replaced with embedded images when publishing to Confluence.
+
+**Format:** `{{CHART_PLACEHOLDER: SCHEMA_ID}}`
+
+| Placeholder | Chart Type | Description |
+| ----------- | ---------- | ----------- |
+| `{{CHART_PLACEHOLDER: RESP_TIME_P90_VUSERS_DUALAXIS}}` | Dual-axis | P90 response time vs virtual users |
+| `{{CHART_PLACEHOLDER: CPU_UTILIZATION_MULTILINE}}` | Multi-line | CPU % for all hosts/services |
+| `{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_MULTILINE}}` | Multi-line | Memory % for all hosts/services |
+| `{{CHART_PLACEHOLDER: CPU_UTILIZATION_LINE}}` | Single-axis | CPU % for specific host/service |
+| `{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_LINE}}` | Single-axis | Memory % for specific host/service |
+
+**Important Notes:**
+- Use curly braces `{{...}}` NOT square brackets `[...]`
+- Schema IDs must be ALL_CAPS with underscores
+- Placeholders are preserved during Markdown-to-XHTML conversion
+- The Confluence `update_page` tool replaces these with `<ac:image>` markup
+- Placeholders without matching chart images are left as-is (visible as text)
+
+**Example Usage in Template:**
+
+```markdown
+## 4.1 CPU Utilization
+
+{{CHART_PLACEHOLDER: CPU_UTILIZATION_MULTILINE}}
+
+The chart above shows CPU utilization across all monitored services.
+```
 
 ---
 

@@ -187,13 +187,15 @@ For each test run:
    - Requires: `artifacts/{run_id}/analysis/performance_analysis.json` and other analysis JSON files from PerfAnalysis workflow.
 2. Use tool `list_chart_types` to see all available chart options.
    - This helps identify the correct chart_id values for chart creation.
-3. Use tool `create_chart` with the run_id:
-   - Create chart with chart_id "CPU_UTILIZATION_LINE" (requires env_name parameter for infrastructure charts).
-   - Create chart with chart_id "MEMORY_UTILIZATION_LINE" (requires env_name parameter for infrastructure charts).
-   - These charts visualize CPU and Memory utilization over time for the test run.
-4. Use tool `create_chart` with the run_id:
+3. Use tool `create_chart` with the run_id to create infrastructure charts:
+   - Create chart with chart_id "CPU_UTILIZATION_MULTILINE" (requires env_name parameter).
+   - Create chart with chart_id "MEMORY_UTILIZATION_MULTILINE" (requires env_name parameter).
+   - These multi-line charts show CPU and Memory utilization for ALL hosts/services on a single chart.
+   - Output files: `CPU_UTILIZATION_MULTILINE.png`, `MEMORY_UTILIZATION_MULTILINE.png`
+4. Use tool `create_chart` with the run_id to create performance charts:
    - Create chart with chart_id "RESP_TIME_P90_VUSERS_DUALAXIS".
-   - This dual-axis chart shows the correlation between 90th percentile response time and virtual users over time.
+   - This dual-axis chart shows the correlation between P90 response time and virtual users over time.
+   - Output file: `RESP_TIME_P90_VUSERS_DUALAXIS.png`
 5. **Error Handling:**
    - These are Python code executions (not API calls)
    - Do NOT retry on failure
@@ -247,12 +249,28 @@ For each test run:
    - filename: The report filename selected from step 4 (e.g., `performance_report_{test_run_id}.md`)
    - mode: The Confluence mode ("cloud" or "onprem") from prerequisites
    - parent_id: The parent page ID from step 3 (REQUIRED - must be provided)
-   - The tool will automatically convert the Markdown report to Confluence XHTML format and create the page nested under the parent page. 
-6. **Error Handling:**
+   - The tool will automatically convert the Markdown report to Confluence XHTML format and create the page nested under the parent page.
+   - Store the returned page_ref (page ID) for use in steps 6 and 7.
+6. Use tool `attach_images` with:
+   - page_ref: The page_ref (page ID) returned from step 5
+   - test_run_id: The test run ID from prerequisites
+   - mode: The Confluence mode ("cloud" or "onprem") from prerequisites
+   - This uploads ALL PNG chart images from `artifacts/{test_run_id}/charts/` to the page.
+   - Check the response for attached/failed counts. Continue even if some fail.
+7. Use tool `update_page` with:
+   - page_ref: The page_ref (page ID) returned from step 5
+   - test_run_id: The test run ID from prerequisites
+   - mode: The Confluence mode ("cloud" or "onprem") from prerequisites
+   - This replaces `{{CHART_PLACEHOLDER: ID}}` markers in the page with embedded `<ac:image>` markup.
+   - Check the response for placeholders_replaced and placeholders_remaining.
+8. **Error Handling:**
    - If API calls fail, retry up to 3 times
    - If retries fail, report error but continue (don't block other runs)
-7. **Validation:** Verify page was created successfully (check for page_ref and URL in response)
-8. Update task tracking: Mark all Confluence steps as completed.
+9. **Validation:** Verify:
+   - Page was created successfully (check for page_ref and URL in create_page response)
+   - Images were attached (check attach_images status: "success" or "partial")
+   - Placeholders were replaced (check update_page placeholders_replaced list)
+10. Update task tracking: Mark all Confluence steps as completed.
 
 ---
 

@@ -88,49 +88,75 @@ uv run confluence.py        # Alternative with uv
 | `get_page_content` | Retrieve full page content (storage XHTML) | ✅ | ✅ |
 | `search_pages` | Search pages using CQL queries | ✅ | ✅ |
 | `create_page` | Create new page from Markdown report | ✅ | ✅ |
-| `list_available_reports` | List local performance reports | ✅ | ✅ |
-| `list_available_charts` | List local performance charts | ✅ | ✅ |
+| `attach_images` | Attach all PNG charts to a page | ✅ | ✅ |
+| `update_page` | Replace chart placeholders with embedded images | ✅ | ✅ |
+| `get_available_reports` | List local performance reports | ✅ | ✅ |
+| `get_available_charts` | List local performance charts | ✅ | ✅ |
 | `convert_markdown_to_xhtml` | Convert Markdown to Confluence XHTML | ✅ | ✅ |
 
-**Coming Soon:**
-- `update_page` - Update existing page content
-- `attach_file` - Attach charts/artifacts to pages
+### 📈 Typical Workflows
 
-### 📈 Typical Workflow
+#### Workflow 1: Publish Report with Embedded Charts (Recommended)
 
-#### 1. List Available Reports
-```
-# List single-run reports for a specific test
-reports = await list_available_reports(test_run_id="80014829")
+This is the standard workflow for publishing performance reports with embedded chart images:
 
-# List comparison reports
-comparison_reports = await list_available_reports()
+```python
+# Step 1: Create page (with chart placeholders)
+page_result = await create_page(
+    space_ref="NPQA",           # Space key (on-prem) or ID (cloud)
+    test_run_id="80593110",
+    filename="performance_report_80593110.md",
+    mode="onprem",
+    parent_id="123456789"       # Parent page ID
+)
+page_ref = page_result["page_ref"]
+
+# Step 2: Attach all chart images to the page
+attach_result = await attach_images(
+    page_ref=page_ref,
+    test_run_id="80593110",
+    mode="onprem"
+)
+# Returns: {"attached": [...], "failed": [], "status": "success"}
+
+# Step 3: Update page to replace placeholders with embedded images
+update_result = await update_page(
+    page_ref=page_ref,
+    test_run_id="80593110",
+    mode="onprem"
+)
+# Returns: {"placeholders_replaced": ["CPU_UTILIZATION_MULTILINE", ...], ...}
 ```
 
-#### 2. Search for Target Space
-```
-# Search for spaces containing "QA"
-spaces = await search_pages(query="QA", mode="cloud")
-```
+#### Workflow 2: Simple Page Creation (No Images)
 
-#### 3. Create Page from Report
-```
-# Create page in specific space
+For reports without embedded charts:
+
+```python
+# Create page directly
 result = await create_page(
-    space_ref="7537021",  # Space ID (cloud) or key (on-prem)
-    filename="/path/to/performance_report_80014829.md",
-    mode="cloud"
+    space_ref="7537021",
+    test_run_id="80014829",
+    filename="performance_report_80014829.md",
+    mode="cloud",
+    parent_id="987654321"
 )
 ```
 
-#### 4. Search for Published Reports
-```
-# Find all performance test reports
+#### Workflow 3: Find and Update Existing Page
+
+```python
+# Search for existing report
 results = await search_pages(
-    query="performance test",
-    mode="cloud",
-    space_ref="XYZ"
+    query="Performance Report 80593110",
+    mode="onprem",
+    space_ref="MYQA"
 )
+page_ref = results[0]["page_ref"]
+
+# Re-attach and update with new charts
+await attach_images(page_ref, "80593110", "onprem")
+await update_page(page_ref, "80593110", "onprem")
 ```
 
 ### 📦 Project Structure
@@ -216,12 +242,10 @@ For corporate environments with custom CA certificates:
 
 ## 🚧 Future Enhancements
 
-- 🔄 Update page content (preserve version history)
-- 📎 Attach files to pages
 - 📑 Bulk page operations
-- 🖼️ Enhanced image/macro handling
 - 🏷️ Label and comment management
 - 📊 Advanced reporting templates
+- 🔄 Comparison report image support
 
 ## 🐛 Troubleshooting
 

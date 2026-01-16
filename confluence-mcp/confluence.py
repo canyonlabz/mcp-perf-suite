@@ -466,6 +466,9 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context) 
     
     IMPORTANT: Call attach_images BEFORE update_page to ensure images are uploaded.
     
+    Note: This tool fetches the current page version before updating, so manual edits
+    between create_page and update_page won't cause version conflicts.
+    
     Args:
         page_ref (str): Page ID to update (from create_page).
         test_run_id (str): Test run ID whose XHTML and charts to use.

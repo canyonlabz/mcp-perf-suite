@@ -8,11 +8,13 @@ This Python-based MCP server is built using FastMCP to generate easy-to-share, s
 ## ⭐ Features
 
 - 📝 Generate beautiful performance test reports (Markdown, PDF, Word)
-- 📊 Create PNG charts for single and dual-axis metric test visualizations
-- 📑 Template-driven formatting for flexible and branded reports
+- 📊 Create PNG charts for single-axis, dual-axis, and multi-line visualizations
+- 📈 Multi-line infrastructure charts showing all hosts/services on one chart
+- 📑 Template-driven formatting with chart placeholder support
 - 🗂 Compare multiple runs in a single analysis
 - 🛠 Revise reports based on business/AI feedback
 - 🔗 Modular structure with seamless MCP suite integration
+- 🖼️ Confluence-ready chart filenames following schema ID conventions
 
 ---
 
@@ -85,12 +87,32 @@ These are exposed for Cursor, agent, or CLI use:
 | Tool | Description |
 | :-- | :-- |
 | `create_performance_test_report` | Generate a report (Markdown, PDF, Word) from a single test run |
-| `create_single_axis_chart` | Create a PNG chart for one metric |
-| `create_dual_axis_chart` | Create a PNG chart with two metrics |
+| `create_chart` | Create a PNG chart by chart_id (single-axis, dual-axis, or multi-line) |
+| `list_chart_types` | List all available chart types from chart_schema.yaml |
 | `create_comparison_report` | Compare multiple runs in one report |
 | `revise_performance_test_report` | Apply feedback and revise a report |
 | `list_templates` | Show available report templates |
 | `get_template_details` | Show details/preview for a specific template |
+
+### 📊 Available Chart Types
+
+| Chart ID | Type | Description |
+| :-- | :-- | :-- |
+| `CPU_UTILIZATION_LINE` | Single-axis | CPU % for a specific host/service |
+| `MEMORY_UTILIZATION_LINE` | Single-axis | Memory % for a specific host/service |
+| `CPU_UTILIZATION_MULTILINE` | Multi-line | CPU % for ALL hosts/services on one chart |
+| `MEMORY_UTILIZATION_MULTILINE` | Multi-line | Memory % for ALL hosts/services on one chart |
+| `RESP_TIME_P90_VUSERS_DUALAXIS` | Dual-axis | P90 response time vs virtual users |
+
+### 📁 Chart Filename Conventions
+
+Charts are saved to `artifacts/<run_id>/charts/` using standardized filenames:
+
+| Chart Type | Filename Pattern | Example |
+| :-- | :-- | :-- |
+| Multi-line | `SCHEMA_ID.png` | `CPU_UTILIZATION_MULTILINE.png` |
+| Performance | `SCHEMA_ID.png` | `RESP_TIME_P90_VUSERS_DUALAXIS.png` |
+| Per-resource | `SCHEMA_ID-<resource>.png` | `CPU_UTILIZATION_LINE-api-gateway.png` |
 
 
 ---
