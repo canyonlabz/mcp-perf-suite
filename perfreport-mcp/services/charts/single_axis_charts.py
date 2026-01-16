@@ -78,13 +78,14 @@ async def generate_cpu_utilization_chart(df, chart_spec, env_type, resource_name
         label.set_horizontalalignment("right")
         label.set_rotation_mode("anchor")
 
-    # Save
+    # Save with schema ID and resource name: SCHEMA_ID-<resource_name>.png
+    chart_id = "CPU_UTILIZATION_LINE"
     bbox = chart_spec.get("bbox_inches", "tight")
-    chart_path = get_chart_output_path(run_id, f"cpu_metric_{resource_name}")
+    chart_path = get_chart_output_path(run_id, f"{chart_id}-{resource_name}")
     fig.savefig(chart_path, dpi=dpi, bbox_inches=bbox, facecolor="white")
     plt.close(fig)
 
-    return {"resource": resource_name, "path": str(chart_path)}
+    return {"chart_id": chart_id, "resource": resource_name, "path": str(chart_path)}
 
 async def generate_memory_utilization_chart(df, chart_spec, env_type, resource_name, run_id):
     """
@@ -146,13 +147,14 @@ async def generate_memory_utilization_chart(df, chart_spec, env_type, resource_n
         label.set_horizontalalignment("right")
         label.set_rotation_mode("anchor")
 
-    # Save
+    # Save with schema ID and resource name: SCHEMA_ID-<resource_name>.png
+    chart_id = "MEMORY_UTILIZATION_LINE"
     bbox = chart_spec.get("bbox_inches", "tight")
-    chart_path = get_chart_output_path(run_id, f"memory_metric_{resource_name}")
+    chart_path = get_chart_output_path(run_id, f"{chart_id}-{resource_name}")
     fig.savefig(chart_path, dpi=dpi, bbox_inches=bbox, facecolor="white")
     plt.close(fig)
 
-    return {"resource": resource_name, "path": str(chart_path)}
+    return {"chart_id": chart_id, "resource": resource_name, "path": str(chart_path)}
 
 async def generate_error_rate_chart(df, chart_spec, ctx):
     """

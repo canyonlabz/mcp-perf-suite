@@ -112,9 +112,11 @@ async def generate_p90_vusers_chart(df: pd.DataFrame, chart_spec: dict, run_id: 
         l2, lab2 = ax_right.get_legend_handles_labels()
         ax_left.legend(l1 + l2, lab1 + lab2, loc="upper left")
 
+    # Save with schema ID as filename (no hostname for performance charts)
+    chart_id = "RESP_TIME_P90_VUSERS_DUALAXIS"
     bbox = chart_spec.get("bbox_inches", "tight")
-    chart_path = get_chart_output_path(run_id, "p90_vs_vusers_dual_axis")
+    chart_path = get_chart_output_path(run_id, chart_id)
     fig.savefig(chart_path, dpi=dpi, bbox_inches=bbox, facecolor="white")
     plt.close(fig)
 
-    return {"chart_type": "RESP_TIME_P90_VUSERS_DUALAXIS", "path": str(chart_path)}
+    return {"chart_id": chart_id, "path": str(chart_path)}

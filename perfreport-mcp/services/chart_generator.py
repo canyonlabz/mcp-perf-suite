@@ -28,7 +28,7 @@ from utils.chart_utils import (
 )
 
 # Import chart functions
-from services.charts import single_axis_charts, dual_axis_charts
+from services.charts import single_axis_charts, dual_axis_charts, multi_line_charts
 
 # Load configuration globally
 CONFIG = load_config()
@@ -52,7 +52,8 @@ DPI = CHART_DEFAULTS['resolution']['dpi']
 # Chart mapping to functions and data sources
 chart_module_registry = {
     "single_axis_charts": single_axis_charts,
-    "dual_axis_charts": dual_axis_charts
+    "dual_axis_charts": dual_axis_charts,
+    "multi_line_charts": multi_line_charts,
 }
 
 chart_map = {
@@ -70,6 +71,17 @@ chart_map = {
         "function": "generate_p90_vusers_chart",
         "module": "dual_axis_charts",
         "data_source": "performance",
+    },
+    # Multi-line charts (all hosts/services on single chart)
+    "CPU_UTILIZATION_MULTILINE": {
+        "function": "generate_cpu_utilization_multiline_chart",
+        "module": "multi_line_charts",
+        "data_source": "infrastructure_multi",
+    },
+    "MEMORY_UTILIZATION_MULTILINE": {
+        "function": "generate_memory_utilization_multiline_chart",
+        "module": "multi_line_charts",
+        "data_source": "infrastructure_multi",
     },
     # Add more chart definitions here as needed
 }
@@ -125,6 +137,51 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
             results.append(out)
         except Exception as e:
             errors.append({"error": str(e)})
+
+    # Infrastructure multi-line charts (all resources on single chart)
+    elif data_source == "infrastructure_multi":
+        env_info = await load_environment_details(run_id, env_name)
+        if not env_info:
+            return {"error": f"Missing environment info for: {env_name}"}
+        
+        env_type = env_info['env_type']
+        resources = env_info["resources"]
+        metric_files = await get_metric_files(run_id, env_type, resources)
+        
+        # Determine metric filter based on chart_id
+        if "CPU" in chart_id:
+            metric_filter = "cpu_util_pct"
+        elif "MEMORY" in chart_id:
+            metric_filter = "mem_util_pct"
+        else:
+            metric_filter = None
+        
+        # Build dict of DataFrames for all resources
+        dataframes = {}
+        resource_column = "hostname" if env_type == "host" else "container_or_pod"
+        
+        for resource, metric_file in zip(resources, metric_files):
+            try:
+                df = pd.read_csv(metric_file)
+                # Filter for the specific metric type
+                if metric_filter and "metric" in df.columns:
+                    df = df[df["metric"] == metric_filter]
+                # Filter for this specific resource
+                if resource_column in df.columns:
+                    df = df[df[resource_column] == resource]
+                if not df.empty:
+                    dataframes[resource] = df
+            except Exception as e:
+                errors.append({"resource": resource, "error": str(e)})
+        
+        if dataframes:
+            try:
+                out = await chart_handler(dataframes, chart_spec, run_id)
+                results.append(out)
+            except Exception as e:
+                errors.append({"error": str(e)})
+        else:
+            errors.append({"error": "No valid data found for any resource"})
 
     else:
         return {"error": f"Unknown data source: {data_source}"}
