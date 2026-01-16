@@ -10,6 +10,7 @@ from services.confluence_api_v1 import (
     create_page_v1, 
     search_content_v1,
     attach_file_v1,
+    update_page_v1,
 )
 from services.confluence_api_v2 import (
     list_spaces_v2, 
@@ -20,9 +21,10 @@ from services.confluence_api_v2 import (
     create_page_v2,
     search_content_v2,
     attach_file_v2,
+    update_page_v2,
 )
 from services.artifact_manager import list_available_reports, list_available_charts
-from services.content_parser import markdown_to_confluence_xhtml
+from services.content_parser import markdown_to_confluence_xhtml, replace_chart_placeholders, _flatten_xhtml
 
 mcp = FastMCP(name="confluence")
 
@@ -447,6 +449,186 @@ async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context
         "total_attached": total_attached,
         "status": status
     }
+
+
+@mcp.tool
+async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context) -> dict:
+    """
+    Updates a Confluence page by replacing chart placeholders with embedded images.
+    
+    This tool:
+    1. Reads the XHTML file from artifacts/<test_run_id>/reports/
+    2. Scans artifacts/<test_run_id>/charts/ for PNG files
+    3. Builds a chart mapping (chart_id -> filename + height from chart_schema.yaml)
+    4. Replaces {{CHART_PLACEHOLDER: ID}} markers with Confluence ac:image XHTML
+    5. Saves a *_with_images.xhtml file for reference
+    6. Updates the Confluence page with the new content
+    
+    IMPORTANT: Call attach_images BEFORE update_page to ensure images are uploaded.
+    
+    Args:
+        page_ref (str): Page ID to update (from create_page).
+        test_run_id (str): Test run ID whose XHTML and charts to use.
+        mode (str): "cloud" or "onprem".
+        ctx (Context): FastMCP context.
+    
+    Returns:
+        dict containing:
+            - page_ref: Updated page ID
+            - test_run_id: Test run ID
+            - xhtml_path: Path to the *_with_images.xhtml file
+            - placeholders_replaced: List of chart IDs that were replaced
+            - placeholders_remaining: List of chart IDs that had no matching image
+            - version: New page version number
+            - url: Page URL
+            - status: "updated", "partial" (some placeholders not replaced), or "error"
+    
+    Example workflow:
+        1. create_page(...) -> page_ref
+        2. attach_images(page_ref, test_run_id, mode, ctx)
+        3. update_page(page_ref, test_run_id, mode, ctx)
+    """
+    from pathlib import Path
+    import re
+    import yaml
+    from utils.config import load_config
+    
+    # Load config
+    config = load_config()
+    artifacts_path = Path(config['artifacts']['artifacts_path'])
+    
+    # Paths
+    reports_folder = artifacts_path / test_run_id / "reports"
+    charts_folder = artifacts_path / test_run_id / "charts"
+    
+    # Find the XHTML file (not *_with_images.xhtml)
+    xhtml_files = [f for f in reports_folder.glob("*.xhtml") if not f.name.endswith("_with_images.xhtml")]
+    
+    if not xhtml_files:
+        error_msg = f"No XHTML file found in: {reports_folder}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "page_ref": page_ref, "test_run_id": test_run_id}
+    
+    xhtml_file = xhtml_files[0]  # Use first XHTML file found
+    await ctx.info(f"Using XHTML file: {xhtml_file.name}")
+    
+    # Read the XHTML content
+    try:
+        with open(xhtml_file, 'r', encoding='utf-8') as f:
+            xhtml_content = f.read()
+    except Exception as e:
+        error_msg = f"Failed to read XHTML file: {e}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "page_ref": page_ref, "test_run_id": test_run_id}
+    
+    # Load chart schema for heights
+    chart_schema_path = Path(__file__).parent.parent.parent / "perfreport-mcp" / "chart_schema.yaml"
+    chart_heights = {}
+    default_height = 250
+    
+    try:
+        if chart_schema_path.exists():
+            with open(chart_schema_path, 'r', encoding='utf-8') as f:
+                schema = yaml.safe_load(f)
+            
+            # Get default height
+            default_height = schema.get('defaults', {}).get('confluence', {}).get('image_height', 250)
+            
+            # Build chart_id -> height mapping
+            for chart in schema.get('charts', []):
+                chart_id = chart.get('id')
+                if chart_id:
+                    # Check for chart-specific confluence height
+                    height = chart.get('confluence', {}).get('image_height', default_height)
+                    chart_heights[chart_id] = height
+        else:
+            await ctx.warning(f"Chart schema not found at {chart_schema_path}, using default height {default_height}")
+    except Exception as e:
+        await ctx.warning(f"Failed to load chart schema: {e}, using default height {default_height}")
+    
+    # Scan charts folder for PNG files and build mapping
+    chart_mapping = {}
+    if charts_folder.exists():
+        for png_file in charts_folder.glob("*.png"):
+            # Extract chart_id from filename
+            # Format: CHART_ID.png or CHART_ID-<resource>.png
+            stem = png_file.stem
+            
+            # Try to match against known chart IDs
+            # First check for exact match (multi-line charts, performance charts)
+            if stem in chart_heights:
+                chart_mapping[stem] = {
+                    "filename": png_file.name,
+                    "height": chart_heights.get(stem, default_height)
+                }
+            else:
+                # Check if stem starts with a known chart ID (per-resource charts)
+                for chart_id in chart_heights:
+                    if stem.startswith(f"{chart_id}-"):
+                        # This is a per-resource chart, use the chart_id for placeholder matching
+                        # but keep the actual filename
+                        if chart_id not in chart_mapping:
+                            chart_mapping[chart_id] = {
+                                "filename": png_file.name,
+                                "height": chart_heights.get(chart_id, default_height)
+                            }
+                        break
+    
+    await ctx.info(f"Found {len(chart_mapping)} chart mappings: {list(chart_mapping.keys())}")
+    
+    # Find all placeholders in the XHTML
+    placeholder_pattern = r'\{\{CHART_PLACEHOLDER:\s*([A-Z0-9_]+)\s*\}\}'
+    all_placeholders = set(re.findall(placeholder_pattern, xhtml_content))
+    
+    # Replace placeholders with image XHTML
+    xhtml_with_images = replace_chart_placeholders(xhtml_content, chart_mapping, default_height)
+    
+    # Determine which placeholders were replaced
+    remaining_placeholders = set(re.findall(placeholder_pattern, xhtml_with_images))
+    replaced_placeholders = all_placeholders - remaining_placeholders
+    
+    await ctx.info(f"Placeholders replaced: {list(replaced_placeholders)}")
+    if remaining_placeholders:
+        await ctx.warning(f"Placeholders without images: {list(remaining_placeholders)}")
+    
+    # Save the _with_images.xhtml file
+    output_path = xhtml_file.with_name(xhtml_file.stem + "_with_images.xhtml")
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(xhtml_with_images)
+        await ctx.info(f"Saved XHTML with images to: {output_path}")
+    except Exception as e:
+        await ctx.warning(f"Failed to save _with_images.xhtml: {e}")
+    
+    # Flatten XHTML for API submission
+    flattened_xhtml = _flatten_xhtml(xhtml_with_images)
+    
+    # Update the page
+    if mode == "cloud":
+        result = await update_page_v2(page_ref, flattened_xhtml, ctx)
+    else:
+        result = await update_page_v1(page_ref, flattened_xhtml, ctx)
+    
+    # Determine overall status
+    if result.get("status") == "error":
+        status = "error"
+    elif remaining_placeholders:
+        status = "partial"
+    else:
+        status = "updated"
+    
+    return {
+        "page_ref": page_ref,
+        "test_run_id": test_run_id,
+        "xhtml_path": str(output_path),
+        "placeholders_replaced": list(replaced_placeholders),
+        "placeholders_remaining": list(remaining_placeholders),
+        "version": result.get("version"),
+        "url": result.get("url"),
+        "status": status,
+        "update_result": result
+    }
+
 
 @mcp.tool()
 async def get_available_reports(test_run_id: str = None, ctx: Context = None) -> list:

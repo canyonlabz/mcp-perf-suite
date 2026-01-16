@@ -306,6 +306,98 @@ async def search_content_v2(query: str, space_key: str = None, ctx: Context = No
     return results
 
 
+async def update_page_v2(page_ref: str, storage_xhtml: str, ctx: Context) -> dict:
+    """
+    Updates an existing Confluence Cloud page with new content.
+    
+    Uses the v2 API endpoint: PUT /wiki/api/v2/pages/{pageId}
+    Automatically increments the version number.
+    
+    Args:
+        page_ref (str): Page ID to update.
+        storage_xhtml (str): New page content in Confluence storage format (XHTML).
+                            Must be flattened (no newlines) for API submission.
+        ctx (Context): FastMCP invocation context.
+    
+    Returns:
+        dict: Update result including:
+            - page_ref: Updated page ID
+            - title: Page title
+            - version: New version number
+            - url: Page URL
+            - status: "updated" on success, "error" on failure
+    
+    Example:
+        result = await update_page_v2("123456789", "<p>Updated content</p>", ctx)
+    """
+    base_url = CONFLUENCE_V2_BASE_URL
+    
+    # First, get current page info to retrieve version and title
+    try:
+        get_url = f"{base_url}/wiki/api/v2/pages/{page_ref}"
+        headers = get_headers({"Accept": "application/json"})
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(get_url, headers=headers)
+            response.raise_for_status()
+            current_page = response.json()
+        
+        current_version = current_page.get("version", {}).get("number", 1)
+        title = current_page.get("title", "")
+        
+    except httpx.HTTPStatusError as e:
+        error_msg = f"Failed to get current page info: {e.response.status_code} - {e.response.text}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "page_ref": page_ref}
+    except Exception as e:
+        error_msg = f"Failed to get current page info: {str(e)}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "page_ref": page_ref}
+    
+    # Now update the page with incremented version
+    try:
+        update_url = f"{base_url}/wiki/api/v2/pages/{page_ref}"
+        headers = get_headers({"Content-Type": "application/json", "Accept": "application/json"})
+        
+        payload = {
+            "id": page_ref,
+            "status": "current",
+            "title": title,
+            "body": {
+                "representation": "storage",
+                "value": storage_xhtml
+            },
+            "version": {
+                "number": current_version + 1
+            }
+        }
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.put(update_url, headers=headers, json=payload)
+            response.raise_for_status()
+            result = response.json()
+        
+        page_data = {
+            "page_ref": result.get("id"),
+            "title": result.get("title"),
+            "version": result.get("version", {}).get("number"),
+            "url": result.get("_links", {}).get("base", "") + result.get("_links", {}).get("webui", ""),
+            "status": "updated"
+        }
+        
+        await ctx.info(f"Successfully updated page '{title}' to version {page_data['version']} (v2/cloud).")
+        return page_data
+        
+    except httpx.HTTPStatusError as e:
+        error_msg = f"Failed to update page: {e.response.status_code} - {e.response.text}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "page_ref": page_ref}
+    except Exception as e:
+        error_msg = f"Failed to update page: {str(e)}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "page_ref": page_ref}
+
+
 async def attach_file_v2(page_ref: str, file_path: str, ctx: Context) -> dict:
     """
     Attaches a file (typically a PNG chart image) to an existing Confluence Cloud page.

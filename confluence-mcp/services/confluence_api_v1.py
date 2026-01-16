@@ -410,6 +410,102 @@ async def attach_file_v1(page_ref: str, file_path: str, ctx: Context) -> dict:
         return {"error": error_msg, "status": "error", "filename": filename}
 
 
+async def update_page_v1(page_ref: str, storage_xhtml: str, ctx: Context) -> dict:
+    """
+    Updates an existing Confluence page with new content.
+    
+    Uses the v1 API endpoint: PUT /rest/api/content/{pageId}
+    Automatically increments the version number.
+    
+    Args:
+        page_ref (str): Page ID to update.
+        storage_xhtml (str): New page content in Confluence storage format (XHTML).
+                            Must be flattened (no newlines) for API submission.
+        ctx (Context): FastMCP invocation context.
+    
+    Returns:
+        dict: Update result including:
+            - page_ref: Updated page ID
+            - title: Page title
+            - version: New version number
+            - url: Page URL
+            - status: "updated" on success, "error" on failure
+    
+    Example:
+        result = await update_page_v1("123456789", "<p>Updated content</p>", ctx)
+    """
+    base_url = CONFLUENCE_V1_BASE_URL
+    verify_ssl = get_ssl_verify_setting()
+    
+    # First, get current page info to retrieve version and title
+    try:
+        get_url = f"{base_url}/rest/api/content/{page_ref}"
+        headers = get_headers({"Accept": "application/json"})
+        
+        async with httpx.AsyncClient(verify=verify_ssl) as client:
+            response = await client.get(get_url, headers=headers)
+            response.raise_for_status()
+            current_page = response.json()
+        
+        current_version = current_page.get("version", {}).get("number", 1)
+        title = current_page.get("title", "")
+        space_key = current_page.get("space", {}).get("key", "")
+        
+    except httpx.HTTPStatusError as e:
+        error_msg = f"Failed to get current page info: {e.response.status_code} - {e.response.text}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "page_ref": page_ref}
+    except Exception as e:
+        error_msg = f"Failed to get current page info: {str(e)}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "page_ref": page_ref}
+    
+    # Now update the page with incremented version
+    try:
+        update_url = f"{base_url}/rest/api/content/{page_ref}"
+        headers = get_headers({"Content-Type": "application/json", "Accept": "application/json"})
+        
+        payload = {
+            "type": "page",
+            "title": title,
+            "space": {"key": space_key},
+            "body": {
+                "storage": {
+                    "value": storage_xhtml,
+                    "representation": "storage"
+                }
+            },
+            "version": {
+                "number": current_version + 1
+            }
+        }
+        
+        async with httpx.AsyncClient(verify=verify_ssl, timeout=60.0) as client:
+            response = await client.put(update_url, headers=headers, json=payload)
+            response.raise_for_status()
+            result = response.json()
+        
+        page_data = {
+            "page_ref": result.get("id"),
+            "title": result.get("title"),
+            "version": result.get("version", {}).get("number"),
+            "url": base_url + result.get("_links", {}).get("webui", ""),
+            "status": "updated"
+        }
+        
+        await ctx.info(f"Successfully updated page '{title}' to version {page_data['version']} (v1).")
+        return page_data
+        
+    except httpx.HTTPStatusError as e:
+        error_msg = f"Failed to update page: {e.response.status_code} - {e.response.text}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "page_ref": page_ref}
+    except Exception as e:
+        error_msg = f"Failed to update page: {str(e)}"
+        await ctx.error(error_msg)
+        return {"error": error_msg, "status": "error", "page_ref": page_ref}
+
+
 # -----------------------------
 # Helper functions
 # -----------------------------
