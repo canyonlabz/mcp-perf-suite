@@ -1,6 +1,7 @@
 """
-Horizontal bar chart generators for comparison reports.
+Vertical bar chart generators for comparison reports.
 These charts visualize resource usage across multiple test runs.
+X-axis: Test runs, Y-axis: Metric values
 """
 
 import matplotlib.pyplot as plt
@@ -44,10 +45,11 @@ async def generate_cpu_core_comparison_bar_chart(
     comparison_id: str
 ) -> dict:
     """
-    Generate a horizontal bar chart comparing CPU core usage across test runs.
+    Generate a vertical bar chart comparing CPU core usage across test runs.
     
-    This chart shows one horizontal bar per test run, making it easy to
-    visualize how CPU usage changed between runs for a specific resource.
+    This chart shows one vertical bar per test run on the X-axis, with CPU
+    usage values on the Y-axis. Makes it easy to visualize how CPU usage
+    changed between runs for a specific resource.
     
     Args:
         run_data: List of dicts with keys:
@@ -87,21 +89,21 @@ async def generate_cpu_core_comparison_bar_chart(
     # Determine labels and conversion based on unit type
     if unit_type == "millicores":
         conversion_factor = 1000  # cores to millicores
-        x_label = chart_spec.get("x_axis", {}).get("label", "CPU Usage (mCPU)")
-        value_format = "{:.0f} mCPU"
+        y_label = chart_spec.get("y_axis", {}).get("label", "CPU Usage (mCPU)")
+        value_format = "{:.0f}"
     else:  # cores (default)
         conversion_factor = 1.0
-        x_label = chart_spec.get("x_axis", {}).get("label", "CPU Usage (Cores)")
-        value_format = "{:.3f} Cores"
+        y_label = chart_spec.get("y_axis", {}).get("label", "CPU Usage (Cores)")
+        value_format = "{:.3f}"
     
     # Extract and convert data
-    run_labels = [f"Run {d['run_id']}" for d in run_data]
+    run_labels = [f"Run\n{d['run_id']}" for d in run_data]
     peak_values = [d.get('peak_cores', 0) * conversion_factor for d in run_data]
     
     # Chart configuration
     raw_title = chart_spec.get("title", f"CPU Core Usage Comparison - {resource_name}")
     title = interpolate_placeholders(raw_title, resource_name=resource_name)
-    y_label = chart_spec.get("y_axis", {}).get("label", "Test Run")
+    x_label = chart_spec.get("x_axis", {}).get("label", "Test Run")
     color_names = chart_spec.get("colors", ["primary", "secondary", "info", "warning", "error"])
     colors = resolve_colors(color_names, len(run_data))
     
@@ -113,38 +115,42 @@ async def generate_cpu_core_comparison_bar_chart(
     
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     
-    # Create horizontal bar chart
-    y_pos = np.arange(len(run_labels))
-    bars = ax.barh(y_pos, peak_values, color=colors, height=0.6)
+    # Create vertical bar chart
+    x_pos = np.arange(len(run_labels))
+    bar_width = 0.6
+    bars = ax.bar(x_pos, peak_values, color=colors, width=bar_width)
     
-    # Add value labels on bars if configured
+    # Add value labels above bars if configured
     if chart_spec.get("show_value_labels", True):
         for bar, value in zip(bars, peak_values):
-            width = bar.get_width()
+            height = bar.get_height()
             ax.text(
-                width + max(peak_values) * 0.02,  # Slightly offset from bar end
-                bar.get_y() + bar.get_height() / 2,
+                bar.get_x() + bar.get_width() / 2,
+                height + max(peak_values) * 0.02,  # Slightly above bar
                 value_format.format(value),
-                ha='left',
-                va='center',
-                fontsize=9
+                ha='center',
+                va='bottom',
+                fontsize=9,
+                fontweight='bold'
             )
     
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(run_labels)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(run_labels)
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.set_title(title)
     
     if chart_spec.get("show_grid", True):
-        ax.grid(True, axis='x', linewidth=0.5, alpha=0.6)
+        ax.grid(True, axis='y', linewidth=0.5, alpha=0.6)
     
-    # Invert y-axis so first run is at top
-    ax.invert_yaxis()
-    
-    # Add some padding to the right for value labels
+    # Add some padding to the top for value labels
     if chart_spec.get("show_value_labels", True):
-        ax.set_xlim(0, max(peak_values) * 1.2)
+        ax.set_ylim(0, max(peak_values) * 1.15)
+    
+    # Ensure y-axis starts at 0
+    ax.set_ylim(bottom=0)
+    
+    plt.tight_layout()
     
     # Save chart
     bbox = chart_spec.get("bbox_inches", "tight")
@@ -169,10 +175,11 @@ async def generate_memory_usage_comparison_bar_chart(
     comparison_id: str
 ) -> dict:
     """
-    Generate a horizontal bar chart comparing memory usage across test runs.
+    Generate a vertical bar chart comparing memory usage across test runs.
     
-    This chart shows one horizontal bar per test run, making it easy to
-    visualize how memory usage changed between runs for a specific resource.
+    This chart shows one vertical bar per test run on the X-axis, with memory
+    usage values on the Y-axis. Makes it easy to visualize how memory usage
+    changed between runs for a specific resource.
     
     Args:
         run_data: List of dicts with keys:
@@ -212,21 +219,21 @@ async def generate_memory_usage_comparison_bar_chart(
     # Determine labels and conversion based on unit type
     if unit_type == "mb":
         conversion_factor = 1024  # GB to MB
-        x_label = chart_spec.get("x_axis", {}).get("label", "Memory Usage (MB)")
-        value_format = "{:.0f} MB"
+        y_label = chart_spec.get("y_axis", {}).get("label", "Memory Usage (MB)")
+        value_format = "{:.0f}"
     else:  # gb (default)
         conversion_factor = 1.0
-        x_label = chart_spec.get("x_axis", {}).get("label", "Memory Usage (GB)")
-        value_format = "{:.2f} GB"
+        y_label = chart_spec.get("y_axis", {}).get("label", "Memory Usage (GB)")
+        value_format = "{:.2f}"
     
     # Extract and convert data
-    run_labels = [f"Run {d['run_id']}" for d in run_data]
+    run_labels = [f"Run\n{d['run_id']}" for d in run_data]
     peak_values = [d.get('peak_gb', 0) * conversion_factor for d in run_data]
     
     # Chart configuration
     raw_title = chart_spec.get("title", f"Memory Usage Comparison - {resource_name}")
     title = interpolate_placeholders(raw_title, resource_name=resource_name)
-    y_label = chart_spec.get("y_axis", {}).get("label", "Test Run")
+    x_label = chart_spec.get("x_axis", {}).get("label", "Test Run")
     color_names = chart_spec.get("colors", ["warning", "info", "primary", "secondary", "error"])
     colors = resolve_colors(color_names, len(run_data))
     
@@ -238,38 +245,42 @@ async def generate_memory_usage_comparison_bar_chart(
     
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     
-    # Create horizontal bar chart
-    y_pos = np.arange(len(run_labels))
-    bars = ax.barh(y_pos, peak_values, color=colors, height=0.6)
+    # Create vertical bar chart
+    x_pos = np.arange(len(run_labels))
+    bar_width = 0.6
+    bars = ax.bar(x_pos, peak_values, color=colors, width=bar_width)
     
-    # Add value labels on bars if configured
+    # Add value labels above bars if configured
     if chart_spec.get("show_value_labels", True):
         for bar, value in zip(bars, peak_values):
-            width = bar.get_width()
+            height = bar.get_height()
             ax.text(
-                width + max(peak_values) * 0.02,  # Slightly offset from bar end
-                bar.get_y() + bar.get_height() / 2,
+                bar.get_x() + bar.get_width() / 2,
+                height + max(peak_values) * 0.02,  # Slightly above bar
                 value_format.format(value),
-                ha='left',
-                va='center',
-                fontsize=9
+                ha='center',
+                va='bottom',
+                fontsize=9,
+                fontweight='bold'
             )
     
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(run_labels)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(run_labels)
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.set_title(title)
     
     if chart_spec.get("show_grid", True):
-        ax.grid(True, axis='x', linewidth=0.5, alpha=0.6)
+        ax.grid(True, axis='y', linewidth=0.5, alpha=0.6)
     
-    # Invert y-axis so first run is at top
-    ax.invert_yaxis()
-    
-    # Add some padding to the right for value labels
+    # Add some padding to the top for value labels
     if chart_spec.get("show_value_labels", True):
-        ax.set_xlim(0, max(peak_values) * 1.2)
+        ax.set_ylim(0, max(peak_values) * 1.15)
+    
+    # Ensure y-axis starts at 0
+    ax.set_ylim(bottom=0)
+    
+    plt.tight_layout()
     
     # Save chart
     bbox = chart_spec.get("bbox_inches", "tight")

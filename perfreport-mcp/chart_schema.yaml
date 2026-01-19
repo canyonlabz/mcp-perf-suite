@@ -233,42 +233,43 @@ charts:
     legend_location: "upper right"
 
   # ===== SECTION 4C: INFRASTRUCTURE COMPARISON (BAR CHARTS) =====
-  # Horizontal bar charts for comparing resource usage across test runs
+  # Vertical bar charts for comparing resource usage across test runs
   # Used in comparison reports to visualize performance trends
+  # X-axis: Test runs, Y-axis: Metric values
   
   - id: "CPU_CORE_COMPARISON_BAR"
     placeholder: "{{CHART_PLACEHOLDER: CPU_CORE_COMPARISON_BAR}}"
-    chart_type: "horizontal_bar"
+    chart_type: "vertical_bar"
     title: "CPU Core Usage Comparison - {resource_name}"
     description: "Compare peak CPU core usage across test runs for a specific resource"
     x_axis:
-      label: "CPU Usage"
-    y_axis:
       label: "Test Run"
+    y_axis:
+      label: "CPU Usage"
     # Unit configuration: "cores" (default) or "millicores"
     unit:
       type: "cores"  # Options: "cores", "millicores"
     colors: ["primary", "secondary", "info", "warning", "error"]
     show_grid: true
     include_legend: false
-    show_value_labels: true  # Display values on bars
+    show_value_labels: true  # Display values above bars
 
   - id: "MEMORY_USAGE_COMPARISON_BAR"
     placeholder: "{{CHART_PLACEHOLDER: MEMORY_USAGE_COMPARISON_BAR}}"
-    chart_type: "horizontal_bar"
+    chart_type: "vertical_bar"
     title: "Memory Usage Comparison - {resource_name}"
     description: "Compare peak memory usage across test runs for a specific resource"
     x_axis:
-      label: "Memory Usage"
-    y_axis:
       label: "Test Run"
+    y_axis:
+      label: "Memory Usage"
     # Unit configuration: "gb" (default) or "mb"
     unit:
       type: "gb"  # Options: "gb", "mb"
     colors: ["warning", "info", "primary", "secondary", "error"]
     show_grid: true
     include_legend: false
-    show_value_labels: true  # Display values on bars
+    show_value_labels: true  # Display values above bars
 
   # ===== SECTION 5: INFRASTRUCTURE (STACKED AREA) =====
   
@@ -351,11 +352,13 @@ custom_chart_naming:
   supported_types:
     - "LINE"          # Single-axis line chart
     - "DUALAXIS"      # Dual-axis line chart
-    - "BAR"           # Horizontal bar chart
+    - "BAR"           # Vertical bar chart (X-axis: categories, Y-axis: values)
+    - "HBAR"          # Horizontal bar chart (Y-axis: categories, X-axis: values)
     - "HEATMAP"       # Correlation heatmap
     - "STACKED"       # Stacked area chart
   examples:
     - "CUSTOM_LATENCY_P99_LINE"
     - "CUSTOM_ERRORS_VUSERS_DUALAXIS"
-    - "CUSTOM_TOP10_APIS_BAR"
+    - "CUSTOM_RUN_COMPARISON_BAR"
+    - "CUSTOM_TOP10_APIS_HBAR"
     - "CUSTOM_CPU_SERVICES_STACKED"
