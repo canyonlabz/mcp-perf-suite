@@ -11,7 +11,7 @@ from fastmcp import Context
 
 # Import config and utilities
 from utils.config import load_config
-from utils.report_utils import format_duration
+from utils.report_utils import format_duration, strip_service_name_decorations
 from utils.file_utils import (
     _load_json_safe,
     _load_text_file,
@@ -832,7 +832,9 @@ def _build_cpu_core_comparison_table(run_metadata_list: List[Dict]) -> str:
     rows = [header, separator]
     
     for entity_name in entity_names[:10]:  # Limit to 10 entities
-        row_data = [entity_name]
+        # Strip environment prefix and trailing wildcard for cleaner display
+        display_name = strip_service_name_decorations(entity_name)
+        row_data = [display_name]
         first_peak = None
         last_peak = None
         
@@ -913,7 +915,9 @@ def _build_memory_usage_comparison_table(run_metadata_list: List[Dict]) -> str:
     rows = [header, separator]
     
     for entity_name in entity_names[:10]:  # Limit to 10 entities
-        row_data = [entity_name]
+        # Strip environment prefix and trailing wildcard for cleaner display
+        display_name = strip_service_name_decorations(entity_name)
+        row_data = [display_name]
         first_peak = None
         last_peak = None
         
@@ -971,7 +975,9 @@ def _build_cpu_comparison_table(run_metadata_list: List[Dict]) -> str:
     rows = []
     for entity in entities[:5]:  # Limit to 5 entities
         entity_name = entity.get("entity_name", "Unknown")
-        row_data = [entity_name]
+        # Strip environment prefix and trailing wildcard for cleaner display
+        display_name = strip_service_name_decorations(entity_name)
+        row_data = [display_name]
         
         cpu_values = []
         for meta in run_metadata_list:
@@ -1014,7 +1020,9 @@ def _build_memory_comparison_table(run_metadata_list: List[Dict]) -> str:
     rows = []
     for entity in entities[:5]:  # Limit to 5 entities
         entity_name = entity.get("entity_name", "Unknown")
-        row_data = [entity_name]
+        # Strip environment prefix and trailing wildcard for cleaner display
+        display_name = strip_service_name_decorations(entity_name)
+        row_data = [display_name]
         
         mem_values = []
         for meta in run_metadata_list:

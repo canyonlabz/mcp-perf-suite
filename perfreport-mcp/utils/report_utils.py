@@ -19,7 +19,7 @@ def strip_report_headers_footers(content: str) -> str:
     
     Patterns removed:
     - Lines matching: "* Analysis Report - Run <run_id>" (header)
-    - Lines matching: "Generated: <ISO timestamp>" (footer)
+    - Lines matching: "Generated: <ISO timestamp>" (footer) - various formats
     
     Args:
         content: Raw markdown content from analysis files
@@ -44,15 +44,62 @@ def strip_report_headers_footers(content: str) -> str:
     cleaned_lines = []
     
     for line in lines:
+        stripped_line = line.strip()
+        
         # Skip header lines (e.g., "Infrastructure Analysis Report - Run 80593110")
-        if re.match(r'^.*Analysis Report - Run \d+$', line.strip()):
+        if re.match(r'^.*Analysis Report - Run \d+$', stripped_line):
             continue
-        # Skip footer lines (e.g., "Generated: 2026-01-13T11:03:20.594620")
-        if re.match(r'^Generated:\s*\d{4}-\d{2}-\d{2}T', line.strip()):
+        
+        # Skip footer lines with various "Generated:" timestamp formats:
+        # - "Generated: 2026-01-13T11:03:20.594620"
+        # - "*Generated: 2026-01-13T11:03:20.594620*" (italicized)
+        # - "**Generated:** 2026-01-13T11:03:20.594620" (bold label)
+        # - Lines that are ONLY the timestamp
+        # Pattern accounts for leading/trailing markdown formatting (* or _)
+        if re.match(r'^[\*_]*Generated:[\*_]*\s*\d{4}-\d{2}-\d{2}T[\d:.]+[\*_]*$', stripped_line):
             continue
+        
+        # Skip standalone ISO timestamps (e.g., "2026-01-13T11:03:20.594620")
+        if re.match(r'^[\*_]*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.?\d*[\*_]*$', stripped_line):
+            continue
+        
         cleaned_lines.append(line)
     
     return '\n'.join(cleaned_lines).strip()
+
+
+def strip_service_names_in_markdown(content: str) -> str:
+    """
+    Strip environment prefix and trailing wildcard from service/host names
+    within markdown content (tables, lists, etc.).
+    
+    This function searches for patterns like "Perf::service-name*" in the
+    content and replaces them with just "service-name".
+    
+    Args:
+        content: Markdown content that may contain decorated service names
+        
+    Returns:
+        Content with service names cleaned
+        
+    Examples:
+        >>> content = "| Perf::my-service* | 45.2% |"
+        >>> strip_service_names_in_markdown(content)
+        '| my-service | 45.2% |'
+    """
+    if not content:
+        return content
+    
+    # Pattern to match environment prefix and optional trailing wildcard
+    # Matches: "EnvName::service-name*" or "EnvName::service-name"
+    # Captures: (EnvPrefix)(ServiceName)(OptionalWildcard)
+    pattern = r'([A-Za-z0-9_-]+)::([A-Za-z0-9_-]+)\*?'
+    
+    def replace_match(match):
+        # Return just the service name (group 2)
+        return match.group(2)
+    
+    return re.sub(pattern, replace_match, content)
 
 
 def strip_service_name_decorations(name: str) -> str:

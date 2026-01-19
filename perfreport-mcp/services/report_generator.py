@@ -25,7 +25,8 @@ from utils.file_utils import (
 from utils.report_utils import (
     format_duration,
     strip_service_name_decorations,
-    strip_report_headers_footers
+    strip_report_headers_footers,
+    strip_service_names_in_markdown
 )
 
 # Load configuration globally
@@ -517,7 +518,7 @@ def _build_report_context(
             "PEAK_MEMORY_USAGE": f"{mem_peak:.2f}",
             "AVG_MEMORY_USAGE": f"{mem_avg:.2f}",
             "MEMORY_ALLOCATED": f"{mem_gb:.2f}",
-            "INFRASTRUCTURE_SUMMARY": strip_report_headers_footers(infra_md) or "No infrastructure summary available",
+            "INFRASTRUCTURE_SUMMARY": strip_service_names_in_markdown(strip_report_headers_footers(infra_md)) or "No infrastructure summary available",
             # CPU core usage summary (max across all services)
             "PEAK_CPU_CORES": f"{cpu_peak_cores:.6f}",
             "AVG_CPU_CORES": f"{cpu_avg_cores:.6f}",
