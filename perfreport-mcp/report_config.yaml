@@ -1,0 +1,23 @@
+# report_config.yaml - Report display configuration for PerfReport MCP
+# This file controls the look and feel of generated performance reports.
+# 
+# For documentation on each setting, see report_config.example.yaml
+version: "1.0"
+
+# Infrastructure table display options
+infrastructure_tables:
+  # CPU Utilization (%) table settings
+  cpu_utilization:
+    show_allocated_column: true
+  
+  # CPU Core Usage table settings  
+  cpu_core_usage:
+    show_allocated_column: true
+  
+  # Memory Utilization (%) table settings
+  memory_utilization:
+    show_allocated_column: true
+  
+  # Memory Usage (GB/MB) table settings
+  memory_usage:
+    show_allocated_column: true

@@ -11,6 +11,7 @@ from fastmcp import Context
 
 # Import config and utilities
 from utils.config import load_config
+from utils.report_utils import format_duration
 from utils.file_utils import (
     _load_json_safe,
     _load_text_file,
@@ -340,25 +341,19 @@ def _format_duration(seconds: int) -> str:
     """
     Format duration in seconds to human-readable format.
     
+    .. deprecated::
+        This function is deprecated. Use `format_duration` from 
+        `utils.report_utils` instead. This wrapper is kept for 
+        backwards compatibility.
+    
     Args:
         seconds: Duration in seconds
         
     Returns:
         Formatted string like "90m 28s" or "1h 30m 28s"
     """
-    if seconds <= 0:
-        return "0s"
-    
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-    secs = seconds % 60
-    
-    if hours > 0:
-        return f"{hours}h {minutes}m {secs}s"
-    elif minutes > 0:
-        return f"{minutes}m {secs}s"
-    else:
-        return f"{secs}s"
+    # Delegate to shared utility function
+    return format_duration(seconds)
 
 
 def _calculate_delta(current: float, previous: float, lower_is_better: bool = True) -> Tuple[float, str]:

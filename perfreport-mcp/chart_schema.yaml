@@ -113,6 +113,22 @@ charts:
     show_grid: true
     include_legend: false
 
+  - id: "CPU_UTILIZATION_VUSERS_DUALAXIS"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_UTILIZATION_VUSERS_DUALAXIS}}"
+    chart_type: "dual_axis_line"
+    title: "CPU Utilization vs Virtual Users"
+    description: "Correlation between load (virtual users) and CPU utilization (%) across infrastructure"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis_left:
+      label: "CPU Utilization (%)"
+    y_axis_right:
+      label: "Virtual Users"
+    colors: ["primary", "secondary"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper left"
+
   - id: "MEMORY_UTILIZATION_LINE"
     placeholder: "{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_LINE}}"
     chart_type: "single_axis_line"
@@ -123,6 +139,60 @@ charts:
     y_axis:
       label: "Memory Utilization (%)"
     colors: ["secondary"]
+    show_grid: true
+    include_legend: false
+
+  - id: "MEMORY_UTILIZATION_VUSERS_DUALAXIS"
+    placeholder: "{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_VUSERS_DUALAXIS}}"
+    chart_type: "dual_axis_line"
+    title: "Memory Utilization vs Virtual Users"
+    description: "Correlation between load (virtual users) and memory utilization (%) across infrastructure"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis_left:
+      label: "Memory Utilization (%)"
+    y_axis_right:
+      label: "Virtual Users"
+    colors: ["warning", "secondary"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper left"
+
+  # ===== SECTION 4A.2: INFRASTRUCTURE (RAW USAGE) =====
+  # These charts show actual resource usage rather than percentage utilization
+  # Useful for capacity planning and comparing against allocated resources
+  
+  - id: "CPU_CORES_LINE"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_CORES_LINE}}"
+    chart_type: "single_axis_line"
+    title: "CPU Core Usage - {resource_name}"
+    description: "CPU core usage for a specific host or Kubernetes service"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "CPU Usage (Cores)"
+    # Unit configuration: "cores" (default) or "millicores"
+    unit:
+      type: "cores"  # Options: "cores", "millicores"
+      conversion_factor: 1.0e-9  # nanocores to cores
+    colors: ["primary"]
+    show_grid: true
+    include_legend: false
+
+  - id: "MEMORY_USAGE_LINE"
+    placeholder: "{{CHART_PLACEHOLDER: MEMORY_USAGE_LINE}}"
+    chart_type: "single_axis_line"
+    title: "Memory Usage - {resource_name}"
+    description: "Memory usage for a specific host or Kubernetes service"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "Memory Usage (GB)"
+    # Unit configuration: "gb" (default) or "mb"
+    unit:
+      type: "gb"  # Options: "gb", "mb"
+      conversion_factor: 1.0e-9  # bytes to GB (1 / 1024^3)
+    colors: ["warning"]
     show_grid: true
     include_legend: false
 
@@ -161,6 +231,44 @@ charts:
     show_grid: true
     include_legend: true
     legend_location: "upper right"
+
+  # ===== SECTION 4C: INFRASTRUCTURE COMPARISON (BAR CHARTS) =====
+  # Horizontal bar charts for comparing resource usage across test runs
+  # Used in comparison reports to visualize performance trends
+  
+  - id: "CPU_CORE_COMPARISON_BAR"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_CORE_COMPARISON_BAR}}"
+    chart_type: "horizontal_bar"
+    title: "CPU Core Usage Comparison - {resource_name}"
+    description: "Compare peak CPU core usage across test runs for a specific resource"
+    x_axis:
+      label: "CPU Usage"
+    y_axis:
+      label: "Test Run"
+    # Unit configuration: "cores" (default) or "millicores"
+    unit:
+      type: "cores"  # Options: "cores", "millicores"
+    colors: ["primary", "secondary", "info", "warning", "error"]
+    show_grid: true
+    include_legend: false
+    show_value_labels: true  # Display values on bars
+
+  - id: "MEMORY_USAGE_COMPARISON_BAR"
+    placeholder: "{{CHART_PLACEHOLDER: MEMORY_USAGE_COMPARISON_BAR}}"
+    chart_type: "horizontal_bar"
+    title: "Memory Usage Comparison - {resource_name}"
+    description: "Compare peak memory usage across test runs for a specific resource"
+    x_axis:
+      label: "Memory Usage"
+    y_axis:
+      label: "Test Run"
+    # Unit configuration: "gb" (default) or "mb"
+    unit:
+      type: "gb"  # Options: "gb", "mb"
+    colors: ["warning", "info", "primary", "secondary", "error"]
+    show_grid: true
+    include_legend: false
+    show_value_labels: true  # Display values on bars
 
   # ===== SECTION 5: INFRASTRUCTURE (STACKED AREA) =====
   

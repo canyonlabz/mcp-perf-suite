@@ -28,7 +28,7 @@ from utils.chart_utils import (
 )
 
 # Import chart functions
-from services.charts import single_axis_charts, dual_axis_charts, multi_line_charts
+from services.charts import single_axis_charts, dual_axis_charts, multi_line_charts, comparison_bar_charts
 
 # Load configuration globally
 CONFIG = load_config()
@@ -54,6 +54,7 @@ chart_module_registry = {
     "single_axis_charts": single_axis_charts,
     "dual_axis_charts": dual_axis_charts,
     "multi_line_charts": multi_line_charts,
+    "comparison_bar_charts": comparison_bar_charts,
 }
 
 chart_map = {
@@ -64,6 +65,17 @@ chart_map = {
     },
     "MEMORY_UTILIZATION_LINE": {
         "function": "generate_memory_utilization_chart",
+        "module": "single_axis_charts",
+        "data_source": "infrastructure",
+    },
+    # CPU/Memory raw usage charts (Cores/GB instead of %)
+    "CPU_CORES_LINE": {
+        "function": "generate_cpu_cores_chart",
+        "module": "single_axis_charts",
+        "data_source": "infrastructure",
+    },
+    "MEMORY_USAGE_LINE": {
+        "function": "generate_memory_usage_chart",
         "module": "single_axis_charts",
         "data_source": "infrastructure",
     },
@@ -82,6 +94,30 @@ chart_map = {
         "function": "generate_memory_utilization_multiline_chart",
         "module": "multi_line_charts",
         "data_source": "infrastructure_multi",
+    },
+    # Infrastructure vs VUsers dual-axis charts
+    "CPU_UTILIZATION_VUSERS_DUALAXIS": {
+        "function": "generate_cpu_utilization_vusers_chart",
+        "module": "dual_axis_charts",
+        "data_source": "infrastructure_performance",
+        "metric_filter": "cpu_util_pct",
+    },
+    "MEMORY_UTILIZATION_VUSERS_DUALAXIS": {
+        "function": "generate_memory_utilization_vusers_chart",
+        "module": "dual_axis_charts",
+        "data_source": "infrastructure_performance",
+        "metric_filter": "mem_util_pct",
+    },
+    # Comparison bar charts (for multi-run comparison reports)
+    "CPU_CORE_COMPARISON_BAR": {
+        "function": "generate_cpu_core_comparison_bar_chart",
+        "module": "comparison_bar_charts",
+        "data_source": "comparison_metadata",
+    },
+    "MEMORY_USAGE_COMPARISON_BAR": {
+        "function": "generate_memory_usage_comparison_bar_chart",
+        "module": "comparison_bar_charts",
+        "data_source": "comparison_metadata",
     },
     # Add more chart definitions here as needed
 }
@@ -182,6 +218,59 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
                 errors.append({"error": str(e)})
         else:
             errors.append({"error": "No valid data found for any resource"})
+
+    # Infrastructure + Performance combined charts (dual-axis: infra metric vs vusers)
+    elif data_source == "infrastructure_performance":
+        # Load environment info for infrastructure data
+        env_info = await load_environment_details(run_id, env_name)
+        if not env_info:
+            return {"error": f"Missing environment info for: {env_name}"}
+        
+        env_type = env_info['env_type']
+        resources = env_info["resources"]
+        metric_files = await get_metric_files(run_id, env_type, resources)
+        
+        # Get metric filter from chart mapping
+        metric_filter = mapping.get("metric_filter")
+        
+        # Build dict of DataFrames for all resources (infrastructure data)
+        infra_dataframes = {}
+        resource_column = "hostname" if env_type == "host" else "container_or_pod"
+        
+        for resource, metric_file in zip(resources, metric_files):
+            try:
+                df = pd.read_csv(metric_file)
+                # Filter for the specific metric type
+                if metric_filter and "metric" in df.columns:
+                    df = df[df["metric"] == metric_filter]
+                # Filter for this specific resource
+                if resource_column in df.columns:
+                    df = df[df[resource_column] == resource]
+                if not df.empty:
+                    infra_dataframes[resource] = df
+            except Exception as e:
+                errors.append({"resource": resource, "error": str(e)})
+        
+        # Load performance data (BlazeMeter test-results.csv)
+        perf_path = ARTIFACTS_PATH / run_id / "blazemeter" / "test-results.csv"
+        perf_df = None
+        if perf_path.exists():
+            try:
+                perf_df = pd.read_csv(perf_path)
+            except Exception as e:
+                errors.append({"error": f"Failed to load performance data: {str(e)}"})
+        else:
+            errors.append({"error": f"Missing BlazeMeter test-results.csv for run: {run_id}"})
+        
+        # Generate chart if we have both data sources
+        if infra_dataframes and perf_df is not None:
+            try:
+                out = await chart_handler(infra_dataframes, perf_df, chart_spec, run_id)
+                results.append(out)
+            except Exception as e:
+                errors.append({"error": str(e)})
+        elif not infra_dataframes:
+            errors.append({"error": "No valid infrastructure data found for any resource"})
 
     else:
         return {"error": f"Unknown data source: {data_source}"}

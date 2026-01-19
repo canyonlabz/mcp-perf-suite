@@ -1,0 +1,61 @@
+# report_config.example.yaml - Report display configuration template for PerfReport MCP
+# 
+# This file controls the look and feel of generated performance reports.
+# Copy this file to 'report_config.yaml' and customize as needed.
+#
+# Note: This configuration is separate from config.yaml which handles global settings
+# like file paths. This file is specifically for report appearance and content options.
+
+version: "1.0"
+
+# Infrastructure table display options
+# =====================================
+# These settings control what columns are displayed in infrastructure metric tables.
+# 
+# Why you might disable allocation columns:
+# - Resource allocation values come from datadog-mcp/environments.json and may be inaccurate
+# - Some environments have no limits set (scale-on-demand cloud configurations)
+# - Displaying potentially incorrect allocation values can cause confusion
+# - You may want to focus on actual usage rather than theoretical limits
+#
+# When to keep allocation columns enabled:
+# - Your environments.json has accurate resource allocation values
+# - You want to show utilization as a percentage of allocated resources
+# - Your team relies on allocation data for capacity planning
+
+infrastructure_tables:
+  # CPU Utilization (%) table settings
+  # Affects the table in section "4.2 CPU Utilization by Service/Host"
+  cpu_utilization:
+    show_allocated_column: true    # Show "Allocated" column (e.g., "4 cores")
+  
+  # CPU Core Usage table settings
+  # Affects the table in section "4.2.1 CPU Core Usage by Service/Host"
+  cpu_core_usage:
+    show_allocated_column: true    # Show "Allocated (Cores)" column
+  
+  # Memory Utilization (%) table settings
+  # Affects the table in section "4.3 Memory Utilization by Service/Host"
+  memory_utilization:
+    show_allocated_column: true    # Show "Allocated" column (e.g., "8.00 GB")
+  
+  # Memory Usage (GB/MB) table settings
+  # Affects the table in section "4.3.1 Memory Usage by Service/Host"
+  memory_usage:
+    show_allocated_column: true    # Show "Allocated (GB)" column
+
+# Future configuration options (planned)
+# ======================================
+# The following options are planned for future releases:
+#
+# display_options:
+#   decimal_precision: 2           # Number of decimal places for numeric values
+#   empty_value_placeholder: "N/A" # Text to display for missing values
+#   date_format: "YYYY-MM-DD"      # Date format for report headers
+#   time_format: "HH:mm:ss"        # Time format for timestamps
+#
+# chart_options:
+#   default_width: 1280            # Default chart width in pixels
+#   default_height: 720            # Default chart height in pixels
+#   show_grid: true                # Show grid lines on charts
+#   include_legend: true           # Include legend on multi-series charts

@@ -25,6 +25,7 @@
 | Average Response Time | {{AVG_RESPONSE_TIME}} ms |
 | Environment | {{ENVIRONMENT}} |
 | Test Type | {{TEST_TYPE}} |
+| BlazeMeter Report | {{BLAZEMETER_REPORT_LINK}} |
 
 ---
 

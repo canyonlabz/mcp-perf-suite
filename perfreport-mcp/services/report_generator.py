@@ -12,7 +12,7 @@ from fastmcp import Context
 import re
 
 # Import config at module level (global)
-from utils.config import load_config
+from utils.config import load_config, load_report_config
 from utils.file_utils import (
     _load_json_safe,
     _load_text_safe,
@@ -22,11 +22,17 @@ from utils.file_utils import (
     _convert_to_pdf,
     _convert_to_docx
 )
+from utils.report_utils import (
+    format_duration,
+    strip_service_name_decorations,
+    strip_report_headers_footers
+)
 
 # Load configuration globally
 CONFIG = load_config()
 ARTIFACTS_CONFIG = CONFIG.get('artifacts', {})
 REPORT_CONFIG = CONFIG.get('perf_report', {})
+REPORT_DISPLAY_CONFIG = load_report_config()
 
 ARTIFACTS_PATH = Path(ARTIFACTS_CONFIG.get('artifacts_path', './artifacts'))
 TEMPLATES_PATH = Path(REPORT_CONFIG.get('templates_path', './templates'))
@@ -164,6 +170,17 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             []  # Don't add to missing_sections - this is optional
         )
         
+        # Load BlazeMeter public report URL (optional)
+        # TODO: In the future, BlazeMeter MCP should inject public_url directly into test_config.json
+        # before it's written. For now, we check for a separate public_report.json file.
+        blazemeter_public_report = await _load_json_safe(
+            blazemeter_path / "public_report.json",
+            "blazemeter_public_report",
+            source_files,
+            warnings,
+            []  # Don't add to missing_sections - this is optional
+        )
+        
         # Select template
         template_name = template or "default_report_template.md"
         template_path = TEMPLATES_PATH / template_name
@@ -193,6 +210,19 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             apm_trace_summary,
             blazemeter_config
         )
+        
+        # Add BlazeMeter public report link to context
+        # This is loaded from artifacts/{run_id}/blazemeter/public_report.json if available
+        if blazemeter_public_report and blazemeter_public_report.get("public_url"):
+            public_url = blazemeter_public_report.get("public_url")
+            context["BLAZEMETER_REPORT_LINK"] = f"[View Report]({public_url})"
+        else:
+            # Fallback: check if URL is in test_config.json (future enhancement)
+            if blazemeter_config and blazemeter_config.get("public_url"):
+                public_url = blazemeter_config.get("public_url")
+                context["BLAZEMETER_REPORT_LINK"] = f"[View Report]({public_url})"
+            else:
+                context["BLAZEMETER_REPORT_LINK"] = "Not available"
 
         # Extract key metrics for metadata (needed for comparison reports)
         overall_stats = {}
@@ -434,7 +464,7 @@ def _build_report_context(
             "P95_RESPONSE_TIME": f"{overall.get('p95_response_time', 0):.2f}",
             "P99_RESPONSE_TIME": f"{overall.get('p99_response_time', 0):.2f}",
             "AVG_THROUGHPUT": f"{overall.get('avg_throughput', 0):.2f}",
-            "TEST_DURATION": f"{overall.get('test_duration', 0)} seconds",
+            "TEST_DURATION": format_duration(overall.get('test_duration', 0)),
             "PEAK_THROUGHPUT": f"{overall.get('avg_throughput', 0):.2f}"
         })
         
@@ -487,7 +517,7 @@ def _build_report_context(
             "PEAK_MEMORY_USAGE": f"{mem_peak:.2f}",
             "AVG_MEMORY_USAGE": f"{mem_avg:.2f}",
             "MEMORY_ALLOCATED": f"{mem_gb:.2f}",
-            "INFRASTRUCTURE_SUMMARY": infra_md or "No infrastructure summary available",
+            "INFRASTRUCTURE_SUMMARY": strip_report_headers_footers(infra_md) or "No infrastructure summary available",
             # CPU core usage summary (max across all services)
             "PEAK_CPU_CORES": f"{cpu_peak_cores:.6f}",
             "AVG_CPU_CORES": f"{cpu_avg_cores:.6f}",
@@ -514,11 +544,12 @@ def _build_report_context(
     
     # Extract correlation data
     if corr_data:
-        correlation_summary = corr_md or _build_correlation_summary(corr_data)
+        # Strip headers/footers from loaded markdown file if present
+        correlation_summary = strip_report_headers_footers(corr_md) if corr_md else _build_correlation_summary(corr_data)
         correlation_details = _build_correlation_details(corr_data)
 
         context.update({
-            "CORRELATION_SUMMARY": correlation_summary,
+            "CORRELATION_SUMMARY": correlation_summary or "No correlation summary available",
             "CORRELATION_DETAILS": correlation_details
         })
     else:
@@ -608,6 +639,11 @@ def _build_cpu_utilization_table(infra_data: Optional[Dict], environment_type: s
     
     detailed = infra_data.get("detailed_metrics", {})
     
+    # Check config for whether to show allocated column
+    show_allocated = REPORT_DISPLAY_CONFIG.get("infrastructure_tables", {}).get(
+        "cpu_utilization", {}
+    ).get("show_allocated_column", True)
+    
     # Determine entity type and get entities
     if environment_type == "kubernetes":
         platform_data = detailed.get("kubernetes", {})
@@ -622,11 +658,17 @@ def _build_cpu_utilization_table(infra_data: Optional[Dict], environment_type: s
     if not entities:
         return f"No {environment_type} CPU data found."
     
-    # Build table header
-    lines = [
-        f"| {entity_label} | Peak (%) | Avg (%) | Min (%) | Allocated |",
-        "|" + "-" * (len(entity_label) + 2) + "|----------|---------|---------|-----------|"
-    ]
+    # Build table header (conditionally include Allocated column)
+    if show_allocated:
+        lines = [
+            f"| {entity_label} | Peak (%) | Avg (%) | Min (%) | Allocated |",
+            "|" + "-" * (len(entity_label) + 2) + "|----------|---------|---------|-----------|"
+        ]
+    else:
+        lines = [
+            f"| {entity_label} | Peak (%) | Avg (%) | Min (%) |",
+            "|" + "-" * (len(entity_label) + 2) + "|----------|---------|---------|"
+        ]
     
     # Sort entities alphabetically
     sorted_entities = sorted(entities.items(), key=lambda x: x[0])
@@ -635,8 +677,14 @@ def _build_cpu_utilization_table(infra_data: Optional[Dict], environment_type: s
         cpu_analysis = entity_data.get("cpu_analysis", {})
         res_alloc = entity_data.get("resource_allocation", {})
         
+        # Strip environment prefix and trailing wildcard for cleaner display
+        display_name = strip_service_name_decorations(entity_name)
+        
         if not cpu_analysis:
-            lines.append(f"| {entity_name} | N/A | N/A | N/A | N/A |")
+            if show_allocated:
+                lines.append(f"| {display_name} | N/A | N/A | N/A | N/A |")
+            else:
+                lines.append(f"| {display_name} | N/A | N/A | N/A |")
             continue
         
         peak_pct = cpu_analysis.get("peak_utilization_pct")
@@ -650,7 +698,10 @@ def _build_cpu_utilization_table(infra_data: Optional[Dict], environment_type: s
         min_str = f"{min_pct:.2f}" if min_pct is not None else "N/A"
         allocated_str = str(allocated) if allocated else "N/A"
         
-        line = f"| {entity_name} | {peak_str} | {avg_str} | {min_str} | {allocated_str} |"
+        if show_allocated:
+            line = f"| {display_name} | {peak_str} | {avg_str} | {min_str} | {allocated_str} |"
+        else:
+            line = f"| {display_name} | {peak_str} | {avg_str} | {min_str} |"
         lines.append(line)
     
     return "\n".join(lines)
@@ -672,6 +723,11 @@ def _build_memory_utilization_table(infra_data: Optional[Dict], environment_type
     
     detailed = infra_data.get("detailed_metrics", {})
     
+    # Check config for whether to show allocated column
+    show_allocated = REPORT_DISPLAY_CONFIG.get("infrastructure_tables", {}).get(
+        "memory_utilization", {}
+    ).get("show_allocated_column", True)
+    
     # Determine entity type and get entities
     if environment_type == "kubernetes":
         platform_data = detailed.get("kubernetes", {})
@@ -686,11 +742,17 @@ def _build_memory_utilization_table(infra_data: Optional[Dict], environment_type
     if not entities:
         return f"No {environment_type} memory data found."
     
-    # Build table header
-    lines = [
-        f"| {entity_label} | Peak (%) | Avg (%) | Min (%) | Allocated |",
-        "|" + "-" * (len(entity_label) + 2) + "|----------|---------|---------|-----------|"
-    ]
+    # Build table header (conditionally include Allocated column)
+    if show_allocated:
+        lines = [
+            f"| {entity_label} | Peak (%) | Avg (%) | Min (%) | Allocated |",
+            "|" + "-" * (len(entity_label) + 2) + "|----------|---------|---------|-----------|"
+        ]
+    else:
+        lines = [
+            f"| {entity_label} | Peak (%) | Avg (%) | Min (%) |",
+            "|" + "-" * (len(entity_label) + 2) + "|----------|---------|---------|"
+        ]
     
     # Sort entities alphabetically
     sorted_entities = sorted(entities.items(), key=lambda x: x[0])
@@ -699,8 +761,14 @@ def _build_memory_utilization_table(infra_data: Optional[Dict], environment_type
         mem_analysis = entity_data.get("memory_analysis", {})
         res_alloc = entity_data.get("resource_allocation", {})
         
+        # Strip environment prefix and trailing wildcard for cleaner display
+        display_name = strip_service_name_decorations(entity_name)
+        
         if not mem_analysis:
-            lines.append(f"| {entity_name} | N/A | N/A | N/A | N/A |")
+            if show_allocated:
+                lines.append(f"| {display_name} | N/A | N/A | N/A | N/A |")
+            else:
+                lines.append(f"| {display_name} | N/A | N/A | N/A |")
             continue
         
         peak_pct = mem_analysis.get("peak_utilization_pct")
@@ -714,7 +782,10 @@ def _build_memory_utilization_table(infra_data: Optional[Dict], environment_type
         min_str = f"{min_pct:.2f}" if min_pct is not None else "N/A"
         allocated_str = f"{allocated_gb:.2f} GB" if allocated_gb is not None else "N/A"
         
-        line = f"| {entity_name} | {peak_str} | {avg_str} | {min_str} | {allocated_str} |"
+        if show_allocated:
+            line = f"| {display_name} | {peak_str} | {avg_str} | {min_str} | {allocated_str} |"
+        else:
+            line = f"| {display_name} | {peak_str} | {avg_str} | {min_str} |"
         lines.append(line)
     
     return "\n".join(lines)
@@ -736,6 +807,11 @@ def _build_cpu_core_table(infra_data: Optional[Dict], environment_type: str) -> 
     
     detailed = infra_data.get("detailed_metrics", {})
     
+    # Check config for whether to show allocated column
+    show_allocated = REPORT_DISPLAY_CONFIG.get("infrastructure_tables", {}).get(
+        "cpu_core_usage", {}
+    ).get("show_allocated_column", True)
+    
     # Handle Kubernetes environments
     if environment_type == "kubernetes":
         k8s_data = detailed.get("kubernetes", {})
@@ -745,11 +821,17 @@ def _build_cpu_core_table(infra_data: Optional[Dict], environment_type: str) -> 
         if not entities:
             return "No Kubernetes services found."
         
-        # Build table header
-        lines = [
-            "| Service Name | Peak (Cores) | Peak (mCPU) | Avg (Cores) | Avg (mCPU) | Allocated (Cores) |",
-            "|--------------|--------------|-------------|-------------|------------|-------------------|"
-        ]
+        # Build table header (conditionally include Allocated column)
+        if show_allocated:
+            lines = [
+                "| Service Name | Peak (Cores) | Peak (mCPU) | Avg (Cores) | Avg (mCPU) | Allocated (Cores) |",
+                "|--------------|--------------|-------------|-------------|------------|-------------------|"
+            ]
+        else:
+            lines = [
+                "| Service Name | Peak (Cores) | Peak (mCPU) | Avg (Cores) | Avg (mCPU) |",
+                "|--------------|--------------|-------------|-------------|------------|"
+            ]
         
         # Sort entities alphabetically
         sorted_entities = sorted(entities.items(), key=lambda x: x[0])
@@ -757,9 +839,15 @@ def _build_cpu_core_table(infra_data: Optional[Dict], environment_type: str) -> 
         for service_name, service_data in sorted_entities:
             cpu_analysis = service_data.get("cpu_analysis", {})
             
+            # Strip environment prefix and trailing wildcard for cleaner display
+            display_name = strip_service_name_decorations(service_name)
+            
             if not cpu_analysis:
                 # Handle missing cpu_analysis gracefully
-                lines.append(f"| {service_name} | N/A | N/A | N/A | N/A | N/A |")
+                if show_allocated:
+                    lines.append(f"| {display_name} | N/A | N/A | N/A | N/A | N/A |")
+                else:
+                    lines.append(f"| {display_name} | N/A | N/A | N/A | N/A |")
                 continue
             
             peak_cores = cpu_analysis.get("peak_usage_cores")
@@ -783,17 +871,23 @@ def _build_cpu_core_table(infra_data: Optional[Dict], environment_type: str) -> 
             
             allocated_str = f"{allocated_cores:.2f}" if allocated_cores is not None else "N/A"
             
-            # TODO: Consider stripping environment prefix (e.g., "Perf::") and trailing "*" from service names
-            display_name = service_name
-            
-            line = (
-                f"| {display_name} | "
-                f"{peak_cores_str} | "
-                f"{peak_mcpu_str} | "
-                f"{avg_cores_str} | "
-                f"{avg_mcpu_str} | "
-                f"{allocated_str} |"
-            )
+            if show_allocated:
+                line = (
+                    f"| {display_name} | "
+                    f"{peak_cores_str} | "
+                    f"{peak_mcpu_str} | "
+                    f"{avg_cores_str} | "
+                    f"{avg_mcpu_str} | "
+                    f"{allocated_str} |"
+                )
+            else:
+                line = (
+                    f"| {display_name} | "
+                    f"{peak_cores_str} | "
+                    f"{peak_mcpu_str} | "
+                    f"{avg_cores_str} | "
+                    f"{avg_mcpu_str} |"
+                )
             lines.append(line)
         
         return "\n".join(lines)
@@ -812,10 +906,16 @@ def _build_cpu_core_table(infra_data: Optional[Dict], environment_type: str) -> 
             return "No host data found."
         
         # Build table with N/A for core values since only percentages are available
-        lines = [
-            "| Host Name | Peak (Cores) | Peak (mCPU) | Avg (Cores) | Avg (mCPU) | Allocated (Cores) |",
-            "|-----------|--------------|-------------|-------------|------------|-------------------|"
-        ]
+        if show_allocated:
+            lines = [
+                "| Host Name | Peak (Cores) | Peak (mCPU) | Avg (Cores) | Avg (mCPU) | Allocated (Cores) |",
+                "|-----------|--------------|-------------|-------------|------------|-------------------|"
+            ]
+        else:
+            lines = [
+                "| Host Name | Peak (Cores) | Peak (mCPU) | Avg (Cores) | Avg (mCPU) |",
+                "|-----------|--------------|-------------|-------------|------------|"
+            ]
         
         # Sort hosts alphabetically
         sorted_hosts = sorted(hosts.items(), key=lambda x: x[0])
@@ -824,17 +924,26 @@ def _build_cpu_core_table(infra_data: Optional[Dict], environment_type: str) -> 
             cpu_analysis = host_data_item.get("cpu_analysis", {})
             
             # Host CPU is in percentages only - core values are not available
-            # TODO: Consider stripping environment prefix from host names
-            display_name = host_name
+            # Strip environment prefix and trailing wildcard for cleaner display
+            display_name = strip_service_name_decorations(host_name)
             
-            line = (
-                f"| {display_name} | "
-                f"N/A | "
-                f"N/A | "
-                f"N/A | "
-                f"N/A | "
-                f"N/A |"
-            )
+            if show_allocated:
+                line = (
+                    f"| {display_name} | "
+                    f"N/A | "
+                    f"N/A | "
+                    f"N/A | "
+                    f"N/A | "
+                    f"N/A |"
+                )
+            else:
+                line = (
+                    f"| {display_name} | "
+                    f"N/A | "
+                    f"N/A | "
+                    f"N/A | "
+                    f"N/A |"
+                )
             lines.append(line)
         
         # Add explanatory note
@@ -863,6 +972,11 @@ def _build_memory_usage_table(infra_data: Optional[Dict], environment_type: str)
     
     detailed = infra_data.get("detailed_metrics", {})
     
+    # Check config for whether to show allocated column
+    show_allocated = REPORT_DISPLAY_CONFIG.get("infrastructure_tables", {}).get(
+        "memory_usage", {}
+    ).get("show_allocated_column", True)
+    
     # Handle Kubernetes environments
     if environment_type == "kubernetes":
         k8s_data = detailed.get("kubernetes", {})
@@ -872,11 +986,17 @@ def _build_memory_usage_table(infra_data: Optional[Dict], environment_type: str)
         if not entities:
             return "No Kubernetes services found."
         
-        # Build table header
-        lines = [
-            "| Service Name | Peak (GB) | Peak (MB) | Avg (GB) | Avg (MB) | Allocated (GB) |",
-            "|--------------|-----------|-----------|----------|----------|----------------|"
-        ]
+        # Build table header (conditionally include Allocated column)
+        if show_allocated:
+            lines = [
+                "| Service Name | Peak (GB) | Peak (MB) | Avg (GB) | Avg (MB) | Allocated (GB) |",
+                "|--------------|-----------|-----------|----------|----------|----------------|"
+            ]
+        else:
+            lines = [
+                "| Service Name | Peak (GB) | Peak (MB) | Avg (GB) | Avg (MB) |",
+                "|--------------|-----------|-----------|----------|----------|"
+            ]
         
         # Sort entities alphabetically
         sorted_entities = sorted(entities.items(), key=lambda x: x[0])
@@ -884,9 +1004,15 @@ def _build_memory_usage_table(infra_data: Optional[Dict], environment_type: str)
         for service_name, service_data in sorted_entities:
             mem_analysis = service_data.get("memory_analysis", {})
             
+            # Strip environment prefix and trailing wildcard for cleaner display
+            display_name = strip_service_name_decorations(service_name)
+            
             if not mem_analysis:
                 # Handle missing memory_analysis gracefully
-                lines.append(f"| {service_name} | N/A | N/A | N/A | N/A | N/A |")
+                if show_allocated:
+                    lines.append(f"| {display_name} | N/A | N/A | N/A | N/A | N/A |")
+                else:
+                    lines.append(f"| {display_name} | N/A | N/A | N/A | N/A |")
                 continue
             
             peak_gb = mem_analysis.get("peak_usage_gb")
@@ -910,17 +1036,23 @@ def _build_memory_usage_table(infra_data: Optional[Dict], environment_type: str)
             
             allocated_str = f"{allocated_gb:.2f}" if allocated_gb is not None else "N/A"
             
-            # TODO: Consider stripping environment prefix (e.g., "Perf::") and trailing "*" from service names
-            display_name = service_name
-            
-            line = (
-                f"| {display_name} | "
-                f"{peak_gb_str} | "
-                f"{peak_mb_str} | "
-                f"{avg_gb_str} | "
-                f"{avg_mb_str} | "
-                f"{allocated_str} |"
-            )
+            if show_allocated:
+                line = (
+                    f"| {display_name} | "
+                    f"{peak_gb_str} | "
+                    f"{peak_mb_str} | "
+                    f"{avg_gb_str} | "
+                    f"{avg_mb_str} | "
+                    f"{allocated_str} |"
+                )
+            else:
+                line = (
+                    f"| {display_name} | "
+                    f"{peak_gb_str} | "
+                    f"{peak_mb_str} | "
+                    f"{avg_gb_str} | "
+                    f"{avg_mb_str} |"
+                )
             lines.append(line)
         
         return "\n".join(lines)
@@ -935,11 +1067,17 @@ def _build_memory_usage_table(infra_data: Optional[Dict], environment_type: str)
         if not hosts:
             return "No host data found."
         
-        # Build table header
-        lines = [
-            "| Host Name | Peak (GB) | Peak (MB) | Avg (GB) | Avg (MB) | Allocated (GB) |",
-            "|-----------|-----------|-----------|----------|----------|----------------|"
-        ]
+        # Build table header (conditionally include Allocated column)
+        if show_allocated:
+            lines = [
+                "| Host Name | Peak (GB) | Peak (MB) | Avg (GB) | Avg (MB) | Allocated (GB) |",
+                "|-----------|-----------|-----------|----------|----------|----------------|"
+            ]
+        else:
+            lines = [
+                "| Host Name | Peak (GB) | Peak (MB) | Avg (GB) | Avg (MB) |",
+                "|-----------|-----------|-----------|----------|----------|"
+            ]
         
         # Sort hosts alphabetically
         sorted_hosts = sorted(hosts.items(), key=lambda x: x[0])
@@ -948,9 +1086,15 @@ def _build_memory_usage_table(infra_data: Optional[Dict], environment_type: str)
             mem_analysis = host_data_item.get("memory_analysis", {})
             res_alloc = host_data_item.get("resource_allocation", {})
             
+            # Strip environment prefix and trailing wildcard for cleaner display
+            display_name = strip_service_name_decorations(host_name)
+            
             if not mem_analysis:
                 # Handle missing memory_analysis gracefully
-                lines.append(f"| {host_name} | N/A | N/A | N/A | N/A | N/A |")
+                if show_allocated:
+                    lines.append(f"| {display_name} | N/A | N/A | N/A | N/A | N/A |")
+                else:
+                    lines.append(f"| {display_name} | N/A | N/A | N/A | N/A |")
                 continue
             
             # Get memory values from PerfAnalysis-MCP output
@@ -975,17 +1119,23 @@ def _build_memory_usage_table(infra_data: Optional[Dict], environment_type: str)
             
             allocated_str = f"{allocated_gb:.2f}" if allocated_gb is not None else "N/A"
             
-            # TODO: Consider stripping environment prefix from host names
-            display_name = host_name
-            
-            line = (
-                f"| {display_name} | "
-                f"{peak_gb_str} | "
-                f"{peak_mb_str} | "
-                f"{avg_gb_str} | "
-                f"{avg_mb_str} | "
-                f"{allocated_str} |"
-            )
+            if show_allocated:
+                line = (
+                    f"| {display_name} | "
+                    f"{peak_gb_str} | "
+                    f"{peak_mb_str} | "
+                    f"{avg_gb_str} | "
+                    f"{avg_mb_str} | "
+                    f"{allocated_str} |"
+                )
+            else:
+                line = (
+                    f"| {display_name} | "
+                    f"{peak_gb_str} | "
+                    f"{peak_mb_str} | "
+                    f"{avg_gb_str} | "
+                    f"{avg_mb_str} |"
+                )
             lines.append(line)
         
         return "\n".join(lines)
@@ -1068,18 +1218,59 @@ def _build_correlation_details(corr_data: Dict) -> str:
     return "\n".join(lines)
 
 def _build_bottleneck_analysis(corr_data: Optional[Dict], infra_data: Optional[Dict]) -> str:
-    """Build bottleneck identification section"""
+    """
+    Build bottleneck identification section with properly formatted output.
+    
+    Handles insights data that may be:
+    - A list of strings (direct from JSON)
+    - A string representation of a list (e.g., "['item1', 'item2']")
+    - A plain string
+    
+    Args:
+        corr_data: Correlation analysis data
+        infra_data: Infrastructure analysis data
+        
+    Returns:
+        Formatted markdown string with bullet points
+    """
     if not corr_data and not infra_data:
         return "Insufficient data for bottleneck analysis"
     
-    analysis = "Based on correlation and infrastructure analysis:\n"
+    analysis = "Based on correlation and infrastructure analysis:\n\n"
     
     if corr_data:
         insights = corr_data.get("insights", "")
         if insights:
-            analysis += f"\n{insights}\n"
+            # Handle case where insights is a list
+            if isinstance(insights, list):
+                for insight in insights:
+                    if insight:  # Skip empty strings
+                        analysis += f"- {insight}\n"
+            # Handle case where insights is a string representation of a list
+            elif isinstance(insights, str) and insights.strip().startswith('[') and insights.strip().endswith(']'):
+                try:
+                    import ast
+                    insights_list = ast.literal_eval(insights)
+                    if isinstance(insights_list, list):
+                        for insight in insights_list:
+                            if insight:  # Skip empty strings
+                                analysis += f"- {insight}\n"
+                except (ValueError, SyntaxError):
+                    # Fallback: treat as plain text
+                    analysis += insights
+            # Handle plain string
+            elif isinstance(insights, str) and insights.strip():
+                # Check if it already has bullet points
+                if insights.strip().startswith('-'):
+                    analysis += insights
+                else:
+                    analysis += f"- {insights}\n"
     
-    return analysis
+    # If no insights were added, provide a default message
+    if analysis == "Based on correlation and infrastructure analysis:\n\n":
+        analysis += "- No specific bottlenecks identified from the available data.\n"
+    
+    return analysis.strip()
 
 def _build_recommendations(perf_data: Optional[Dict], infra_data: Optional[Dict], corr_data: Optional[Dict]) -> str:
     """Generate recommendations based on analysis"""

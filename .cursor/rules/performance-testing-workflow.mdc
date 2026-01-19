@@ -77,6 +77,9 @@ For each test run:
 5. Use tool `extract_artifact_zip` for given test_run_id.
 6. Use tool `process_extracted_files` for given test_run_id and path to files from zip extraction.
 7. Use tool `get_public_report` which retrieves a public BlazeMeter report URL for the given test_run_id.
+   - **IMPORTANT:** Save the returned `public_url` to `artifacts/{run_id}/blazemeter/public_report.json` for use by PerfReport MCP.
+   - JSON format: `{"run_id": "<run_id>", "public_url": "<url>", "public_token": "<token>"}`
+   - This enables the performance report to include a direct link to the BlazeMeter report.
 8. Use tool `get_aggregate_report` which retrieves the BlazeMeter aggregate performance report for a given test_run_id.
 9. **Error Handling:**
    - If API calls fail, retry up to 3 times
