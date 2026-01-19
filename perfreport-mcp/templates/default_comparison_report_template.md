@@ -147,6 +147,10 @@
 
 > **Note:** Peak and Average values show actual CPU cores consumed. mCPU = millicores (1 core = 1000 mCPU). For host-based environments, CPU core values may not be available from Datadog metrics.
 
+#### 5.1.2 CPU Core Usage Comparison Charts
+
+{{CHART_PLACEHOLDER: CPU_CORE_COMPARISON_BAR}}
+
 ### 5.2 Memory Utilization by {{INFRA_ENTITY_TYPE}}
 
 | {{INFRA_ENTITY_TYPE}} Name | {{RUN_1_LABEL}} | {{RUN_2_LABEL}} | {{RUN_3_LABEL}} | {{RUN_4_LABEL}} | {{RUN_5_LABEL}} | Trend | Δ vs Run 1 |
@@ -163,6 +167,10 @@
 {{MEMORY_USAGE_COMPARISON_ROWS}}
 
 > **Note:** Peak and Average values show actual memory consumed. MB = Megabytes (1 GB = 1024 MB).
+
+#### 5.2.2 Memory Usage Comparison Charts
+
+{{CHART_PLACEHOLDER: MEMORY_USAGE_COMPARISON_BAR}}
 
 ### 5.3 Resource Efficiency Assessment
 
