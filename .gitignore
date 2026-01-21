@@ -271,6 +271,7 @@ perfreport-mcp/templates/*
 perfreport-mcp/config.yaml
 perfreport-mcp/report_config.yaml
 perfreport-mcp/chart_schema.yaml
+perfreport-mcp/chart_colors.yaml
 
 # Ignore test folders and scripts in perfanalysis-mcp and perfreport-mcp
 perfanalysis-mcp/test/**
