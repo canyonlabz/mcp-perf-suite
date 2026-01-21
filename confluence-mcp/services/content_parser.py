@@ -11,15 +11,17 @@ CNF_CONFIG = CONFIG.get('confluence', {})
 ARTIFACTS_PATH = CONFIG['artifacts']['artifacts_path']
 
 
-async def markdown_to_confluence_xhtml(test_run_id: str, filename: str, ctx: Context = None) -> Union[str, Dict]:
+async def markdown_to_confluence_xhtml(test_run_id: str, filename: str, ctx: Context = None, report_type: str = "single") -> Union[str, Dict]:
     """
     Converts a Markdown performance report to Confluence storage-format XHTML.
     
     Args:
-        test_run_id: ID of the test run (used for artifact path).
-                     Use "comparisons" for comparison reports stored in artifacts/comparisons/.
+        test_run_id: ID of the test run or comparison_id (used for artifact path).
         filename: Filename of the markdown report.
         ctx: FastMCP context for logging.
+        report_type: Type of report - "single" (default) or "comparison".
+            - "single": Path is artifacts/{test_run_id}/reports/
+            - "comparison": Path is artifacts/comparisons/{test_run_id}/
     
     Returns:
         str: Flattened Confluence-compatible XHTML markup (newlines removed), 
@@ -27,17 +29,17 @@ async def markdown_to_confluence_xhtml(test_run_id: str, filename: str, ctx: Con
     
     Examples:
         # Single-run report
-        markdown_to_confluence_xhtml("80247571", "performance_report_80247571.md")
+        markdown_to_confluence_xhtml("80247571", "performance_report_80247571.md", report_type="single")
         
-        # Comparison report
-        markdown_to_confluence_xhtml("comparisons", "comparison_report_run1_run2.md")
+        # Comparison report (test_run_id is comparison_id)
+        markdown_to_confluence_xhtml("2026-01-21-09-03-30", "comparison_report_run1_run2.md", report_type="comparison")
     """
-    # Check if this is a comparison report or single-run report
-    if test_run_id == "comparisons":
-        # Comparison reports are stored directly in comparisons folder
-        markdown_path = Path(ARTIFACTS_PATH) / "comparisons" / filename
+    # Construct path based on report_type
+    if report_type == "comparison":
+        # Comparison reports: artifacts/comparisons/{comparison_id}/
+        markdown_path = Path(ARTIFACTS_PATH) / "comparisons" / test_run_id / filename
     else:
-        # Single-run reports are in test_run_id/reports/ folder
+        # Single-run reports: artifacts/{test_run_id}/reports/
         markdown_path = Path(ARTIFACTS_PATH) / test_run_id / "reports" / filename
     file_path = Path(markdown_path)
     if not file_path.exists():

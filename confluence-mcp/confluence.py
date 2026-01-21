@@ -215,14 +215,13 @@ async def get_page_content(page_ref: str, mode: str, ctx: Context) -> dict:
         return await get_page_content_v1(page_ref, ctx)
 
 @mcp.tool
-async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str, ctx: Context, parent_id: str, title: str = None) -> dict:
+async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str, ctx: Context, parent_id: str, title: str = None, report_type: str = "single") -> dict:
     """
     Creates a new Confluence page by importing a Markdown performance report.
     
     Args:
         space_ref (str): Space identifier (space_id for cloud, space_key for on-prem) from list_spaces.
-        test_run_id (str): ID of the test run (used for artifact path).
-                           Use "comparisons" for comparison reports stored in artifacts/comparisons/.
+        test_run_id (str): ID of the test run or comparison_id (used for artifact path).
         filename (str): Markdown report filename, as returned by get_available_reports.
         mode (str): "cloud" or "onprem".
         ctx (Context): FastMCP context for error/status reporting.
@@ -232,6 +231,9 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
             alphanumeric, whitespace, underscores, dashes, parentheses, square brackets,
             commas, periods, colons, semi-colons, hash, forward slash, percent, ampersand,
             and apostrophe. Maximum length: 255 characters.
+        report_type (str): Type of report - "single" (default) or "comparison".
+            - "single": Path is artifacts/{test_run_id}/reports/
+            - "comparison": Path is artifacts/comparisons/{test_run_id}/ (test_run_id is comparison_id)
     
     Returns:
         dict with:
@@ -244,11 +246,13 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
     Examples:
         # Single-run report
         create_page(space_ref="MYQA", test_run_id="80247571", 
-                    filename="performance_report_80247571.md", mode="onprem", ...)
+                    filename="performance_report_80247571.md", mode="onprem", 
+                    report_type="single", ...)
         
-        # Comparison report
-        create_page(space_ref="MYQA", test_run_id="comparisons", 
-                    filename="comparison_report_run1_run2.md", mode="onprem", ...)
+        # Comparison report (test_run_id is comparison_id)
+        create_page(space_ref="MYQA", test_run_id="2026-01-21-09-03-30", 
+                    filename="comparison_report_run1_run2.md", mode="onprem",
+                    report_type="comparison", ...)
     """
     from pathlib import Path
     from utils.config import load_config
@@ -257,12 +261,12 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
     config = load_config()
     artifacts_path = config['artifacts']['artifacts_path']
     
-    # Construct full path to markdown file based on test_run_id
-    if test_run_id == "comparisons":
-        # Comparison reports are stored directly in comparisons folder
-        markdown_file_path = Path(artifacts_path) / "comparisons" / filename
+    # Construct full path to markdown file based on report_type
+    if report_type == "comparison":
+        # Comparison reports: artifacts/comparisons/{comparison_id}/
+        markdown_file_path = Path(artifacts_path) / "comparisons" / test_run_id / filename
     else:
-        # Single-run reports are in test_run_id/reports/ folder
+        # Single-run reports: artifacts/{test_run_id}/reports/
         markdown_file_path = Path(artifacts_path) / test_run_id / "reports" / filename
     
     title_source = None
@@ -299,7 +303,7 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
         await ctx.info(f"Using auto-extracted title from {title_source}: '{title}'")
     
     # Convert markdown to Confluence XHTML
-    xhtml_result = await markdown_to_confluence_xhtml(test_run_id, filename, ctx)
+    xhtml_result = await markdown_to_confluence_xhtml(test_run_id, filename, ctx, report_type)
     
     # Check if conversion failed
     if isinstance(xhtml_result, dict) and "error" in xhtml_result:
@@ -320,23 +324,26 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
     return result
 
 @mcp.tool
-async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context) -> dict:
+async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context, report_type: str = "single") -> dict:
     """
     Attaches all PNG chart images from a test run to an existing Confluence page.
     
-    Uploads all PNG files from artifacts/<test_run_id>/charts/ to the specified page.
+    Uploads all PNG files from the appropriate charts folder to the specified page.
     Continues on partial failures and reports which images succeeded/failed.
     
     Args:
         page_ref (str): Page ID to attach images to (from create_page or list_pages).
-        test_run_id (str): Test run ID whose charts to upload.
+        test_run_id (str): Test run ID or comparison_id whose charts to upload.
         mode (str): "cloud" or "onprem".
         ctx (Context): FastMCP context for chaining/error handling.
+        report_type (str): Type of report - "single" (default) or "comparison".
+            - "single": Path is artifacts/{test_run_id}/charts/
+            - "comparison": Path is artifacts/comparisons/{test_run_id}/charts/
     
     Returns:
         dict containing:
             - 'page_ref': Target page ID
-            - 'test_run_id': Test run ID
+            - 'test_run_id': Test run ID or comparison_id
             - 'attached': List of successfully attached images with details
             - 'failed': List of failed attachments with error details
             - 'total_attempted': Total number of files attempted
@@ -344,24 +351,23 @@ async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context
             - 'status': "success" (all attached), "partial" (some failed), or "error" (all failed)
     
     Example:
+        # Single-run charts
         result = await attach_images(
             page_ref="123456789",
             test_run_id="80593110",
             mode="onprem",
+            report_type="single",
             ctx=ctx
         )
-        # Returns: {
-        #     "page_ref": "123456789",
-        #     "test_run_id": "80593110",
-        #     "attached": [
-        #         {"filename": "CPU_UTILIZATION_MULTILINE.png", "attachment_id": "...", ...},
-        #         {"filename": "RESP_TIME_P90_VUSERS_DUALAXIS.png", "attachment_id": "...", ...}
-        #     ],
-        #     "failed": [],
-        #     "total_attempted": 2,
-        #     "total_attached": 2,
-        #     "status": "success"
-        # }
+        
+        # Comparison charts (test_run_id is comparison_id)
+        result = await attach_images(
+            page_ref="123456789",
+            test_run_id="2026-01-21-09-03-30",
+            mode="onprem",
+            report_type="comparison",
+            ctx=ctx
+        )
     """
     from pathlib import Path
     from utils.config import load_config
@@ -370,8 +376,13 @@ async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context
     config = load_config()
     artifacts_path = Path(config['artifacts']['artifacts_path'])
     
-    # Construct path to charts folder
-    charts_folder = artifacts_path / test_run_id / "charts"
+    # Construct path to charts folder based on report_type
+    if report_type == "comparison":
+        # Comparison charts: artifacts/comparisons/{comparison_id}/charts/
+        charts_folder = artifacts_path / "comparisons" / test_run_id / "charts"
+    else:
+        # Single-run charts: artifacts/{test_run_id}/charts/
+        charts_folder = artifacts_path / test_run_id / "charts"
     
     if not charts_folder.exists():
         error_msg = f"Charts folder not found: {charts_folder}"
@@ -452,13 +463,13 @@ async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context
 
 
 @mcp.tool
-async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context) -> dict:
+async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, report_type: str = "single") -> dict:
     """
     Updates a Confluence page by replacing chart placeholders with embedded images.
     
     This tool:
-    1. Reads the XHTML file from artifacts/<test_run_id>/reports/
-    2. Scans artifacts/<test_run_id>/charts/ for PNG files
+    1. Reads the XHTML file from the appropriate reports folder
+    2. Scans the appropriate charts folder for PNG files
     3. Builds a chart mapping (chart_id -> filename + height from chart_schema.yaml)
     4. Replaces {{CHART_PLACEHOLDER: ID}} markers with Confluence ac:image XHTML
     5. Saves a *_with_images.xhtml file for reference
@@ -471,14 +482,17 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context) 
     
     Args:
         page_ref (str): Page ID to update (from create_page).
-        test_run_id (str): Test run ID whose XHTML and charts to use.
+        test_run_id (str): Test run ID or comparison_id whose XHTML and charts to use.
         mode (str): "cloud" or "onprem".
         ctx (Context): FastMCP context.
+        report_type (str): Type of report - "single" (default) or "comparison".
+            - "single": Paths are artifacts/{test_run_id}/reports/ and charts/
+            - "comparison": Paths are artifacts/comparisons/{test_run_id}/ (root and charts/)
     
     Returns:
         dict containing:
             - page_ref: Updated page ID
-            - test_run_id: Test run ID
+            - test_run_id: Test run ID or comparison_id
             - xhtml_path: Path to the *_with_images.xhtml file
             - placeholders_replaced: List of chart IDs that were replaced
             - placeholders_remaining: List of chart IDs that had no matching image
@@ -487,9 +501,15 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context) 
             - status: "updated", "partial" (some placeholders not replaced), or "error"
     
     Example workflow:
-        1. create_page(...) -> page_ref
-        2. attach_images(page_ref, test_run_id, mode, ctx)
-        3. update_page(page_ref, test_run_id, mode, ctx)
+        # Single-run report
+        1. create_page(..., report_type="single") -> page_ref
+        2. attach_images(page_ref, test_run_id, mode, ctx, report_type="single")
+        3. update_page(page_ref, test_run_id, mode, ctx, report_type="single")
+        
+        # Comparison report (test_run_id is comparison_id)
+        1. create_page(..., report_type="comparison") -> page_ref
+        2. attach_images(page_ref, comparison_id, mode, ctx, report_type="comparison")
+        3. update_page(page_ref, comparison_id, mode, ctx, report_type="comparison")
     """
     from pathlib import Path
     import re
@@ -500,9 +520,15 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context) 
     config = load_config()
     artifacts_path = Path(config['artifacts']['artifacts_path'])
     
-    # Paths
-    reports_folder = artifacts_path / test_run_id / "reports"
-    charts_folder = artifacts_path / test_run_id / "charts"
+    # Paths based on report_type
+    if report_type == "comparison":
+        # Comparison: artifacts/comparisons/{comparison_id}/ (XHTML in root, charts in charts/)
+        reports_folder = artifacts_path / "comparisons" / test_run_id
+        charts_folder = artifacts_path / "comparisons" / test_run_id / "charts"
+    else:
+        # Single-run: artifacts/{test_run_id}/reports/ and charts/
+        reports_folder = artifacts_path / test_run_id / "reports"
+        charts_folder = artifacts_path / test_run_id / "charts"
     
     # Find the XHTML file (not *_with_images.xhtml)
     xhtml_files = [f for f in reports_folder.glob("*.xhtml") if not f.name.endswith("_with_images.xhtml")]
@@ -671,20 +697,23 @@ async def get_available_charts(test_run_id: str = None, ctx: Context = None) -> 
     return await list_available_charts(test_run_id, ctx)
 
 @mcp.tool
-async def convert_markdown_to_xhtml(test_run_id: str, filename: str, ctx: Context = None) -> str:
+async def convert_markdown_to_xhtml(test_run_id: str, filename: str, ctx: Context = None, report_type: str = "single") -> str:
     """
     Converts a Markdown performance report to Confluence storage-format XHTML.
     
     Args:
-        test_run_id: ID of the test run (used for artifact path).
+        test_run_id: ID of the test run or comparison_id (used for artifact path).
         filename: Filename of the markdown report. NOTE: full path is constructed internally. Get list from get_available_reports.
         ctx: FastMCP context for error/status reporting.
+        report_type: Type of report - "single" (default) or "comparison".
+            - "single": Path is artifacts/{test_run_id}/reports/
+            - "comparison": Path is artifacts/comparisons/{test_run_id}/
     
     Returns:
         str: Confluence-compatible XHTML markup, ready for page creation or update.
              Returns error dict if conversion fails.
     """
-    return await markdown_to_confluence_xhtml(test_run_id, filename, ctx)
+    return await markdown_to_confluence_xhtml(test_run_id, filename, ctx, report_type)
 
 @mcp.tool()
 async def search_pages(query: str, mode: str, ctx: Context, space_ref: str = None) -> list:
