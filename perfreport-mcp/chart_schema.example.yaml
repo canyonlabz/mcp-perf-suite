@@ -1,0 +1,362 @@
+# chart_schema.yaml - Chart specifications for PerfReport MCP
+version: "1.1"
+
+# Chart naming convention for CUSTOM charts:
+# Format: [CHART_PLACEHOLDER: SECTION_METRIC_CHARTTYPE]
+# Examples:
+#   - RESP_TIME_P95_LINE (single-axis)
+#   - RESP_TIME_P90_VUSERS_DUALAXIS (dual-axis)
+#   - TOP_SLOWEST_APIS_BAR (horizontal bar)
+#   - CORR_PERF_INFRA_HEATMAP (heatmap)
+#   - CPU_UTILIZATION_STACKED (stacked area)
+
+defaults:
+  resolution:
+    width: 1920
+    height: 1080
+    dpi: 100
+  time_granularity: "1min"  # Pandas resample frequency
+  font_size:
+    title: 16
+    axis_label: 12
+    tick_label: 10
+    legend: 10
+  confluence:
+    image_height: 250  # Default height (px) for embedded images in Confluence
+
+charts:
+  # ===== SECTION 2: SLA & ERRORS =====
+  
+  - id: "ERROR_RATE_LINE"
+    placeholder: "{{CHART_PLACEHOLDER: ERROR_RATE_LINE}}"
+    chart_type: "single_axis_line"
+    title: "Error Rate Over Time"
+    description: "Time-series view of error occurrences during test execution"
+    x_axis:
+      label: "Time (hh:mm)"
+    y_axis:
+      label: "Error Count"
+    colors: ["error"]
+    show_grid: true
+    include_legend: false
+    
+  # ===== SECTION 3: RESPONSE TIME & THROUGHPUT =====
+  
+  - id: "RESP_TIME_P90_VUSERS_DUALAXIS"
+    placeholder: "{{CHART_PLACEHOLDER: RESP_TIME_P90_VUSERS_DUALAXIS}}"
+    chart_type: "dual_axis_line"
+    title: "Response Time (P90) vs Virtual Users"
+    description: "Correlation between load and 90th percentile response time"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis_left:
+      label: "90th Percentile Response Time (ms)"
+    y_axis_right:
+      label: "Virtual Users"
+    colors: ["primary", "secondary"]
+    show_grid: true
+    include_legend: false
+    
+  - id: "THROUGHPUT_HITS_LINE"
+    placeholder: "{{CHART_PLACEHOLDER: THROUGHPUT_HITS_LINE}}"
+    chart_type: "single_axis_line"
+    title: "Throughput Over Time"
+    description: "Transaction throughput (hits/sec) throughout test execution"
+    x_axis:
+      label: "Time (hh:mm)"
+    y_axis:
+      label: "Throughput (req/sec)"
+    colors: ["primary"]
+    show_grid: true
+    include_legend: false
+    
+  - id: "TOP_SLOWEST_APIS_BAR"
+    placeholder: "{{CHART_PLACEHOLDER: TOP_SLOWEST_APIS_BAR}}"
+    chart_type: "horizontal_bar"
+    title: "Top API SLA Violators"
+    description: "APIs with highest average response times exceeding SLA"
+    data_sources:
+      primary: "performance_analysis.json"
+      json_path: "api_analysis"
+    x_axis:
+      label: "Average Response Time (ms)"
+      column: "avg_response_time"
+    y_axis:
+      label: "API Name"
+      column: "api_name"
+    limit: 10  # Top N violators (configurable)
+    sort: "descending"
+    filter_condition: "sla_compliant == False"  # Only show violators
+    sla_threshold:
+      value: 5000  # Default SLA in ms
+      source: "sla_threshold_ms"
+      show_line: true
+      line_style: "dashed"
+      line_color: "error"
+    output_filename: "top_sla_violators_{run_id}.png"
+    colors: ["error", "warning"]
+    show_grid: true
+    include_legend: false
+
+  # ===== SECTION 4: INFRASTRUCTURE (LINE CHARTS) =====
+
+  - id: "CPU_UTILIZATION_LINE"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_UTILIZATION_LINE}}"
+    chart_type: "single_axis_line"
+    title: "CPU Utilization - {resource_name}"
+    description: "CPU utilization (%) for a specific host or Kubernetes service"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "CPU Utilization (%)"
+    colors: ["primary"]
+    show_grid: true
+    include_legend: false
+
+  - id: "CPU_UTILIZATION_VUSERS_DUALAXIS"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_UTILIZATION_VUSERS_DUALAXIS}}"
+    chart_type: "dual_axis_line"
+    title: "CPU Utilization vs Virtual Users"
+    description: "Correlation between load (virtual users) and CPU utilization (%) across infrastructure"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis_left:
+      label: "CPU Utilization (%)"
+    y_axis_right:
+      label: "Virtual Users"
+    colors: ["primary", "secondary"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper left"
+
+  - id: "MEMORY_UTILIZATION_LINE"
+    placeholder: "{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_LINE}}"
+    chart_type: "single_axis_line"
+    title: "Memory Utilization - {resource_name}"
+    description: "Memory utilization (%) for a specific host or Kubernetes service"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "Memory Utilization (%)"
+    colors: ["secondary"]
+    show_grid: true
+    include_legend: false
+
+  - id: "MEMORY_UTILIZATION_VUSERS_DUALAXIS"
+    placeholder: "{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_VUSERS_DUALAXIS}}"
+    chart_type: "dual_axis_line"
+    title: "Memory Utilization vs Virtual Users"
+    description: "Correlation between load (virtual users) and memory utilization (%) across infrastructure"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis_left:
+      label: "Memory Utilization (%)"
+    y_axis_right:
+      label: "Virtual Users"
+    colors: ["warning", "secondary"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper left"
+
+  # ===== SECTION 4A.2: INFRASTRUCTURE (RAW USAGE) =====
+  # These charts show actual resource usage rather than percentage utilization
+  # Useful for capacity planning and comparing against allocated resources
+  
+  - id: "CPU_CORES_LINE"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_CORES_LINE}}"
+    chart_type: "single_axis_line"
+    title: "CPU Core Usage - {resource_name}"
+    description: "CPU core usage for a specific host or Kubernetes service"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "CPU Usage (Millicores)"
+    # Unit configuration: "cores" (default) or "millicores"
+    unit:
+      type: "millicores"  # Options: "cores", "millicores"
+    colors: ["primary"]
+    show_grid: true
+    include_legend: false
+
+  - id: "MEMORY_USAGE_LINE"
+    placeholder: "{{CHART_PLACEHOLDER: MEMORY_USAGE_LINE}}"
+    chart_type: "single_axis_line"
+    title: "Memory Usage - {resource_name}"
+    description: "Memory usage for a specific host or Kubernetes service"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "Memory Usage (MB)"
+    # Unit configuration: "gb" (default) or "mb"
+    unit:
+      type: "mb"  # Options: "gb", "mb"
+    colors: ["warning"]
+    show_grid: true
+    include_legend: false
+
+  # ===== SECTION 4B: INFRASTRUCTURE (MULTI-LINE) =====
+  # Multi-line charts show ALL hosts/services on a single chart
+  # Used in default report template for consolidated view
+
+  - id: "CPU_UTILIZATION_MULTILINE"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_UTILIZATION_MULTILINE}}"
+    chart_type: "multi_line"
+    title: "CPU Utilization - All Services"
+    description: "CPU utilization (%) for all hosts/services on a single chart"
+    confluence:
+      image_height: 300  # Slightly larger for multi-line readability
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "CPU Utilization (%)"
+    colors: ["primary", "secondary", "info", "warning", "error"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper right"
+
+  - id: "MEMORY_UTILIZATION_MULTILINE"
+    placeholder: "{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_MULTILINE}}"
+    chart_type: "multi_line"
+    title: "Memory Utilization - All Services"
+    description: "Memory utilization (%) for all hosts/services on a single chart"
+    confluence:
+      image_height: 300  # Slightly larger for multi-line readability
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "Memory Utilization (%)"
+    colors: ["secondary", "primary", "warning", "info", "error"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper right"
+
+  # ===== SECTION 4C: INFRASTRUCTURE COMPARISON (BAR CHARTS) =====
+  # Vertical bar charts for comparing resource usage across test runs
+  # Used in comparison reports to visualize performance trends
+  # X-axis: Test runs, Y-axis: Metric values
+  
+  - id: "CPU_CORE_COMPARISON_BAR"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_CORE_COMPARISON_BAR}}"
+    chart_type: "vertical_bar"
+    title: "CPU Core Usage Comparison - {resource_name}"
+    description: "Compare peak CPU core usage across test runs for a specific resource"
+    x_axis:
+      label: "Test Run"
+    y_axis:
+      label: "CPU Usage"
+    # Unit configuration: "cores" (default) or "millicores"
+    unit:
+      type: "cores"  # Options: "cores", "millicores"
+    colors: ["primary", "secondary", "info", "warning", "error"]
+    show_grid: true
+    include_legend: false
+    show_value_labels: true  # Display values above bars
+
+  - id: "MEMORY_USAGE_COMPARISON_BAR"
+    placeholder: "{{CHART_PLACEHOLDER: MEMORY_USAGE_COMPARISON_BAR}}"
+    chart_type: "vertical_bar"
+    title: "Memory Usage Comparison - {resource_name}"
+    description: "Compare peak memory usage across test runs for a specific resource"
+    x_axis:
+      label: "Test Run"
+    y_axis:
+      label: "Memory Usage"
+    # Unit configuration: "gb" (default) or "mb"
+    unit:
+      type: "gb"  # Options: "gb", "mb"
+    colors: ["warning", "info", "primary", "secondary", "error"]
+    show_grid: true
+    include_legend: false
+    show_value_labels: true  # Display values above bars
+
+  # ===== SECTION 5: INFRASTRUCTURE (STACKED AREA) =====
+  
+  - id: "CPU_UTILIZATION_STACKED"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_UTILIZATION_STACKED}}"
+    chart_type: "stacked_area"
+    title: "CPU Utilization (%)"
+    description: "Cumulative CPU usage per service showing total resource consumption"
+    data_sources:
+      primary: "infrastructure_analysis.json"
+      json_path: "detailed_metrics"
+      service_types: ["kubernetes", "hosts"]  # Check both
+      metric_extraction: "cpu_samples"  # Time-series data location
+    x_axis:
+      label: "Time"
+      column: "timestamp"
+      format: "datetime"
+    y_axis:
+      label: "CPU Utilization (%)"
+      column: "cpu_utilization_pct"
+      scale: "linear"
+      max: 100
+    service_grouping: true  # One colored area per service
+    stack_cumulative: true  # Stacked, not overlaid
+    output_filename: "cpu_utilization_stacked_{run_id}.png"
+    colors: ["primary", "secondary", "info", "warning"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper left"
+    
+  - id: "MEM_UTILIZATION_STACKED"
+    placeholder: "{{CHART_PLACEHOLDER: MEM_UTILIZATION_STACKED}}"
+    chart_type: "stacked_area"
+    title: "Memory Utilization (%)"
+    description: "Cumulative memory usage per service showing total resource consumption"
+    data_sources:
+      primary: "infrastructure_analysis.json"
+      json_path: "detailed_metrics"
+      service_types: ["kubernetes", "hosts"]
+      metric_extraction: "memory_samples"
+    x_axis:
+      label: "Time"
+      column: "timestamp"
+      format: "datetime"
+    y_axis:
+      label: "Memory Utilization (%)"
+      column: "memory_utilization_pct"
+      scale: "linear"
+      max: 100
+    service_grouping: true
+    stack_cumulative: true
+    output_filename: "memory_utilization_stacked_{run_id}.png"
+    colors: ["warning", "info", "secondary", "primary"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper left"
+    
+  # ===== SECTION 6: CORRELATION =====
+  
+  - id: "CORR_HEATMAP_MATRIX"
+    placeholder: "{{CHART_PLACEHOLDER: CORR_HEATMAP_MATRIX}}"
+    chart_type: "heatmap"
+    title: "Performance-Infrastructure Correlation Matrix"
+    description: "Heatmap showing correlation strength between metrics"
+    data_sources:
+      primary: "correlation_analysis.json"
+      json_path: "correlation_matrix"
+    colormap: "RdYlGn"  # Red-Yellow-Green diverging
+    annotations: true  # Show correlation coefficients
+    vmin: -1.0
+    vmax: 1.0
+    output_filename: "correlation_heatmap_{run_id}.png"
+    show_colorbar: true
+    colorbar_label: "Correlation Coefficient"
+    
+# Custom chart support
+custom_chart_naming:
+  enabled: true
+  format: "SECTION_METRIC_CHARTTYPE"
+  supported_types:
+    - "LINE"          # Single-axis line chart
+    - "DUALAXIS"      # Dual-axis line chart
+    - "BAR"           # Vertical bar chart (X-axis: categories, Y-axis: values)
+    - "HBAR"          # Horizontal bar chart (Y-axis: categories, X-axis: values)
+    - "HEATMAP"       # Correlation heatmap
+    - "STACKED"       # Stacked area chart
+  examples:
+    - "CUSTOM_LATENCY_P99_LINE"
+    - "CUSTOM_ERRORS_VUSERS_DUALAXIS"
+    - "CUSTOM_RUN_COMPARISON_BAR"
+    - "CUSTOM_TOP10_APIS_HBAR"
+    - "CUSTOM_CPU_SERVICES_STACKED"

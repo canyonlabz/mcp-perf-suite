@@ -236,6 +236,7 @@ datadog-mcp/.env
 datadog-mcp/uv.lock
 perfanalysis-mcp/.env
 perfanalysis-mcp/uv.lock
+confluence-mcp/.env
 
 # ignore performance test results and logs
 artifacts/*
@@ -246,30 +247,30 @@ artifacts/*
 **/config.mac.yaml
 **/config.windows.yaml
 
-# Ignore JMeter configuration files
-jmeter-mcp/jmeter_config.yaml
-
-# ignore Datadog environments
-datadog-mcp/environments.json
-datadog-mcp/custom_queries.json
-
-# Ignore all files in perfreport-mcp/templates except the default templates
-perfreport-mcp/templates/*
-!perfreport-mcp/templates/default_*.md
-
-# Temp test files
-test_datadog.py
-test_blazemeter.py
-test_perfanalysis.py
-simple_test.py
-jmeter-mcp/test_correlation_analyzer.py
-
 # ignore temp documentation files
 docs/*
 !docs/report_template_guidelines.md
 !docs/datadog_query_guide.md
 !docs/jmeter_mcp_configuration_guide.md
 !docs/README.md
+
+# Ignore JMeter configuration files all custom JMeter MCP test-spec files
+jmeter-mcp/jmeter_config.yaml
+jmeter-mcp/test-specs/*
+!jmeter-mcp/test-specs/README.md
+!jmeter-mcp/test-specs/web-flows/blazedemo_product_purchase.md
+
+# Ignore Datadog environments and custom queries files
+datadog-mcp/environments.json
+datadog-mcp/custom_queries.json
+
+# Ignore all files in perfreport-mcp/templates except the default templates
+perfreport-mcp/templates/*
+!perfreport-mcp/templates/default_*.md
+# Ignore config YAML files for perfreport-mcp
+perfreport-mcp/config.yaml
+perfreport-mcp/report_config.yaml
+perfreport-mcp/chart_schema.yaml
 
 # Ignore test folders and scripts in perfanalysis-mcp and perfreport-mcp
 perfanalysis-mcp/test/**
@@ -280,13 +281,15 @@ perfreport-mcp/tests/**
 # Ignore all Playwright output files
 .playwright-mcp/*
 
-# Ignore all custom JMeter MCP test-spec files
-jmeter-mcp/test-specs/*
-!jmeter-mcp/test-specs/README.md
-!jmeter-mcp/test-specs/web-flows/blazedemo_product_purchase.md
-
 # Ignore all custom Cursor Rules files, except the below
 .cursor/rules/*.mdc 
 !.cursor/rules/jmeter-correlations.mdc
 !.cursor/rules/playwright-browser-automation.mdc
 !.cursor/rules/performance-testing-workflow.mdc
+
+# Temp test files
+test_datadog.py
+test_blazemeter.py
+test_perfanalysis.py
+simple_test.py
+jmeter-mcp/test_correlation_analyzer.py
