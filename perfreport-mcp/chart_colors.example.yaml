@@ -1,4 +1,12 @@
-# Chart color scheme
+# Chart color scheme configuration
+# This file defines color palettes for various chart types.
+# Colors can be specified as hex codes (e.g., "#1f77b4") or named colors.
+
+# -----------------------------------------------
+# Base Colors (used for single-resource charts)
+# -----------------------------------------------
+# These named colors are referenced in chart_schema.yaml via color names
+# like "primary", "secondary", etc.
 primary: "#1f77b4"
 secondary: "#ff7f0e"
 success: "#2ca02c"
@@ -7,3 +15,44 @@ warning: "#ff9800"
 info: "#17a2b8"
 background: "#ffffff"
 grid: "#e0e0e0"
+
+# -----------------------------------------------
+# Multi-Line Chart Colors
+# -----------------------------------------------
+# Used for charts that display multiple hosts/services on the same chart.
+# Colors cycle round-robin when there are more series than colors defined.
+# Supports up to 10 distinct colors for visual differentiation.
+multi_line:
+  # Bright, high-contrast colors that stand out on white backgrounds
+  colors:
+    - "#1f77b4"  # Blue
+    - "#ff7f0e"  # Orange
+    - "#2ca02c"  # Green
+    - "#d62728"  # Red
+    - "#9467bd"  # Purple
+    - "#8c564b"  # Brown
+    - "#e377c2"  # Pink
+    - "#7f7f7f"  # Gray
+    - "#bcbd22"  # Olive
+    - "#17becf"  # Cyan
+
+# -----------------------------------------------
+# Comparison Chart Colors
+# -----------------------------------------------
+# Used for bar charts comparing metrics across multiple test runs.
+# Each test run gets a distinct color from this palette.
+# Supports up to 10 test runs with distinct colors.
+comparison:
+  # Navy-blue gradient palette (light to dark)
+  # Creates a cohesive visual theme for comparing test runs
+  colors:
+    - "#4CC9F0"  # Test Run 1 - Lightest blue
+    - "#4895EF"  # Test Run 2
+    - "#4361EE"  # Test Run 3
+    - "#2B35AF"  # Test Run 4
+    - "#12086F"  # Test Run 5 - Darkest blue
+    - "#560BAD"  # Test Run 6 - Purple transition
+    - "#7209B7"  # Test Run 7
+    - "#B5179E"  # Test Run 8
+    - "#F72585"  # Test Run 9
+    - "#FF006E"  # Test Run 10 - Pink/magenta

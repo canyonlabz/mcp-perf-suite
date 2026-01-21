@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, Optional, List
 
 # Import config at module level
-from utils.config import load_config
+from utils.config import load_config, load_chart_colors
 
 # Load configuration
 CONFIG = load_config()
@@ -18,6 +18,116 @@ REPORT_CONFIG = CONFIG.get("perf_report", {})
 ARTIFACTS_CONFIG = CONFIG.get('artifacts', {})
 ARTIFACTS_PATH = Path(ARTIFACTS_CONFIG.get('artifacts_path', '../artifacts'))
 APM_TOOL = REPORT_CONFIG.get("apm_tool", "datadog").lower()
+
+# Load chart colors at module level
+CHART_COLORS = load_chart_colors()
+
+
+# -----------------------------------------------
+# Color Helper Functions
+# -----------------------------------------------
+
+def get_multi_line_colors(count: int) -> List[str]:
+    """
+    Get colors for multi-line charts (multiple hosts/services on same chart).
+    
+    Colors cycle round-robin when count exceeds the number of defined colors.
+    
+    Args:
+        count: Number of colors needed (typically number of data series)
+    
+    Returns:
+        List of hex color codes
+    
+    Example:
+        >>> colors = get_multi_line_colors(3)
+        >>> print(colors)
+        ['#1f77b4', '#ff7f0e', '#2ca02c']
+    """
+    # Get multi-line colors from config, fallback to base colors
+    multi_line_config = CHART_COLORS.get("multi_line", {})
+    palette = multi_line_config.get("colors", [
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+        "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+    ])
+    
+    # Cycle through colors if more series than colors defined
+    return [palette[i % len(palette)] for i in range(count)]
+
+
+def get_comparison_colors(count: int) -> List[str]:
+    """
+    Get colors for comparison charts (multiple test runs).
+    
+    Uses a cohesive color palette designed for comparing test runs.
+    Colors cycle round-robin when count exceeds the number of defined colors.
+    
+    Args:
+        count: Number of colors needed (typically number of test runs)
+    
+    Returns:
+        List of hex color codes
+    
+    Example:
+        >>> colors = get_comparison_colors(5)
+        >>> print(colors)
+        ['#4CC9F0', '#4895EF', '#4361EE', '#2B35AF', '#12086F']
+    """
+    # Get comparison colors from config, fallback to navy-blue palette
+    comparison_config = CHART_COLORS.get("comparison", {})
+    palette = comparison_config.get("colors", [
+        "#4CC9F0", "#4895EF", "#4361EE", "#2B35AF", "#12086F",
+        "#560BAD", "#7209B7", "#B5179E", "#F72585", "#FF006E"
+    ])
+    
+    # Cycle through colors if more runs than colors defined
+    return [palette[i % len(palette)] for i in range(count)]
+
+
+def resolve_color(color_name: str) -> str:
+    """
+    Resolve a color name (e.g., 'primary') to its hex value (e.g., '#1f77b4').
+    
+    If the color_name is already a hex code or not found in config,
+    it is returned as-is.
+    
+    Args:
+        color_name: Color name from chart_schema.yaml (e.g., 'primary', 'secondary')
+                   or a hex code (e.g., '#1f77b4')
+    
+    Returns:
+        Hex color code
+    
+    Example:
+        >>> resolve_color('primary')
+        '#1f77b4'
+        >>> resolve_color('#ff0000')
+        '#ff0000'
+    """
+    return CHART_COLORS.get(color_name, color_name)
+
+
+def resolve_colors(color_names: List[str], count: int) -> List[str]:
+    """
+    Resolve a list of color names to hex values, cycling if needed.
+    
+    This is used when chart_schema.yaml specifies colors by name
+    (e.g., ['primary', 'secondary']) and we need to resolve them
+    to actual hex codes.
+    
+    Args:
+        color_names: List of color names from chart spec
+        count: Number of colors needed
+    
+    Returns:
+        List of resolved hex color codes, cycling if count > len(color_names)
+    
+    Example:
+        >>> resolve_colors(['primary', 'secondary'], 3)
+        ['#1f77b4', '#ff7f0e', '#1f77b4']
+    """
+    colors = [resolve_color(name) for name in color_names]
+    return [colors[i % len(colors)] for i in range(count)]
 # -----------------------------------------------
 # Utility functions
 # -----------------------------------------------

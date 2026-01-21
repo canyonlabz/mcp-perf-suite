@@ -10,32 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
 from typing import List, Dict, Optional
-from utils.chart_utils import get_chart_output_path
-from utils.config import load_chart_colors
-
-# Load chart colors for color name resolution
-CHART_COLORS = load_chart_colors()
-
-
-def resolve_color(color_name: str) -> str:
-    """Resolve color name (e.g., 'primary') to actual color value (e.g., '#1f77b4')"""
-    return CHART_COLORS.get(color_name, color_name)
-
-
-def resolve_colors(color_names: List[str], count: int) -> List[str]:
-    """
-    Resolve color names to actual values, cycling if needed.
-    
-    Args:
-        color_names: List of color names from chart spec (e.g., ['primary', 'secondary'])
-        count: Number of colors needed (number of data series)
-    
-    Returns:
-        List of resolved color hex values, cycling if count > len(color_names)
-    """
-    colors = [resolve_color(name) for name in color_names]
-    # Cycle colors if more services than colors defined
-    return [colors[i % len(colors)] for i in range(count)]
+from utils.chart_utils import get_chart_output_path, get_multi_line_colors, resolve_colors
 
 
 # -----------------------------------------------
@@ -85,8 +60,14 @@ async def generate_cpu_utilization_multiline_chart(
     title = chart_spec.get("title", "CPU Utilization - All Services")
     y_label = chart_spec.get("y_axis", {}).get("label", "CPU Utilization (%)")
     x_label = chart_spec.get("x_axis", {}).get("label", "Time (hh:mm) UTC")
-    color_names = chart_spec.get("colors", ["primary", "secondary", "info", "warning", "error"])
-    colors = resolve_colors(color_names, len(dataframes))
+    
+    # Use multi-line color palette from chart_colors.yaml
+    # Falls back to schema colors if multi_line not defined
+    color_names = chart_spec.get("colors", [])
+    if color_names:
+        colors = resolve_colors(color_names, len(dataframes))
+    else:
+        colors = get_multi_line_colors(len(dataframes))
     
     # Figure sizing: 16:9 with YAML overrides
     dpi = int(chart_spec.get("dpi", 144))
@@ -196,8 +177,14 @@ async def generate_memory_utilization_multiline_chart(
     title = chart_spec.get("title", "Memory Utilization - All Services")
     y_label = chart_spec.get("y_axis", {}).get("label", "Memory Utilization (%)")
     x_label = chart_spec.get("x_axis", {}).get("label", "Time (hh:mm) UTC")
-    color_names = chart_spec.get("colors", ["secondary", "primary", "warning", "info", "error"])
-    colors = resolve_colors(color_names, len(dataframes))
+    
+    # Use multi-line color palette from chart_colors.yaml
+    # Falls back to schema colors if multi_line not defined
+    color_names = chart_spec.get("colors", [])
+    if color_names:
+        colors = resolve_colors(color_names, len(dataframes))
+    else:
+        colors = get_multi_line_colors(len(dataframes))
     
     # Figure sizing: 16:9 with YAML overrides
     dpi = int(chart_spec.get("dpi", 144))

@@ -181,7 +181,7 @@ charts:
   - id: "MEMORY_USAGE_LINE"
     placeholder: "{{CHART_PLACEHOLDER: MEMORY_USAGE_LINE}}"
     chart_type: "single_axis_line"
-    title: "Memory Usage - {resource_name}"
+    title: "Memory Usage MB - {resource_name}"
     description: "Memory usage for a specific host or Kubernetes service"
     x_axis:
       label: "Time (hh:mm) UTC"
@@ -209,7 +209,8 @@ charts:
       label: "Time (hh:mm) UTC"
     y_axis:
       label: "CPU Utilization (%)"
-    colors: ["primary", "secondary", "info", "warning", "error"]
+    # Colors: Uses 'multi_line' palette from chart_colors.yaml
+    # To override, uncomment and specify: colors: ["primary", "secondary", ...]
     show_grid: true
     include_legend: true
     legend_location: "upper right"
@@ -225,7 +226,8 @@ charts:
       label: "Time (hh:mm) UTC"
     y_axis:
       label: "Memory Utilization (%)"
-    colors: ["secondary", "primary", "warning", "info", "error"]
+    # Colors: Uses 'multi_line' palette from chart_colors.yaml
+    # To override, uncomment and specify: colors: ["secondary", "primary", "warning", "info", "error"]
     show_grid: true
     include_legend: true
     legend_location: "upper right"
@@ -247,7 +249,8 @@ charts:
     # Unit configuration: "cores" (default) or "millicores"
     unit:
       type: "cores"  # Options: "cores", "millicores"
-    colors: ["primary", "secondary", "info", "warning", "error"]
+    # Colors: Uses 'comparison' palette from chart_colors.yaml (navy-blue gradient)
+    # To override, uncomment and specify: colors: ["primary", "secondary", ...]
     show_grid: true
     include_legend: false
     show_value_labels: true  # Display values above bars
@@ -264,7 +267,8 @@ charts:
     # Unit configuration: "gb" (default) or "mb"
     unit:
       type: "gb"  # Options: "gb", "mb"
-    colors: ["warning", "info", "primary", "secondary", "error"]
+    # Colors: Uses 'comparison' palette from chart_colors.yaml (navy-blue gradient)
+    # To override, uncomment and specify: colors: ["warning", "info", "primary", "secondary", "error"]
     show_grid: true
     include_legend: false
     show_value_labels: true  # Display values above bars

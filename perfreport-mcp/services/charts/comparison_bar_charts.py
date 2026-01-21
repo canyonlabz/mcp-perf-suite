@@ -7,31 +7,12 @@ X-axis: Test runs, Y-axis: Metric values
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import Dict, List, Optional
-from utils.chart_utils import get_comparison_chart_output_path, interpolate_placeholders
-from utils.config import load_chart_colors
-
-# Load chart colors for color name resolution
-CHART_COLORS = load_chart_colors()
-
-
-def resolve_color(color_name: str) -> str:
-    """Resolve color name (e.g., 'primary') to actual color value (e.g., '#1f77b4')"""
-    return CHART_COLORS.get(color_name, color_name)
-
-
-def resolve_colors(color_names: List[str], count: int) -> List[str]:
-    """
-    Resolve color names to actual values, cycling if needed.
-    
-    Args:
-        color_names: List of color names from chart spec
-        count: Number of colors needed
-    
-    Returns:
-        List of resolved color hex values
-    """
-    colors = [resolve_color(name) for name in color_names]
-    return [colors[i % len(colors)] for i in range(count)]
+from utils.chart_utils import (
+    get_comparison_chart_output_path, 
+    interpolate_placeholders,
+    get_comparison_colors,
+    resolve_colors
+)
 
 
 # -----------------------------------------------
@@ -104,8 +85,14 @@ async def generate_cpu_core_comparison_bar_chart(
     raw_title = chart_spec.get("title", f"CPU Core Usage Comparison - {resource_name}")
     title = interpolate_placeholders(raw_title, resource_name=resource_name)
     x_label = chart_spec.get("x_axis", {}).get("label", "Test Run")
-    color_names = chart_spec.get("colors", ["primary", "secondary", "info", "warning", "error"])
-    colors = resolve_colors(color_names, len(run_data))
+    
+    # Use comparison color palette from chart_colors.yaml (navy-blue gradient)
+    # Falls back to schema colors if comparison not defined
+    color_names = chart_spec.get("colors", [])
+    if color_names:
+        colors = resolve_colors(color_names, len(run_data))
+    else:
+        colors = get_comparison_colors(len(run_data))
     
     # Figure sizing
     dpi = int(chart_spec.get("dpi", 144))
@@ -234,8 +221,14 @@ async def generate_memory_usage_comparison_bar_chart(
     raw_title = chart_spec.get("title", f"Memory Usage Comparison - {resource_name}")
     title = interpolate_placeholders(raw_title, resource_name=resource_name)
     x_label = chart_spec.get("x_axis", {}).get("label", "Test Run")
-    color_names = chart_spec.get("colors", ["warning", "info", "primary", "secondary", "error"])
-    colors = resolve_colors(color_names, len(run_data))
+    
+    # Use comparison color palette from chart_colors.yaml (navy-blue gradient)
+    # Falls back to schema colors if comparison not defined
+    color_names = chart_spec.get("colors", [])
+    if color_names:
+        colors = resolve_colors(color_names, len(run_data))
+    else:
+        colors = get_comparison_colors(len(run_data))
     
     # Figure sizing
     dpi = int(chart_spec.get("dpi", 144))
