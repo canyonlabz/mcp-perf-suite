@@ -7,7 +7,7 @@ X-axis: Test runs, Y-axis: Metric values
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import Dict, List, Optional
-from utils.chart_utils import get_chart_output_path, interpolate_placeholders
+from utils.chart_utils import get_comparison_chart_output_path, interpolate_placeholders
 from utils.config import load_chart_colors
 
 # Load chart colors for color name resolution
@@ -155,7 +155,7 @@ async def generate_cpu_core_comparison_bar_chart(
     # Save chart
     bbox = chart_spec.get("bbox_inches", "tight")
     safe_resource_name = resource_name.replace('/', '_').replace('\\', '_').replace('*', '')
-    chart_path = get_chart_output_path(comparison_id, f"{chart_id}-{safe_resource_name}")
+    chart_path = get_comparison_chart_output_path(comparison_id, f"{chart_id}-{safe_resource_name}")
     fig.savefig(chart_path, dpi=dpi, bbox_inches=bbox, facecolor="white")
     plt.close(fig)
     
@@ -285,7 +285,7 @@ async def generate_memory_usage_comparison_bar_chart(
     # Save chart
     bbox = chart_spec.get("bbox_inches", "tight")
     safe_resource_name = resource_name.replace('/', '_').replace('\\', '_').replace('*', '')
-    chart_path = get_chart_output_path(comparison_id, f"{chart_id}-{safe_resource_name}")
+    chart_path = get_comparison_chart_output_path(comparison_id, f"{chart_id}-{safe_resource_name}")
     fig.savefig(chart_path, dpi=dpi, bbox_inches=bbox, facecolor="white")
     plt.close(fig)
     

@@ -30,6 +30,14 @@ from utils.chart_utils import (
 # Import chart functions
 from services.charts import single_axis_charts, dual_axis_charts, multi_line_charts, comparison_bar_charts
 
+# Import comparison chart helpers
+from services.comparison_chart_generator import (
+    _load_run_metadata,
+    _extract_entity_metrics,
+    _get_unique_entities,
+    _load_all_run_metadata
+)
+
 # Load configuration globally
 CONFIG = load_config()
 ARTIFACTS_CONFIG = CONFIG.get('artifacts', {})
@@ -281,6 +289,155 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
         "charts": results,
         "errors": errors,
     }
+
+
+async def generate_comparison_chart(
+    comparison_id: str,
+    run_id_list: List[str], 
+    chart_id: str, 
+    env_name: Optional[str] = None
+) -> dict:
+    """
+    Generate comparison charts from multiple test runs.
+    
+    This function:
+    1. Validates the chart_id is a comparison chart type
+    2. Loads report_metadata_{run_id}.json for each run
+    3. Extracts infrastructure metrics per entity
+    4. Builds run_data list for the chart function
+    5. Generates one chart per entity (resource/service)
+    6. Saves charts to artifacts/comparisons/{comparison_id}/charts/
+    
+    Args:
+        comparison_id: Unique identifier for this comparison (timestamp format)
+        run_id_list: List of test run IDs to compare
+        chart_id: Must be CPU_CORE_COMPARISON_BAR or MEMORY_USAGE_COMPARISON_BAR
+        env_name: Optional environment filter (not currently used)
+        
+    Returns:
+        dict with comparison_id, run_id_list, chart_id, charts list, and errors
+    """
+    # Validate chart_id is a comparison chart type
+    valid_comparison_charts = ["CPU_CORE_COMPARISON_BAR", "MEMORY_USAGE_COMPARISON_BAR"]
+    if chart_id not in valid_comparison_charts:
+        return {
+            "error": f"Invalid comparison chart_id: {chart_id}. Must be one of: {valid_comparison_charts}",
+            "comparison_id": comparison_id,
+            "run_id_list": run_id_list,
+            "chart_id": chart_id
+        }
+    
+    # Validate run_id_list
+    if len(run_id_list) < 2:
+        return {
+            "error": "At least 2 test runs are required for comparison charts",
+            "comparison_id": comparison_id,
+            "run_id_list": run_id_list,
+            "chart_id": chart_id
+        }
+    
+    # Load metadata for all runs
+    run_metadata_list, load_errors = _load_all_run_metadata(run_id_list)
+    
+    if load_errors:
+        return {
+            "error": f"Failed to load metadata: {'; '.join(load_errors)}",
+            "comparison_id": comparison_id,
+            "run_id_list": run_id_list,
+            "chart_id": chart_id
+        }
+    
+    # Get chart spec and handler
+    chart_spec = _get_chart_spec_by_id(chart_id)
+    if not chart_spec:
+        return {
+            "error": f"Chart specification not found for: {chart_id}",
+            "comparison_id": comparison_id,
+            "run_id_list": run_id_list,
+            "chart_id": chart_id
+        }
+    
+    mapping = chart_map.get(chart_id)
+    if not mapping:
+        return {
+            "error": f"No handler mapped for chart_id: {chart_id}",
+            "comparison_id": comparison_id,
+            "run_id_list": run_id_list,
+            "chart_id": chart_id
+        }
+    
+    chart_handler = get_chart_handler(mapping)
+    if not chart_handler:
+        return {
+            "error": f"Handler not found: {mapping['module']}.{mapping['function']}",
+            "comparison_id": comparison_id,
+            "run_id_list": run_id_list,
+            "chart_id": chart_id
+        }
+    
+    # Get unique entities across all runs
+    entity_names = _get_unique_entities(run_metadata_list)
+    
+    if not entity_names:
+        return {
+            "error": "No infrastructure entities found in metadata",
+            "comparison_id": comparison_id,
+            "run_id_list": run_id_list,
+            "chart_id": chart_id
+        }
+    
+    # Determine metric type based on chart_id
+    if "CPU" in chart_id:
+        metric_type = "cpu"
+    elif "MEMORY" in chart_id:
+        metric_type = "memory"
+    else:
+        metric_type = "cpu"  # Default
+    
+    # Generate chart for each entity
+    results = []
+    errors = []
+    
+    for entity_name in entity_names:
+        try:
+            # Extract metrics for this entity across all runs
+            run_data = _extract_entity_metrics(run_metadata_list, entity_name, metric_type)
+            
+            if not run_data:
+                errors.append({
+                    "entity": entity_name, 
+                    "error": "No metrics found for this entity"
+                })
+                continue
+            
+            # Generate the chart
+            # Strip environment prefix for display name
+            from utils.report_utils import strip_service_name_decorations
+            display_name = strip_service_name_decorations(entity_name)
+            
+            result = await chart_handler(
+                run_data=run_data,
+                resource_name=display_name,
+                chart_spec=chart_spec,
+                comparison_id=comparison_id
+            )
+            
+            results.append(result)
+            
+        except Exception as e:
+            errors.append({
+                "entity": entity_name,
+                "error": str(e)
+            })
+    
+    return {
+        "comparison_id": comparison_id,
+        "run_id_list": run_id_list,
+        "chart_id": chart_id,
+        "charts": results,
+        "errors": errors
+    }
+
 
 # -----------------------------------------------
 # Helper Functions

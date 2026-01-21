@@ -5,6 +5,7 @@ from services.report_generator import (
 )
 from services.chart_generator import (
     generate_chart,
+    generate_comparison_chart,
 )
 from services.template_manager import (
     list_templates as get_template_list, 
@@ -76,6 +77,31 @@ async def create_chart(run_id: str, chart_id: str, env_name: Optional[str] = Non
         dict containing chart metadata, path, and any errors
     """
     return await generate_chart(run_id, env_name, chart_id)
+
+
+@mcp.tool
+async def create_comparison_chart(
+    comparison_id: str,
+    run_id_list: list, 
+    chart_id: str, 
+    env_name: Optional[str] = None, 
+    ctx: Context = None
+) -> dict:
+    """
+    Generate comparison bar charts for multiple test runs.
+    
+    Args:
+        comparison_id: Unique identifier for this comparison (from create_comparison_report)
+        run_id_list: List of test run IDs to compare (2-5 recommended)
+        chart_id: Chart type specifier (CPU_CORE_COMPARISON_BAR, MEMORY_USAGE_COMPARISON_BAR)
+        env_name: Optional environment name for resource filtering
+        ctx: Workflow context
+        
+    Returns:
+        dict containing comparison_id, run_id_list, chart_id, charts list, and any errors
+    """
+    return await generate_comparison_chart(comparison_id, run_id_list, chart_id, env_name)
+
 
 @mcp.tool
 async def list_templates(ctx: Context = None) -> dict:

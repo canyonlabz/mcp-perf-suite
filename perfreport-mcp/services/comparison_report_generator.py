@@ -113,27 +113,32 @@ async def generate_comparison_report(run_id_list: list, ctx: Context, format: st
         # Render template
         comparison_markdown = _render_comparison_template(template_content, context)
         
-        # Save comparison report
-        comparison_id = "_".join(run_id_list)
-        reports_dir = ARTIFACTS_PATH / "comparisons"
+        # Generate timestamp-based comparison_id (format: YYYY-MM-DD-HH-MM-SS)
+        comparison_id = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        joined_run_ids = "_".join(run_id_list)
+        
+        # Create comparison subfolder: artifacts/comparisons/{comparison_id}/
+        reports_dir = ARTIFACTS_PATH / "comparisons" / comparison_id
         reports_dir.mkdir(parents=True, exist_ok=True)
         
-        report_name = f"comparison_report_{comparison_id}.md"
+        # Report filename includes run_ids for traceability
+        report_name = f"comparison_report_{joined_run_ids}.md"
         md_path = reports_dir / report_name
         await _save_text_file(md_path, comparison_markdown)
         
         # Convert to requested format
         final_path = md_path
         if format == "pdf":
-            final_path = await _convert_to_pdf(md_path, reports_dir, comparison_id)
+            final_path = await _convert_to_pdf(md_path, reports_dir, joined_run_ids)
         elif format == "docx":
-            final_path = await _convert_to_docx(md_path, reports_dir, comparison_id)
+            final_path = await _convert_to_docx(md_path, reports_dir, joined_run_ids)
         
-        # Define metadata path
-        metadata_path = reports_dir / f"comparison_metadata_{comparison_id}.json"
+        # Define metadata path (in same subfolder)
+        metadata_path = reports_dir / f"comparison_metadata_{joined_run_ids}.json"
         
         # Build response
         response = {
+            "comparison_id": comparison_id,  # NEW: timestamp-based ID
             "run_id_list": run_id_list,
             "run_count": run_count,
             "report_name": report_name if format == "md" else final_path.name,

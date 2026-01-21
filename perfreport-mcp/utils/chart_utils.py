@@ -161,6 +161,31 @@ def get_chart_output_path(run_id: str, chart_name: str) -> Path:
     charts_dir.mkdir(parents=True, exist_ok=True)
     return charts_dir / f"{chart_name}.png"
 
+
+def get_comparison_chart_output_path(comparison_id: str, chart_name: str) -> Path:
+    """
+    Return the output path for saving a comparison chart,
+    ensuring the output directory exists.
+    
+    Comparison charts are stored in a subfolder structure:
+    artifacts/comparisons/{comparison_id}/charts/{chart_name}.png
+
+    Args:
+        comparison_id (str): The comparison's unique identifier (timestamp format).
+        chart_name (str): The base filename (no extension) for the chart.
+
+    Returns:
+        Path: The absolute path to where the PNG file should be written.
+    
+    Example:
+        >>> get_comparison_chart_output_path("2026-01-21-10-30-00", "CPU_CORE_COMPARISON_BAR-auth-svc")
+        Path("artifacts/comparisons/2026-01-21-10-30-00/charts/CPU_CORE_COMPARISON_BAR-auth-svc.png")
+    """
+    charts_dir = ARTIFACTS_PATH / "comparisons" / comparison_id / "charts"
+    charts_dir.mkdir(parents=True, exist_ok=True)
+    return charts_dir / f"{chart_name}.png"
+
+
 def interpolate_placeholders(template: str, **kwargs) -> str:
     """
     Replace placeholder tokens (e.g., {resource_name}) in a template string
