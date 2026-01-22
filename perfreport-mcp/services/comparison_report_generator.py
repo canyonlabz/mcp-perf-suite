@@ -10,7 +10,7 @@ from datetime import datetime
 from fastmcp import Context
 
 # Import config and utilities
-from utils.config import load_config
+from utils.config import load_config, load_report_config
 from utils.report_utils import format_duration, strip_service_name_decorations
 from utils.file_utils import (
     _load_json_safe,
@@ -811,7 +811,11 @@ def _build_p90_comparison_table(run_id_list: List[str], run_metadata_list: List[
 def _build_cpu_core_comparison_table(run_metadata_list: List[Dict]) -> str:
     """
     Build CPU core comparison table with one row per entity,
-    columns for each run showing Peak (Cores), Avg (Cores).
+    columns for each run showing Peak/Avg values.
+    
+    Unit type is determined by report_config.yaml:
+    - "cores" (default): Shows values in cores (e.g., 0.5, 1.25)
+    - "millicores": Shows values in mCPU (e.g., 500, 1250)
     """
     env_type = _determine_environment_type(run_metadata_list)
     entity_names = _get_entities_from_metadata(run_metadata_list)
@@ -820,11 +824,26 @@ def _build_cpu_core_comparison_table(run_metadata_list: List[Dict]) -> str:
     if not entity_names:
         return "No infrastructure data available for CPU core comparison."
     
+    # Load report config for unit settings
+    report_config = load_report_config()
+    cpu_config = report_config.get("infrastructure_tables", {}).get("cpu_core_usage", {})
+    unit_type = cpu_config.get("unit", {}).get("type", "cores").lower()
+    
+    # Determine unit label and conversion factor
+    if unit_type == "millicores":
+        unit_label = "mCPU"
+        conversion_factor = 1000  # cores to millicores
+        value_format = "{:.0f}"  # No decimals for millicores
+    else:  # cores (default)
+        unit_label = "Cores"
+        conversion_factor = 1.0
+        value_format = "{:.4f}"
+    
     # Build dynamic header based on number of runs
     header_cols = [f"{env_type} Name"]
     for i in range(run_count):
-        header_cols.append(f"Run {i+1} Peak (Cores)")
-        header_cols.append(f"Run {i+1} Avg (Cores)")
+        header_cols.append(f"Run {i+1} Peak ({unit_label})")
+        header_cols.append(f"Run {i+1} Avg ({unit_label})")
     header_cols.extend(["Trend", "Δ vs Run 1"])
     
     # Pad header for up to 5 runs
@@ -851,7 +870,7 @@ def _build_cpu_core_comparison_table(run_metadata_list: List[Dict]) -> str:
                 peak_cores = entity.get("cpu_peak_cores", 0)
                 avg_cores = entity.get("cpu_avg_cores", 0)
                 
-                # Track first and last for trend calculation
+                # Track first and last for trend calculation (use original values)
                 if i == 0:
                     first_peak = peak_cores
                 if i == len(run_metadata_list) - 1:
@@ -862,8 +881,9 @@ def _build_cpu_core_comparison_table(run_metadata_list: List[Dict]) -> str:
                     row_data.append("N/A")
                     row_data.append("N/A")
                 else:
-                    row_data.append(f"{peak_cores:.4f}")
-                    row_data.append(f"{avg_cores:.4f}")
+                    # Apply conversion factor for display
+                    row_data.append(value_format.format(peak_cores * conversion_factor))
+                    row_data.append(value_format.format(avg_cores * conversion_factor))
             else:
                 row_data.append("N/A")
                 row_data.append("N/A")
@@ -894,7 +914,11 @@ def _build_cpu_core_comparison_table(run_metadata_list: List[Dict]) -> str:
 def _build_memory_usage_comparison_table(run_metadata_list: List[Dict]) -> str:
     """
     Build memory usage comparison table with one row per entity,
-    columns for each run showing Peak (GB), Avg (GB).
+    columns for each run showing Peak/Avg values.
+    
+    Unit type is determined by report_config.yaml:
+    - "gb" (default): Shows values in GB (e.g., 1.5, 2.25)
+    - "mb": Shows values in MB (e.g., 1536, 2304)
     """
     env_type = _determine_environment_type(run_metadata_list)
     entity_names = _get_entities_from_metadata(run_metadata_list)
@@ -903,11 +927,26 @@ def _build_memory_usage_comparison_table(run_metadata_list: List[Dict]) -> str:
     if not entity_names:
         return "No infrastructure data available for memory usage comparison."
     
+    # Load report config for unit settings
+    report_config = load_report_config()
+    memory_config = report_config.get("infrastructure_tables", {}).get("memory_usage", {})
+    unit_type = memory_config.get("unit", {}).get("type", "gb").lower()
+    
+    # Determine unit label and conversion factor
+    if unit_type == "mb":
+        unit_label = "MB"
+        conversion_factor = 1024  # GB to MB
+        value_format = "{:.0f}"  # No decimals for MB
+    else:  # gb (default)
+        unit_label = "GB"
+        conversion_factor = 1.0
+        value_format = "{:.2f}"
+    
     # Build dynamic header based on number of runs
     header_cols = [f"{env_type} Name"]
     for i in range(run_count):
-        header_cols.append(f"Run {i+1} Peak (GB)")
-        header_cols.append(f"Run {i+1} Avg (GB)")
+        header_cols.append(f"Run {i+1} Peak ({unit_label})")
+        header_cols.append(f"Run {i+1} Avg ({unit_label})")
     header_cols.extend(["Trend", "Δ vs Run 1"])
     
     # Pad header for up to 5 runs
@@ -934,7 +973,7 @@ def _build_memory_usage_comparison_table(run_metadata_list: List[Dict]) -> str:
                 peak_gb = entity.get("memory_peak_gb", 0)
                 avg_gb = entity.get("memory_avg_gb", 0)
                 
-                # Track first and last for trend calculation
+                # Track first and last for trend calculation (use original values)
                 if i == 0:
                     first_peak = peak_gb
                 if i == len(run_metadata_list) - 1:
@@ -945,8 +984,9 @@ def _build_memory_usage_comparison_table(run_metadata_list: List[Dict]) -> str:
                     row_data.append("N/A")
                     row_data.append("N/A")
                 else:
-                    row_data.append(f"{peak_gb:.2f}")
-                    row_data.append(f"{avg_gb:.2f}")
+                    # Apply conversion factor for display
+                    row_data.append(value_format.format(peak_gb * conversion_factor))
+                    row_data.append(value_format.format(avg_gb * conversion_factor))
             else:
                 row_data.append("N/A")
                 row_data.append("N/A")

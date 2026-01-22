@@ -33,7 +33,11 @@ infrastructure_tables:
   # Affects the table in section "4.2.1 CPU Core Usage by Service/Host"
   cpu_core_usage:
     show_allocated_column: true    # Show "Allocated (Cores)" column
-  
+    # Unit configuration for comparison report tables
+    # Options: "cores" (default) or "millicores"
+    unit:
+      type: "millicores"
+
   # Memory Utilization (%) table settings
   # Affects the table in section "4.3 Memory Utilization by Service/Host"
   memory_utilization:
@@ -43,6 +47,10 @@ infrastructure_tables:
   # Affects the table in section "4.3.1 Memory Usage by Service/Host"
   memory_usage:
     show_allocated_column: true    # Show "Allocated (GB)" column
+    # Unit configuration for comparison report tables
+    # Options: "gb" (default) or "mb"
+    unit:
+      type: "mb"
 
 # Future configuration options (planned)
 # ======================================

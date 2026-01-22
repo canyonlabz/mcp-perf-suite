@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Union
 from dotenv import load_dotenv
 from fastmcp import FastMCP, Context  # ✅ FastMCP 2.x import
 from utils.config import load_config
+from utils.file_utils import write_public_report_json
 
 # Load environment variables from .env file such as API keys and secrets
 load_dotenv()
@@ -587,6 +588,7 @@ def process_extracted_artifact_files(run_id: str, extracted_files: list, ctx: Co
 async def get_public_report_url(run_id: str, ctx: Context) -> dict:
     """
     Requests a public token for the provided run_id and returns a shareable BlazeMeter report URL.
+    Also saves the result to artifacts/{run_id}/blazemeter/public_report.json for use by PerfReport.
 
     Args:
         run_id: The BlazeMeter master/run ID.
@@ -599,6 +601,7 @@ async def get_public_report_url(run_id: str, ctx: Context) -> dict:
             - public_token: The raw public token.
             - is_new: True if the token was newly created, False if already existed.
             - error: Error message or None.
+            - json_path: Path to the saved public_report.json file.
         Updates context with public_url and public_token for workflow chaining.
     """
     url = f"{BLAZEMETER_API_BASE}/masters/{run_id}/public-token"
@@ -613,41 +616,56 @@ async def get_public_report_url(run_id: str, ctx: Context) -> dict:
             is_new = result.get("new", False)
             if token:
                 public_url = f"https://a.blazemeter.com/app/?public-token={token}#/masters/{run_id}/summary"
-                if ctx is not None:
-                    ctx.set_state("public_url", public_url)
-                    ctx.set_state("public_token", token)
-                    ctx.set_state("is_new_token", is_new)
-                return {
+                
+                # Build response data
+                response_data = {
                     "run_id": run_id,
                     "public_url": public_url,
                     "public_token": token,
                     "is_new": is_new,
                     "error": None
                 }
+                
+                # Write to public_report.json for PerfReport consumption
+                json_path = write_public_report_json(run_id, response_data)
+                response_data["json_path"] = json_path
+                
+                if ctx is not None:
+                    ctx.set_state("public_url", public_url)
+                    ctx.set_state("public_token", token)
+                    ctx.set_state("is_new_token", is_new)
+                    ctx.set_state("public_report_json_path", json_path)
+                    await ctx.info(f"Public report JSON saved to: {json_path}")
+                
+                return response_data
             else:
+                error_data = {
+                    "run_id": run_id,
+                    "public_url": None,
+                    "public_token": None,
+                    "is_new": False,
+                    "error": "Public token not returned by API.",
+                    "json_path": None
+                }
                 if ctx is not None:
                     ctx.set_state("public_url", None)
                     ctx.set_state("public_token", None)
                     ctx.set_state("is_new_token", False)
                     ctx.set_state("public_report_error", "Public token not returned by API.")
-                return {
-                    "run_id": run_id,
-                    "public_url": None,
-                    "public_token": None,
-                    "is_new": False,
-                    "error": "Public token not returned by API."
-                }
+                return error_data
     except Exception as e:
-        if ctx is not None:
-            ctx.set_state("public_url", None)
-            ctx.set_state("public_report_error", str(e))
-        return {
+        error_data = {
             "run_id": run_id,
             "public_url": None,
             "public_token": None,
             "is_new": False,
-            "error": str(e)
+            "error": str(e),
+            "json_path": None
         }
+        if ctx is not None:
+            ctx.set_state("public_url", None)
+            ctx.set_state("public_report_error", str(e))
+        return error_data
 
 async def fetch_aggregate_report(run_id: str, ctx: Context) -> Dict[str, Any]:
     """
