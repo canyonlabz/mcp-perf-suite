@@ -287,6 +287,7 @@ perfreport-mcp/tests/**
 !.cursor/rules/jmeter-correlations.mdc
 !.cursor/rules/playwright-browser-automation.mdc
 !.cursor/rules/performance-testing-workflow.mdc
+!.cursor/rules/comparison-report-workflow.mdc
 
 # Temp test files
 test_datadog.py

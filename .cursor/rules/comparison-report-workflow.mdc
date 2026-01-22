@@ -1,0 +1,255 @@
+# Comparison Report Workflow
+
+This workflow creates comparison reports that analyze multiple test runs side-by-side, generates comparison charts, and publishes the results to Confluence. It is designed to run AFTER the end-to-end performance testing workflow has been completed for each individual test run.
+
+## Workflow Overview
+
+The comparison report workflow executes the following steps:
+1. **Prerequisites Validation** - Verify all test runs have completed the E2E workflow
+2. **PerfReport MCP** - Generate comparison report and comparison charts
+3. **Confluence MCP** (Optional) - Publish comparison report to Confluence
+
+---
+
+## 0. Prerequisites Collection
+
+**Before starting, collect ALL required information from the user:**
+
+### Test Run Details
+
+Collect the list of test run IDs to compare:
+- **Test run IDs** (run_id_list) - List of 2-5 test run IDs, e.g., ["80593110", "80603131", "80612241"]
+- **Environment name** (optional) - If charts need environment filtering
+
+**Important Prerequisites:**
+- Each test_run_id in the list MUST have already completed the full end-to-end workflow (BlazeMeter → Datadog → PerfAnalysis → PerfReport)
+- Required files for each run:
+  - `artifacts/{run_id}/reports/report_metadata_{run_id}.json`
+  - `artifacts/{run_id}/analysis/infrastructure_analysis.json`
+- Recommended: 2-5 test runs for optimal report readability
+- Maximum: 10 test runs supported
+
+### Report Options (Optional)
+
+- **Template name** - Custom comparison template (default: `default_comparison_report_template.md`)
+- **Page title** - Custom title for Confluence page
+
+### Confluence Details (Optional - only if publishing to Confluence)
+
+If the user provides Confluence information, assume they want to publish results:
+- **Confluence mode** - "cloud" or "onprem"
+- **Confluence Space name** - e.g., "Quality Engineering"
+- **Parent Page name** - e.g., "AI Generated Test Reports"
+- **Parent Page ID** (optional, if provided) - e.g., "123456789"
+
+**Do not proceed until all required information is collected.**
+
+---
+
+## 1. Validate Prerequisites
+
+Before generating the comparison report, validate that all required files exist:
+
+1. For each test_run_id in the run_id_list, verify these files exist:
+   - `artifacts/{run_id}/reports/report_metadata_{run_id}.json`
+   - `artifacts/{run_id}/analysis/infrastructure_analysis.json`
+
+2. If any files are missing:
+   - Report which test_run_id(s) are missing prerequisites
+   - Advise the user to run the end-to-end workflow for those test runs first
+   - Do NOT proceed until all prerequisites are met
+
+---
+
+## 2. PerfReport MCP Workflow (Comparison)
+
+### 2.1 Create Comparison Report
+
+1. Use tool `create_comparison_report` with:
+   - run_id_list: List of test run IDs to compare (e.g., ["80593110", "80603131", "80612241"])
+   - template: (Optional) Custom template name (default: `default_comparison_report_template.md`)
+   - format: "md" (Markdown format)
+
+2. The tool returns:
+   - **comparison_id**: Unique timestamp-based identifier (e.g., "2026-01-21-14-27-42")
+   - **report_path**: Path to generated report (e.g., `artifacts/comparisons/{comparison_id}/comparison_report_{run_ids}.md`)
+   - **metadata_path**: Path to comparison metadata JSON
+
+3. Store the `comparison_id` for use in subsequent steps.
+
+**Output location:** `artifacts/comparisons/{comparison_id}/`
+
+### 2.2 Create Comparison Charts
+
+1. Use tool `list_chart_types` to see available comparison chart options.
+   - Look for chart IDs containing "COMPARISON" (e.g., `CPU_CORE_COMPARISON_BAR`, `MEMORY_USAGE_COMPARISON_BAR`)
+
+2. Use tool `create_comparison_chart` to create CPU comparison chart:
+   - comparison_id: The comparison_id from step 2.1
+   - run_id_list: Same list of test run IDs
+   - chart_id: "CPU_CORE_COMPARISON_BAR"
+   - env_name: (Optional) Environment name for filtering
+
+3. Use tool `create_comparison_chart` to create Memory comparison chart:
+   - comparison_id: The comparison_id from step 2.1
+   - run_id_list: Same list of test run IDs
+   - chart_id: "MEMORY_USAGE_COMPARISON_BAR"
+   - env_name: (Optional) Environment name for filtering
+
+4. Charts are saved to: `artifacts/comparisons/{comparison_id}/charts/`
+
+**Chart Configuration:**
+- CPU charts display in "millicores" or "cores" (configured in `chart_schema.yaml`)
+- Memory charts display in "MB" or "GB" (configured in `chart_schema.yaml`)
+- Comparison charts use the navy-blue gradient color palette from `chart_colors.yaml`
+
+### 2.3 Error Handling
+
+- These are Python code executions (not API calls)
+- Do NOT retry on failure
+- Analyze the error and report back to user:
+  - Error message from MCP tool
+  - Missing file paths (if any)
+  - Expected vs. actual file structure
+- Do NOT attempt to fix code or modify files
+- Stop workflow and report issue to user
+
+### 2.4 Validation
+
+Verify required files exist:
+- `artifacts/comparisons/{comparison_id}/comparison_report_{run_ids}.md`
+- `artifacts/comparisons/{comparison_id}/comparison_metadata_{run_ids}.json`
+- `artifacts/comparisons/{comparison_id}/charts/CPU_CORE_COMPARISON_BAR-*.png`
+- `artifacts/comparisons/{comparison_id}/charts/MEMORY_USAGE_COMPARISON_BAR-*.png`
+
+---
+
+## 3. Confluence MCP Workflow (Optional)
+
+**Only execute if Confluence details were provided in prerequisites.**
+
+### 3.0 Prerequisites
+
+- comparison_id from PerfReport workflow
+- run_id_list (same list used for comparison)
+- Confluence mode ("cloud" or "onprem")
+- Confluence Space name
+- Parent Page information (name or ID)
+
+### 3.1 Locate Space and Parent Page
+
+1. Use tool `list_spaces` with the provided mode.
+   - Search for the space that matches the provided Confluence Space name.
+   - Extract the space_ref (space_id for cloud, space_key for onprem).
+
+2. **Locate the parent Page** (REQUIRED):
+   - If parent page ID is provided, use `get_page_by_id` to verify it exists.
+   - If parent page name is provided, use `search_pages` or `list_pages` to find it.
+   - Store the parent page ID (parent_id) for use in step 3.3.
+
+### 3.2 Get Available Reports
+
+1. Use tool `get_available_reports` with test_run_id set to the comparison_id.
+   - This lists comparison reports from `artifacts/comparisons/{comparison_id}/`
+   - Select the report filename to publish (e.g., `comparison_report_{run_ids}.md`)
+
+### 3.3 Create Confluence Page
+
+Use tool `create_page` with:
+- space_ref: The space_ref from step 3.1
+- test_run_id: The **comparison_id** (NOT the individual run_ids)
+- filename: The comparison report filename from step 3.2
+- mode: The Confluence mode ("cloud" or "onprem")
+- parent_id: The parent page ID from step 3.1
+- report_type: **"comparison"** (IMPORTANT - this determines the artifact path)
+- title: (Optional) Custom page title (e.g., "CoreServices - Comparison Report")
+
+Store the returned page_ref (page ID) for use in steps 3.4 and 3.5.
+
+### 3.4 Attach Comparison Chart Images
+
+Use tool `attach_images` with:
+- page_ref: The page_ref (page ID) returned from step 3.3
+- test_run_id: The **comparison_id** (NOT the individual run_ids)
+- mode: The Confluence mode ("cloud" or "onprem")
+- report_type: **"comparison"** (IMPORTANT - this determines the chart path)
+
+This uploads ALL PNG chart images from `artifacts/comparisons/{comparison_id}/charts/` to the page.
+
+### 3.5 Update Page with Embedded Images
+
+Use tool `update_page` with:
+- page_ref: The page_ref (page ID) returned from step 3.3
+- test_run_id: The **comparison_id** (NOT the individual run_ids)
+- mode: The Confluence mode ("cloud" or "onprem")
+- report_type: **"comparison"** (IMPORTANT - this determines the artifact paths)
+
+This replaces `{{CHART_PLACEHOLDER: ID}}` markers with embedded `<ac:image>` markup.
+
+### 3.6 Error Handling
+
+- If API calls fail, retry up to 3 times
+- If retries fail, report error
+
+### 3.7 Validation
+
+Verify:
+- Page was created successfully (check for page_ref and URL in create_page response)
+- Images were attached (check attach_images status: "success" or "partial")
+- Placeholders were replaced (check update_page placeholders_replaced list)
+- Expected placeholders: `CPU_CORE_COMPARISON_BAR`, `MEMORY_USAGE_COMPARISON_BAR`
+
+---
+
+## 4. Generate Summary
+
+After the comparison workflow completes, provide a summary:
+
+### 4.1 Comparison Report Details
+
+- **Comparison ID:** {comparison_id}
+- **Test Runs Compared:** {run_id_list}
+- **Template Used:** {template_name}
+- **Report Path:** `artifacts/comparisons/{comparison_id}/comparison_report_{run_ids}.md`
+
+### 4.2 Charts Generated
+
+| Chart ID | Description | Output Path |
+|----------|-------------|-------------|
+| CPU_CORE_COMPARISON_BAR | CPU core usage across runs | `artifacts/comparisons/{comparison_id}/charts/CPU_CORE_COMPARISON_BAR-{resource}.png` |
+| MEMORY_USAGE_COMPARISON_BAR | Memory usage across runs | `artifacts/comparisons/{comparison_id}/charts/MEMORY_USAGE_COMPARISON_BAR-{resource}.png` |
+
+### 4.3 Confluence Publishing (if applicable)
+
+- **Page Title:** {page_title}
+- **Page URL:** {confluence_url}
+- **Images Attached:** {count}
+- **Placeholders Replaced:** {list}
+
+---
+
+## Important Notes
+
+1. **Prerequisites Are Critical:** This workflow assumes all test runs have completed the full E2E workflow. Do not skip prerequisite validation.
+
+2. **comparison_id vs run_id:**
+   - The `comparison_id` is a timestamp-based unique identifier generated when creating the comparison report
+   - When publishing to Confluence, use `comparison_id` as the `test_run_id` parameter
+   - The `report_type: "comparison"` parameter tells Confluence tools to look in `artifacts/comparisons/{comparison_id}/`
+
+3. **Artifact Path Structure:**
+   - Single-run reports: `artifacts/{run_id}/reports/` and `artifacts/{run_id}/charts/`
+   - Comparison reports: `artifacts/comparisons/{comparison_id}/` and `artifacts/comparisons/{comparison_id}/charts/`
+
+4. **Chart Colors:**
+   - Comparison bar charts use the navy-blue gradient palette from `chart_colors.yaml`
+   - Each test run gets a distinct color from light to dark blue
+
+5. **Unit Configuration:**
+   - CPU tables/charts can display in "cores" or "millicores" (configured in `report_config.yaml` and `chart_schema.yaml`)
+   - Memory tables/charts can display in "GB" or "MB" (configured in `report_config.yaml` and `chart_schema.yaml`)
+
+6. **Custom Templates:**
+   - Available templates can be listed using `list_templates` tool
+   - Custom templates should include comparison-specific placeholders (see `docs/report_template_guidelines.md`)
+
