@@ -118,6 +118,12 @@ All code located in:
 | `{{MCP_VERSION}}`         | MCP server version           |
 | `{{ENVIRONMENT}}`         | Env names from infra summary |
 | `{{TEST_TYPE}}`           | Load test or other type      |
+| `{{BLAZEMETER_REPORT_LINK}}` | Clickable link to BlazeMeter public report (requires `public_report.json`) |
+
+**BlazeMeter Report Link:**
+- The `{{BLAZEMETER_REPORT_LINK}}` placeholder renders as `[View Report](url)` in the Test Configuration table
+- Requires the BlazeMeter workflow to call `get_public_report` first, which saves `public_report.json` to `artifacts/{run_id}/blazemeter/`
+- If `public_report.json` is not found, this placeholder will show "N/A"
 
 ---
 
@@ -229,13 +235,43 @@ Chart placeholders are replaced with embedded images when publishing to Confluen
 
 **Format:** `{{CHART_PLACEHOLDER: SCHEMA_ID}}`
 
+#### Performance Charts
+
 | Placeholder | Chart Type | Description |
 | ----------- | ---------- | ----------- |
 | `{{CHART_PLACEHOLDER: RESP_TIME_P90_VUSERS_DUALAXIS}}` | Dual-axis | P90 response time vs virtual users |
-| `{{CHART_PLACEHOLDER: CPU_UTILIZATION_MULTILINE}}` | Multi-line | CPU % for all hosts/services |
-| `{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_MULTILINE}}` | Multi-line | Memory % for all hosts/services |
+| `{{CHART_PLACEHOLDER: ERROR_RATE_LINE}}` | Single-axis | Error rate over time |
+| `{{CHART_PLACEHOLDER: THROUGHPUT_HITS_LINE}}` | Single-axis | Throughput (hits/sec) over time |
+| `{{CHART_PLACEHOLDER: TOP_SLOWEST_APIS_BAR}}` | Bar chart | Top slowest APIs by response time |
+
+#### Infrastructure Charts (Single-Run)
+
+| Placeholder | Chart Type | Description |
+| ----------- | ---------- | ----------- |
 | `{{CHART_PLACEHOLDER: CPU_UTILIZATION_LINE}}` | Single-axis | CPU % for specific host/service |
+| `{{CHART_PLACEHOLDER: CPU_UTILIZATION_MULTILINE}}` | Multi-line | CPU % for all hosts/services |
+| `{{CHART_PLACEHOLDER: CPU_UTILIZATION_VUSERS_DUALAXIS}}` | Dual-axis | CPU % vs virtual users |
+| `{{CHART_PLACEHOLDER: CPU_CORES_LINE}}` | Single-axis | CPU core usage over time (Cores or mCPU) |
 | `{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_LINE}}` | Single-axis | Memory % for specific host/service |
+| `{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_MULTILINE}}` | Multi-line | Memory % for all hosts/services |
+| `{{CHART_PLACEHOLDER: MEMORY_UTILIZATION_VUSERS_DUALAXIS}}` | Dual-axis | Memory % vs virtual users |
+| `{{CHART_PLACEHOLDER: MEMORY_USAGE_LINE}}` | Single-axis | Memory usage over time (GB or MB) |
+
+#### Comparison Charts (Multi-Run Reports)
+
+| Placeholder | Chart Type | Description |
+| ----------- | ---------- | ----------- |
+| `{{CHART_PLACEHOLDER: CPU_CORE_COMPARISON_BAR}}` | Vertical bar | CPU core usage across test runs (uses navy-blue gradient) |
+| `{{CHART_PLACEHOLDER: MEMORY_USAGE_COMPARISON_BAR}}` | Vertical bar | Memory usage across test runs (uses navy-blue gradient) |
+
+**Chart Color Configuration:**
+- Multi-line charts use the `multi_line` palette from `chart_colors.yaml` (10 high-contrast colors)
+- Comparison bar charts use the `comparison` palette from `chart_colors.yaml` (navy-blue gradient)
+- Colors can be customized in `chart_colors.yaml` or overridden per-chart in `chart_schema.yaml`
+
+**Unit Configuration:**
+- CPU charts can display in "cores" or "millicores" (configured in `chart_schema.yaml`)
+- Memory charts can display in "gb" or "mb" (configured in `chart_schema.yaml`)
 
 **Important Notes:**
 - Use curly braces `{{...}}` NOT square brackets `[...]`
@@ -305,6 +341,8 @@ These appear in `default_comparison_report_template.md` and comparison generator
 
 ### 🖥️ Infra Comparisons
 
+#### CPU & Memory Utilization (%)
+
 ```
 {{CPU_COMPARISON_ROWS}}
 {{CPU_IMPROVED_COUNT}}
@@ -317,12 +355,38 @@ These appear in `default_comparison_report_template.md` and comparison generator
 {{MEMORY_STABLE_COUNT}}
 ```
 
+#### CPU & Memory Usage (Cores/mCPU and GB/MB)
+
+```
+{{CPU_CORE_COMPARISON_ROWS}}
+{{MEMORY_USAGE_COMPARISON_ROWS}}
+```
+
+**Unit Configuration for Comparison Tables:**
+- CPU Core Usage tables can display in "cores" or "millicores" (configured in `report_config.yaml`)
+- Memory Usage tables can display in "gb" or "mb" (configured in `report_config.yaml`)
+- Configuration is under `infrastructure_tables.cpu_core_usage.unit.type` and `infrastructure_tables.memory_usage.unit.type`
+
 ### 🧮 Correlations
 
 ```
 {{CORRELATION_INSIGHTS_SECTION}}
 {{CORRELATION_KEY_OBSERVATIONS}}
 ```
+
+### 📊 Comparison Chart Placeholders
+
+Chart placeholders for comparison reports (see section 5.11 for full chart reference):
+
+```
+{{CHART_PLACEHOLDER: CPU_CORE_COMPARISON_BAR}}
+{{CHART_PLACEHOLDER: MEMORY_USAGE_COMPARISON_BAR}}
+```
+
+**Notes:**
+- Comparison charts use the `comparison` color palette from `chart_colors.yaml` (navy-blue gradient)
+- Each test run gets a distinct color from the palette
+- Charts are generated per-entity (host/service) and saved to `artifacts/comparisons/{comparison_id}/charts/`
 
 ---
 
