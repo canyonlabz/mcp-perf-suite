@@ -287,8 +287,13 @@ def _apply_inline_formatting(text: str) -> str:
     # Inline code (`code`)
     text = re.sub(r'`([^`]+?)`', r'<code>\1</code>', text)
     
-    # Links [text](url)
-    text = re.sub(r'$$([^$$]+)$$$$([^$$]+)$$', r'<a href="\2">\1</a>', text)
+    # Links [text](url) - convert to Confluence external link format
+    # Pattern: [link text](url) -> <a href="url" class="external-link" rel="nofollow">link text</a>
+    text = re.sub(
+        r'\[([^\]]+)\]\(([^\)]+)\)',
+        r'<a href="\2" class="external-link" rel="nofollow">\1</a>',
+        text
+    )
     
     return text
 
