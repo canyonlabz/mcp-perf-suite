@@ -546,8 +546,11 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                 write_series("kubernetes.memory.usage", "bytes", mem_usage_series)
 
                 # Dynamic limits from Datadog (new rows)
-                write_series("kubernetes.cpu.limits", "cores", cpu_limits_series)
-                write_series("kubernetes.memory.limits", "bytes", mem_limits_series)
+                # Fill missing limits with 0.0 for CSV consistency when Datadog returns no data
+                cpu_limits_for_csv = _fill_missing_limits_series(cpu_usage_series, cpu_limits_series)
+                mem_limits_for_csv = _fill_missing_limits_series(mem_usage_series, mem_limits_series)
+                write_series("kubernetes.cpu.limits", "cores", cpu_limits_for_csv)
+                write_series("kubernetes.memory.limits", "bytes", mem_limits_for_csv)
 
                 # CPU utilization percentage (calculated from dynamic limits)
                 # Value of -1 indicates limits not defined in Kubernetes
@@ -693,8 +696,11 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                 write_pod_series("kubernetes.memory.usage", "bytes", pod_mem_usage_series)
 
                 # Dynamic limits from Datadog (new rows)
-                write_pod_series("kubernetes.cpu.limits", "cores", pod_cpu_limits_series)
-                write_pod_series("kubernetes.memory.limits", "bytes", pod_mem_limits_series)
+                # Fill missing limits with 0.0 for CSV consistency when Datadog returns no data
+                pod_cpu_limits_for_csv = _fill_missing_limits_series(pod_cpu_usage_series, pod_cpu_limits_series)
+                pod_mem_limits_for_csv = _fill_missing_limits_series(pod_mem_usage_series, pod_mem_limits_series)
+                write_pod_series("kubernetes.cpu.limits", "cores", pod_cpu_limits_for_csv)
+                write_pod_series("kubernetes.memory.limits", "bytes", pod_mem_limits_for_csv)
 
                 # CPU utilization percentage (calculated from dynamic limits)
                 # Value of -1 indicates limits not defined in Kubernetes
@@ -990,6 +996,40 @@ def _extract_series_with_limits(
                 limits_series[identifier] = pts
     
     return usage_series, limits_series
+
+
+def _fill_missing_limits_series(
+    usage_series: Dict[str, List[Tuple[int, float]]],
+    limits_series: Dict[str, List[Tuple[int, float]]]
+) -> Dict[str, List[Tuple[int, float]]]:
+    """
+    Fill in missing limits series with 0.0 values when Datadog returns no limits data.
+    
+    This ensures CSV consistency - limits rows are always present even when
+    Kubernetes doesn't have limits configured (Datadog may return empty series).
+    
+    Args:
+        usage_series: Usage data per identifier { id -> [(ts_ms, value), ...] }
+        limits_series: Limits data per identifier (may be empty)
+    
+    Returns:
+        limits_series with synthetic 0.0 entries added for identifiers/timestamps
+        that have usage data but no limits data
+    """
+    if limits_series:
+        # Limits data exists, return as-is
+        return limits_series
+    
+    if not usage_series:
+        # No usage data either, nothing to fill
+        return limits_series
+    
+    # Create synthetic 0.0 limits entries for each identifier/timestamp in usage_series
+    filled_limits: Dict[str, List[Tuple[int, float]]] = {}
+    for identifier, usage_pts in usage_series.items():
+        filled_limits[identifier] = [(ts_ms, 0.0) for ts_ms, _ in usage_pts]
+    
+    return filled_limits
 
 
 def _calculate_utilization_with_dynamic_limits(
