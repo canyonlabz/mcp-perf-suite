@@ -169,6 +169,49 @@ def _write_csv_header(writer: csv.writer):
         "timestamp_utc", "metric", "value", "unit"
     ])
 
+
+def _build_combined_metrics_request(
+    from_ms: int,
+    to_ms: int,
+    usage_query: str,
+    limits_query: str,
+    interval: int = 20000
+) -> Dict[str, Any]:
+    """
+    Build Datadog v2 timeseries request body with both usage and limits queries.
+    
+    This allows querying both metrics in a single API call, with usage as query_index=0
+    and limits as query_index=1 in the response.
+    
+    Args:
+        from_ms: Start timestamp in milliseconds
+        to_ms: End timestamp in milliseconds
+        usage_query: Datadog query string for usage metric
+        limits_query: Datadog query string for limits metric
+        interval: Rollup interval in milliseconds (default 20000 = 20 seconds)
+    
+    Returns:
+        Dict: Request body for Datadog v2 timeseries API
+    """
+    return {
+        "data": {
+            "type": "timeseries_request",
+            "interval": interval,
+            "attributes": {
+                "from": from_ms,
+                "to": to_ms,
+                "queries": [
+                    {"data_source": "metrics", "name": "usage", "query": usage_query},
+                    {"data_source": "metrics", "name": "limits", "query": limits_query}
+                ],
+                "formulas": [
+                    {"formula": "usage"},
+                    {"formula": "limits"}
+                ]
+            }
+        }
+    }
+
 # -----------------------------------------------
 # Hosts (v1) — per-host CSV + aggregates
 # -----------------------------------------------
@@ -412,87 +455,78 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
 
     async with httpx.AsyncClient(verify=verify_ssl) as client:
         # -------------------------------------------------------------
-        # 1) Services
+        # 1) Services - Using DYNAMIC limits from Datadog
         # -------------------------------------------------------------
         for svc in services:
             s_filter = svc.get("service_filter")
             if not s_filter:
                 continue
 
-            # Parse CPU and Memory limits for percentage calculation
-            cpu_limit_cores = _parse_resource_limit(svc.get("cpus", ""))
-            memory_limit_bytes = _parse_resource_limit(svc.get("memory", ""))
+            # NOTE: We no longer use static limits from environments.json for K8s
+            # Instead, we query limits dynamically from Datadog alongside usage metrics
 
-            # 1a) CPU request
-            body_cpu = {
-                "data": {
-                    "type": "timeseries_request",
-                    "interval": 20000,
-                    "attributes": {
-                        "from": v2_from_ms,
-                        "to": v2_to_ms,
-                        "queries": [{
-                            "data_source": "metrics",
-                            "name": "a",
-                            "query": svc_cpu_query(env_tag, s_filter)
-                        }],
-                        "formulas": [{"formula": "a"}]
-                    }
-                }
-            }
+            # 1a) CPU request (usage + limits combined)
+            cpu_usage_query, cpu_limits_query = svc_cpu_with_limits_query(env_tag, s_filter)
+            body_cpu = _build_combined_metrics_request(v2_from_ms, v2_to_ms, cpu_usage_query, cpu_limits_query)
 
-            cpu_series: Dict[str, List[Tuple[int, float]]] = {}
+            cpu_usage_series: Dict[str, List[Tuple[int, float]]] = {}
+            cpu_limits_series: Dict[str, List[Tuple[int, float]]] = {}
             try:
                 r_cpu = await client.post(V2_TIMESERIES_URL, headers=headers, json=body_cpu, timeout=60.0)
                 r_cpu.raise_for_status()
                 attrs = r_cpu.json().get("data", {}).get("attributes", {})
-                cpu_series = _extract_series(attrs, ["kube_container_name"])
+                cpu_usage_series, cpu_limits_series = _extract_series_with_limits(attrs, ["kube_container_name"])
             except Exception as e:
-                warnings.append(f"Service '{s_filter}': CPU query error — {e}; Request body: {body_cpu}; Response: {json.dumps(attrs, indent=2) if 'attrs' in locals() else 'N/A'}")
+                warnings.append(f"Service '{s_filter}': CPU query error — {e}")
                 await ctx.error(warnings[-1])
                 continue
 
-            # 1b) Memory request
-            body_mem = {
-                "data": {
-                    "type": "timeseries_request",
-                    "interval": 20000,
-                    "attributes": {
-                        "from": v2_from_ms,
-                        "to": v2_to_ms,
-                        "queries": [{
-                            "data_source": "metrics",
-                            "name": "a",
-                            "query": svc_mem_query(env_tag, s_filter)
-                        }],
-                        "formulas": [{"formula": "a"}]
-                    }
-                }
-            }
+            # 1b) Memory request (usage + limits combined)
+            mem_usage_query, mem_limits_query = svc_mem_with_limits_query(env_tag, s_filter)
+            body_mem = _build_combined_metrics_request(v2_from_ms, v2_to_ms, mem_usage_query, mem_limits_query)
 
-            mem_series: Dict[str, List[Tuple[int, float]]] = {}
+            mem_usage_series: Dict[str, List[Tuple[int, float]]] = {}
+            mem_limits_series: Dict[str, List[Tuple[int, float]]] = {}
             try:
                 r_mem = await client.post(V2_TIMESERIES_URL, headers=headers, json=body_mem, timeout=60.0)
                 r_mem.raise_for_status()
                 attrs = r_mem.json().get("data", {}).get("attributes", {})
-                mem_series = _extract_series(attrs, ["kube_container_name"])
+                mem_usage_series, mem_limits_series = _extract_series_with_limits(attrs, ["kube_container_name"])
             except Exception as e:
-                warnings.append(f"Service '{s_filter}': Memory query error — {e}; Request body: {body_mem}; Response: {json.dumps(attrs, indent=2) if 'attrs' in locals() else 'N/A'}")
+                warnings.append(f"Service '{s_filter}': Memory query error — {e}")
                 await ctx.error(warnings[-1])
                 continue
 
-            # If both CPU and Memory are empty, skip file
-            if not any(cpu_series.values()) and not any(mem_series.values()):
+            # If both CPU and Memory usage are empty, skip file
+            if not any(cpu_usage_series.values()) and not any(mem_usage_series.values()):
                 warnings.append(f"Service '{s_filter}': no datapoints in the date range; skipping file")
                 await ctx.info(warnings[-1])
                 continue
+
+            # Calculate % utilization using dynamic limits
+            cpu_util_series, has_cpu_limits = _calculate_utilization_with_dynamic_limits(
+                cpu_usage_series, cpu_limits_series, is_cpu=True
+            )
+            mem_util_series, has_mem_limits = _calculate_utilization_with_dynamic_limits(
+                mem_usage_series, mem_limits_series, is_cpu=False
+            )
+
+            # Log warnings for missing limits (informational, not errors)
+            if not has_cpu_limits:
+                warn_msg = f"Service '{s_filter}': CPU limits not defined in Kubernetes. % utilization marked as -1."
+                warnings.append(warn_msg)
+                await ctx.info(warn_msg)
+            if not has_mem_limits:
+                warn_msg = f"Service '{s_filter}': Memory limits not defined in Kubernetes. % utilization marked as -1."
+                warnings.append(warn_msg)
+                await ctx.info(warn_msg)
 
             # Prepare per-service CSV
             fname = f"k8s_metrics_[{_sanitize_filename(s_filter)}].csv"
             outcsv = os.path.join(outdir, fname)
             files.append(outcsv)
 
-            # Merge by container + timestamp
+            # Write CSV with all metrics
             with open(outcsv, "w", newline="", encoding="utf-8") as fcsv:
                 w = csv.writer(fcsv)
                 _write_csv_header(w)
@@ -505,147 +539,141 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                     for cname, pts in per_container.items():
                         for ts_ms, val in pts:
                             dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                            # scope = "k8s", hostname = "", service_filter = s_filter
                             w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, metric_name, val, unit])
 
-                # Raw CPU/Memory metrics
-                write_series("kubernetes.cpu.usage.total", "nanocores", cpu_series)
-                write_series("kubernetes.memory.usage", "bytes", mem_series)
+                # Raw CPU/Memory usage metrics
+                write_series("kubernetes.cpu.usage.total", "nanocores", cpu_usage_series)
+                write_series("kubernetes.memory.usage", "bytes", mem_usage_series)
 
-                # CPU percentage based on CPU limits
-                if cpu_limit_cores > 0:
-                    for cname, pts in cpu_series.items():
-                        for ts_ms, val in pts:
-                            cpu_pct = _calculate_cpu_percentage(val, cpu_limit_cores)
-                            dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                            w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, "cpu_util_pct", cpu_pct, "%"])
+                # Dynamic limits from Datadog (new rows)
+                write_series("kubernetes.cpu.limits", "cores", cpu_limits_series)
+                write_series("kubernetes.memory.limits", "bytes", mem_limits_series)
 
-                # Memory percentage based on Memory limits
-                if memory_limit_bytes > 0:
-                    for cname, pts in mem_series.items():
-                        for ts_ms, val in pts:
-                            mem_pct = _calculate_memory_percentage(val, memory_limit_bytes)
-                            dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                            w.writerow([env_name, env_tag, "k8s", "", s_filter, cname, dt_iso, "mem_util_pct", mem_pct, "%"])
+                # CPU utilization percentage (calculated from dynamic limits)
+                # Value of -1 indicates limits not defined in Kubernetes
+                write_series("cpu_util_pct", "%", cpu_util_series)
 
-            # Aggregates (per service)
+                # Memory utilization percentage (calculated from dynamic limits)
+                # Value of -1 indicates limits not defined in Kubernetes
+                write_series("mem_util_pct", "%", mem_util_series)
+
+            # Aggregates (per service) - using raw usage values
             def flat_vals(series: Dict[str, List[Tuple[int, float]]]) -> List[float]:
                 return [v for pts in series.values() for (_, v) in pts]
 
-            cpu_vals = flat_vals(cpu_series)
-            mem_vals = flat_vals(mem_series)
-            avg_cpu = (sum(cpu_vals) / len(cpu_vals)) if cpu_vals else 0.0
-            avg_mem = (sum(mem_vals) / len(mem_vals)) if mem_vals else 0.0
+            def flat_vals_exclude_negative(series: Dict[str, List[Tuple[int, float]]]) -> List[float]:
+                """Exclude -1 values (limits not defined) from aggregation."""
+                return [v for pts in series.values() for (_, v) in pts if v >= 0]
 
-            aggregates.append(
-                {
-                    "filter": s_filter,
-                    "entity_type": "service",
-                    "avg_cpu": round(avg_cpu, 4),
-                    "avg_mem": round(avg_mem, 4),
-                }
-            )
+            cpu_usage_vals = flat_vals(cpu_usage_series)
+            mem_usage_vals = flat_vals(mem_usage_series)
+            cpu_util_vals = flat_vals_exclude_negative(cpu_util_series)
+            mem_util_vals = flat_vals_exclude_negative(mem_util_series)
+
+            avg_cpu_usage = (sum(cpu_usage_vals) / len(cpu_usage_vals)) if cpu_usage_vals else 0.0
+            avg_mem_usage = (sum(mem_usage_vals) / len(mem_usage_vals)) if mem_usage_vals else 0.0
+
+            aggregate_entry = {
+                "filter": s_filter,
+                "entity_type": "service",
+                "avg_cpu_nanocores": round(avg_cpu_usage, 4),
+                "avg_mem_bytes": round(avg_mem_usage, 4),
+                "cpu_limits_available": has_cpu_limits,
+                "mem_limits_available": has_mem_limits,
+            }
+
+            # Only include % utilization in aggregates if limits are available
+            if has_cpu_limits and cpu_util_vals:
+                aggregate_entry["avg_cpu_pct"] = round(sum(cpu_util_vals) / len(cpu_util_vals), 4)
+            else:
+                aggregate_entry["avg_cpu_pct"] = -1  # -1 indicates limits not defined
+
+            if has_mem_limits and mem_util_vals:
+                aggregate_entry["avg_mem_pct"] = round(sum(mem_util_vals) / len(mem_util_vals), 4)
+            else:
+                aggregate_entry["avg_mem_pct"] = -1  # -1 indicates limits not defined
+
+            aggregates.append(aggregate_entry)
 
             await ctx.info(f"K8s CSV written: {outcsv}")
 
         # -------------------------------------------------------------
-        # 2) Pods
+        # 2) Pods - Using DYNAMIC limits from Datadog
         # -------------------------------------------------------------
         for pod in pods:
             pod_filter = pod.get("pod_filter")
             if not pod_filter:
                 continue
 
-            # Parse CPU and Memory limits at the pod definition level
-            cpu_limit_cores = _parse_resource_limit(pod.get("cpus", ""))
-            memory_limit_bytes = _parse_resource_limit(pod.get("memory", ""))
+            # NOTE: We no longer use static limits from environments.json for K8s
+            # Instead, we query limits dynamically from Datadog alongside usage metrics
 
-            # 2a) CPU request
-            body_cpu = {
-                "data": {
-                    "type": "timeseries_request",
-                    "interval": 20000,
-                    "attributes": {
-                        "from": v2_from_ms,
-                        "to": v2_to_ms,
-                        "queries": [{
-                            "data_source": "metrics",
-                            "name": "a",
-                            "query": pod_cpu_query(kube_namespace, pod_filter),
-                        }],
-                        "formulas": [{"formula": "a"}],
-                    },
-                }
-            }
+            # 2a) CPU request (usage + limits combined)
+            cpu_usage_query, cpu_limits_query = pod_cpu_with_limits_query(kube_namespace, pod_filter)
+            body_cpu = _build_combined_metrics_request(v2_from_ms, v2_to_ms, cpu_usage_query, cpu_limits_query)
 
-            pod_cpu_series: Dict[str, List[Tuple[int, float]]] = {}
+            pod_cpu_usage_series: Dict[str, List[Tuple[int, float]]] = {}
+            pod_cpu_limits_series: Dict[str, List[Tuple[int, float]]] = {}
             try:
-                r_cpu = await client.post(
-                    V2_TIMESERIES_URL,
-                    headers=headers,
-                    json=body_cpu,
-                    timeout=60.0,
-                )
+                r_cpu = await client.post(V2_TIMESERIES_URL, headers=headers, json=body_cpu, timeout=60.0)
                 r_cpu.raise_for_status()
                 attrs = r_cpu.json().get("data", {}).get("attributes", {})
-                # Prefer pod name, fallback to container name
-                pod_cpu_series = _extract_series(attrs, ["kube_pod_name", "kube_container_name", "kube_namespace"])
-            except Exception as e:
-                warnings.append(
-                    f"Pod '{pod_filter}': CPU query failed with error: {e}"
+                pod_cpu_usage_series, pod_cpu_limits_series = _extract_series_with_limits(
+                    attrs, ["kube_pod_name", "kube_container_name", "kube_namespace"]
                 )
+            except Exception as e:
+                warnings.append(f"Pod '{pod_filter}': CPU query failed with error: {e}")
                 await ctx.error(warnings[-1])
                 continue
 
-            # 2b) Memory request
-            body_mem = {
-                "data": {
-                    "type": "timeseries_request",
-                    "interval": 20000,
-                    "attributes": {
-                        "from": v2_from_ms,
-                        "to": v2_to_ms,
-                        "queries": [{
-                            "data_source": "metrics",
-                            "name": "a",
-                            "query": pod_mem_query(kube_namespace, pod_filter),
-                        }],
-                            "formulas": [{"formula": "a"}],
-                    },
-                }
-            }
+            # 2b) Memory request (usage + limits combined)
+            mem_usage_query, mem_limits_query = pod_mem_with_limits_query(kube_namespace, pod_filter)
+            body_mem = _build_combined_metrics_request(v2_from_ms, v2_to_ms, mem_usage_query, mem_limits_query)
 
-            pod_mem_series: Dict[str, List[Tuple[int, float]]] = {}
+            pod_mem_usage_series: Dict[str, List[Tuple[int, float]]] = {}
+            pod_mem_limits_series: Dict[str, List[Tuple[int, float]]] = {}
             try:
-                r_mem = await client.post(
-                    V2_TIMESERIES_URL,
-                    headers=headers,
-                    json=body_mem,
-                    timeout=60.0,
-                )
+                r_mem = await client.post(V2_TIMESERIES_URL, headers=headers, json=body_mem, timeout=60.0)
                 r_mem.raise_for_status()
                 attrs = r_mem.json().get("data", {}).get("attributes", {})
-                pod_mem_series = _extract_series(attrs, ["kube_pod_name", "kube_container_name", "kube_namespace"])
-            except Exception as e:
-                warnings.append(
-                    f"Pod '{pod_filter}': Memory query failed with error: {e}"
+                pod_mem_usage_series, pod_mem_limits_series = _extract_series_with_limits(
+                    attrs, ["kube_pod_name", "kube_container_name", "kube_namespace"]
                 )
+            except Exception as e:
+                warnings.append(f"Pod '{pod_filter}': Memory query failed with error: {e}")
                 await ctx.error(warnings[-1])
                 continue
 
-            # If both CPU and Memory are empty, skip file
-            if not any(pod_cpu_series.values()) and not any(pod_mem_series.values()):
-                warnings.append(
-                    f"Pod '{pod_filter}': no datapoints in the date range; skipping file"
-                )
+            # If both CPU and Memory usage are empty, skip file
+            if not any(pod_cpu_usage_series.values()) and not any(pod_mem_usage_series.values()):
+                warnings.append(f"Pod '{pod_filter}': no datapoints in the date range; skipping file")
                 await ctx.info(warnings[-1])
                 continue
+
+            # Calculate % utilization using dynamic limits
+            pod_cpu_util_series, has_cpu_limits = _calculate_utilization_with_dynamic_limits(
+                pod_cpu_usage_series, pod_cpu_limits_series, is_cpu=True
+            )
+            pod_mem_util_series, has_mem_limits = _calculate_utilization_with_dynamic_limits(
+                pod_mem_usage_series, pod_mem_limits_series, is_cpu=False
+            )
+
+            # Log warnings for missing limits (informational, not errors)
+            if not has_cpu_limits:
+                warn_msg = f"Pod '{pod_filter}': CPU limits not defined in Kubernetes. % utilization marked as -1."
+                warnings.append(warn_msg)
+                await ctx.info(warn_msg)
+            if not has_mem_limits:
+                warn_msg = f"Pod '{pod_filter}': Memory limits not defined in Kubernetes. % utilization marked as -1."
+                warnings.append(warn_msg)
+                await ctx.info(warn_msg)
 
             # Prepare per-pod CSV
             fname = f"k8s_metrics_[{_sanitize_filename(pod_filter)}].csv"
             outcsv = os.path.join(outdir, fname)
             files.append(outcsv)
 
+            # Write CSV with all metrics
             with open(outcsv, "w", newline="", encoding="utf-8") as fcsv:
                 w = csv.writer(fcsv)
                 _write_csv_header(w)
@@ -658,55 +686,61 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                     for pod_id, pts in per_pod.items():
                         for ts_ms, val in pts:
                             dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                            # "filter" column stores pod_filter here.
-                            # "container_or_pod" column stores the pod identifier.
                             w.writerow([env_name, env_tag, "k8s", "", pod_filter, pod_id, dt_iso, metric_name, val, unit])
 
-                write_pod_series(
-                    "kubernetes.cpu.usage.total",
-                    "nanocores",
-                    pod_cpu_series,
-                )
-                write_pod_series(
-                    "kubernetes.memory.usage",
-                    "bytes",
-                    pod_mem_series,
-                )
+                # Raw CPU/Memory usage metrics
+                write_pod_series("kubernetes.cpu.usage.total", "nanocores", pod_cpu_usage_series)
+                write_pod_series("kubernetes.memory.usage", "bytes", pod_mem_usage_series)
 
-                # Percentages based on pod-level limits
-                if cpu_limit_cores > 0:
-                    for pod_id, pts in pod_cpu_series.items():
-                        for ts_ms, val in pts:
-                            cpu_pct = _calculate_cpu_percentage(val, cpu_limit_cores)
-                            dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                            w.writerow([env_name, env_tag, "k8s", "", pod_filter, pod_id, dt_iso, "cpu_util_pct", cpu_pct, "%"])
+                # Dynamic limits from Datadog (new rows)
+                write_pod_series("kubernetes.cpu.limits", "cores", pod_cpu_limits_series)
+                write_pod_series("kubernetes.memory.limits", "bytes", pod_mem_limits_series)
 
-                if memory_limit_bytes > 0:
-                    for pod_id, pts in pod_mem_series.items():
-                        for ts_ms, val in pts:
-                            mem_pct = _calculate_memory_percentage(
-                                val, memory_limit_bytes
-                            )
-                            dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                            w.writerow([env_name, env_tag, "k8s", "", pod_filter, pod_id, dt_iso, "mem_util_pct", mem_pct, "%"])
+                # CPU utilization percentage (calculated from dynamic limits)
+                # Value of -1 indicates limits not defined in Kubernetes
+                write_pod_series("cpu_util_pct", "%", pod_cpu_util_series)
 
-            # Aggregates (per pod_filter)
+                # Memory utilization percentage (calculated from dynamic limits)
+                # Value of -1 indicates limits not defined in Kubernetes
+                write_pod_series("mem_util_pct", "%", pod_mem_util_series)
+
+            # Aggregates (per pod_filter) - using raw usage values
             def flat_vals(series: Dict[str, List[Tuple[int, float]]]) -> List[float]:
                 return [v for pts in series.values() for (_, v) in pts]
 
-            cpu_vals = flat_vals(pod_cpu_series)
-            mem_vals = flat_vals(pod_mem_series)
-            avg_cpu = (sum(cpu_vals) / len(cpu_vals)) if cpu_vals else 0.0
-            avg_mem = (sum(mem_vals) / len(mem_vals)) if mem_vals else 0.0
+            def flat_vals_exclude_negative(series: Dict[str, List[Tuple[int, float]]]) -> List[float]:
+                """Exclude -1 values (limits not defined) from aggregation."""
+                return [v for pts in series.values() for (_, v) in pts if v >= 0]
 
-            aggregates.append(
-                {
-                    "filter": pod_filter,
-                    "entity_type": "pod",
-                    "avg_cpu": round(avg_cpu, 4),
-                    "avg_mem": round(avg_mem, 4),
-                }
-            )
+            cpu_usage_vals = flat_vals(pod_cpu_usage_series)
+            mem_usage_vals = flat_vals(pod_mem_usage_series)
+            cpu_util_vals = flat_vals_exclude_negative(pod_cpu_util_series)
+            mem_util_vals = flat_vals_exclude_negative(pod_mem_util_series)
+
+            avg_cpu_usage = (sum(cpu_usage_vals) / len(cpu_usage_vals)) if cpu_usage_vals else 0.0
+            avg_mem_usage = (sum(mem_usage_vals) / len(mem_usage_vals)) if mem_usage_vals else 0.0
+
+            aggregate_entry = {
+                "filter": pod_filter,
+                "entity_type": "pod",
+                "avg_cpu_nanocores": round(avg_cpu_usage, 4),
+                "avg_mem_bytes": round(avg_mem_usage, 4),
+                "cpu_limits_available": has_cpu_limits,
+                "mem_limits_available": has_mem_limits,
+            }
+
+            # Only include % utilization in aggregates if limits are available
+            if has_cpu_limits and cpu_util_vals:
+                aggregate_entry["avg_cpu_pct"] = round(sum(cpu_util_vals) / len(cpu_util_vals), 4)
+            else:
+                aggregate_entry["avg_cpu_pct"] = -1  # -1 indicates limits not defined
+
+            if has_mem_limits and mem_util_vals:
+                aggregate_entry["avg_mem_pct"] = round(sum(mem_util_vals) / len(mem_util_vals), 4)
+            else:
+                aggregate_entry["avg_mem_pct"] = -1  # -1 indicates limits not defined
+
+            aggregates.append(aggregate_entry)
 
             await ctx.info(f"K8s pod CSV written: {outcsv}")
 
@@ -770,6 +804,86 @@ def pod_mem_query(ns: Optional[str], pod_filter: str) -> str:
         f"{{kube_service:{pod_filter}}} by {{kube_namespace}}"
     )
 
+# -----------------------------
+# Query builder functions WITH LIMITS (Dynamic limits from Datadog)
+# -----------------------------
+# These functions return tuples of (usage_query, limits_query) for combined API requests.
+# The limits are queried dynamically from Datadog rather than using static values from environments.json.
+# TODO: Future enhancement - add kubernetes.cpu.requests and kubernetes.memory.requests
+#       for calculating % utilization by request vs % utilization by limit.
+
+def svc_cpu_with_limits_query(env_tag: str, svc_filter: str) -> Tuple[str, str]:
+    """
+    Return tuple of (usage_query, limits_query) for service CPU metrics.
+    
+    Args:
+        env_tag: Environment tag (e.g., 'ngapf.central.uat.gx')
+        svc_filter: Service filter pattern (e.g., 'authentication2-svc*')
+    
+    Returns:
+        Tuple of (usage_query, limits_query) strings for Datadog API
+    """
+    usage = f"avg:kubernetes.cpu.usage.total{{env:{env_tag},service:{svc_filter}}} by {{kube_container_name}}"
+    limits = f"avg:kubernetes.cpu.limits{{env:{env_tag},service:{svc_filter}}} by {{kube_container_name}}"
+    return usage, limits
+
+
+def svc_mem_with_limits_query(env_tag: str, svc_filter: str) -> Tuple[str, str]:
+    """
+    Return tuple of (usage_query, limits_query) for service Memory metrics.
+    
+    Args:
+        env_tag: Environment tag (e.g., 'ngapf.central.uat.gx')
+        svc_filter: Service filter pattern (e.g., 'authentication2-svc*')
+    
+    Returns:
+        Tuple of (usage_query, limits_query) strings for Datadog API
+    """
+    usage = f"sum:kubernetes.memory.usage{{env:{env_tag},service:{svc_filter}}} by {{kube_container_name}}"
+    limits = f"sum:kubernetes.memory.limits{{env:{env_tag},service:{svc_filter}}} by {{kube_container_name}}"
+    return usage, limits
+
+
+def pod_cpu_with_limits_query(kube_namespace: Optional[str], pod_filter: str) -> Tuple[str, str]:
+    """
+    Return tuple of (usage_query, limits_query) for pod CPU metrics.
+    
+    Args:
+        kube_namespace: Kubernetes namespace (e.g., 'halo-auto-qa-eastus')
+        pod_filter: Pod filter pattern (e.g., 'star-web*')
+    
+    Returns:
+        Tuple of (usage_query, limits_query) strings for Datadog API
+    """
+    if kube_namespace:
+        usage = f"avg:kubernetes.cpu.usage.total{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_namespace}}"
+        limits = f"sum:kubernetes.cpu.limits{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_namespace}}"
+    else:
+        usage = f"avg:kubernetes.cpu.usage.total{{kube_service:{pod_filter}}} by {{kube_namespace}}"
+        limits = f"sum:kubernetes.cpu.limits{{kube_service:{pod_filter}}} by {{kube_namespace}}"
+    return usage, limits
+
+
+def pod_mem_with_limits_query(kube_namespace: Optional[str], pod_filter: str) -> Tuple[str, str]:
+    """
+    Return tuple of (usage_query, limits_query) for pod Memory metrics.
+    
+    Args:
+        kube_namespace: Kubernetes namespace (e.g., 'halo-auto-qa-eastus')
+        pod_filter: Pod filter pattern (e.g., 'star-web*')
+    
+    Returns:
+        Tuple of (usage_query, limits_query) strings for Datadog API
+    """
+    if kube_namespace:
+        usage = f"sum:kubernetes.memory.usage{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_pod_name}}"
+        limits = f"sum:kubernetes.memory.limits{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_pod_name}}"
+    else:
+        usage = f"sum:kubernetes.memory.usage{{kube_service:{pod_filter}}} by {{kube_pod_name}}"
+        limits = f"sum:kubernetes.memory.limits{{kube_service:{pod_filter}}} by {{kube_pod_name}}"
+    return usage, limits
+
+
 # Small helper to normalize v2 timeseries into: { identifier -> [(ts_ms, value), ...] }
 def _extract_series(attrs: Dict[str, Any], id_tag_keys: List[str]) -> Dict[str, List[Tuple[int, float]]]:
     times = attrs.get("times", []) or []
@@ -810,6 +924,126 @@ def _extract_series(attrs: Dict[str, Any], id_tag_keys: List[str]) -> Dict[str, 
             per_id[identifier] = pts
 
     return per_id
+
+
+def _extract_series_with_limits(
+    attrs: Dict[str, Any],
+    id_tag_keys: List[str]
+) -> Tuple[Dict[str, List[Tuple[int, float]]], Dict[str, List[Tuple[int, float]]]]:
+    """
+    Extract both usage (query_index=0) and limits (query_index=1) series from Datadog response.
+    
+    This function parses the response from a combined usage+limits query request,
+    separating the series by their query_index to return usage and limits data separately.
+    
+    Args:
+        attrs: The 'attributes' section from Datadog v2 timeseries response
+        id_tag_keys: List of tag keys to try for identifying series (e.g., ['kube_container_name'])
+    
+    Returns:
+        Tuple of (usage_series, limits_series) where each is:
+        { identifier -> [(ts_ms, value), ...] }
+    """
+    times = attrs.get("times", []) or []
+    series_list = attrs.get("series", []) or []
+    values = attrs.get("values", []) or []
+    
+    usage_series: Dict[str, List[Tuple[int, float]]] = {}
+    limits_series: Dict[str, List[Tuple[int, float]]] = {}
+    
+    for s_idx, series in enumerate(series_list):
+        query_index = series.get("query_index", 0)
+        gtags = series.get("group_tags", []) or []
+        
+        # Extract identifier from group tags
+        identifier = ""
+        for tag_key in id_tag_keys:
+            identifier = next(
+                (t.split(":", 1)[1] for t in gtags if t.startswith(f"{tag_key}:")),
+                identifier
+            )
+            if identifier:
+                break
+        if not identifier:
+            identifier = f"series_{s_idx}"
+        
+        # Extract values for this series
+        row_vals = values[s_idx] if s_idx < len(values) else []
+        pts: List[Tuple[int, float]] = []
+        for t_idx, ts_ms in enumerate(times):
+            if t_idx >= len(row_vals):
+                break
+            val = row_vals[t_idx]
+            if val is None:
+                continue
+            try:
+                pts.append((int(ts_ms), float(val)))
+            except (TypeError, ValueError):
+                continue
+        
+        # Route to appropriate series based on query_index
+        # query_index 0 = usage, query_index 1 = limits
+        if pts:
+            if query_index == 0:
+                usage_series[identifier] = pts
+            elif query_index == 1:
+                limits_series[identifier] = pts
+    
+    return usage_series, limits_series
+
+
+def _calculate_utilization_with_dynamic_limits(
+    usage_series: Dict[str, List[Tuple[int, float]]],
+    limits_series: Dict[str, List[Tuple[int, float]]],
+    is_cpu: bool = True
+) -> Tuple[Dict[str, List[Tuple[int, float]]], bool]:
+    """
+    Calculate % utilization from usage and dynamically-queried limits.
+    
+    Returns -1 for timestamps where limits are 0 or not available (industry-standard
+    marker for "not defined").
+    
+    Args:
+        usage_series: Usage data per identifier { id -> [(ts_ms, value), ...] }
+        limits_series: Limits data per identifier { id -> [(ts_ms, value), ...] }
+        is_cpu: True for CPU (usage in nanocores, limits in cores), False for Memory (both in bytes)
+    
+    Returns:
+        Tuple of:
+        - utilization_series: { identifier -> [(ts_ms, pct_or_minus1), ...] }
+        - has_valid_limits: True if at least one valid limit > 0 was found
+    """
+    utilization_series: Dict[str, List[Tuple[int, float]]] = {}
+    has_valid_limits = False
+    
+    for identifier, usage_pts in usage_series.items():
+        limits_pts = limits_series.get(identifier, [])
+        limits_by_ts = {ts: val for ts, val in limits_pts}
+        
+        pct_pts: List[Tuple[int, float]] = []
+        for ts_ms, usage_val in usage_pts:
+            limit_val = limits_by_ts.get(ts_ms, 0.0)
+            
+            if limit_val > 0:
+                has_valid_limits = True
+                if is_cpu:
+                    # CPU: usage is in nanocores, limits are in cores
+                    # Convert nanocores to cores: 1 core = 1e9 nanocores
+                    usage_cores = usage_val / 1e9
+                    pct = (usage_cores / limit_val) * 100.0
+                else:
+                    # Memory: both usage and limits are in bytes
+                    pct = (usage_val / limit_val) * 100.0
+                pct_pts.append((ts_ms, pct))
+            else:
+                # Limits not defined - output -1 as industry-standard marker
+                pct_pts.append((ts_ms, -1))
+        
+        if pct_pts:
+            utilization_series[identifier] = pct_pts
+    
+    return utilization_series, has_valid_limits
+
 
 # -----------------------------
 # Helper functions
