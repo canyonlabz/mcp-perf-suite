@@ -172,11 +172,96 @@ The Microsoft Graph MCP server uses FastMCP, Python 3.12+, and integrates with M
 
 ## 🛣️ Future Roadmap 
 
-- Refactor the **Datadog MCP Server** to an **APM MCP Server** to support multiple APM (Application Performance Monitoring) tools (e.g. Dynatrace, AppDynamics, etc).  
-- Enhance the **Test Analysis MCP Server** utilizing OpenAI GPT or other LLMs for enhanced test result analysis. 
-- Add test results log analysis to identify potential issues or bottlenecks.
-- Continue refinement of the **Reporting MCP Server** to produce executive-friendly reports and dashboards from test analysis data.  
-- Enable seamless workflow orchestration across MCP servers for a comprehensive performance testing pipeline.
+### Upcoming: Schema-Driven Architecture
+
+The MCP Perf Suite is evolving toward a **schema-driven architecture** that enables true modularity and extensibility. The core principle: **standardized data contracts between MCPs ensure that adding new data sources doesn't require changes to downstream consumers.**
+
+#### Future Architecture Vision
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              DATA SOURCES                                    │
+├─────────────────────────────────┬───────────────────────────────────────────┤
+│          APM MCP                │           Load Test MCP                    │
+│   (replaces Datadog MCP)        │      (replaces BlazeMeter MCP)            │
+│                                 │                                           │
+│  ┌─────────────────────────┐    │    ┌─────────────────────────┐            │
+│  │   Datadog Adapter       │    │    │   BlazeMeter Adapter    │            │
+│  │   New Relic Adapter     │    │    │   LoadRunner Adapter    │            │
+│  │   AppDynamics Adapter   │    │    │   Gatling Adapter       │            │
+│  │   Dynatrace Adapter     │    │    │   k6 Adapter            │            │
+│  │   Splunk APM Adapter    │    │    │   Locust Adapter        │            │
+│  └──────────┬──────────────┘    │    └──────────┬──────────────┘            │
+│             │                   │               │                           │
+│             ▼                   │               ▼                           │
+│  ┌─────────────────────────┐    │    ┌─────────────────────────┐            │
+│  │  Standardized APM       │    │    │  Standardized Load Test │            │
+│  │  Output Schema          │    │    │  Output Schema          │            │
+│  │  (metrics, logs, traces)│    │    │  (results, aggregates)  │            │
+│  └──────────┬──────────────┘    │    └──────────┬──────────────┘            │
+├─────────────┴───────────────────┴───────────────┴───────────────────────────┤
+│                                                                              │
+│                    STANDARDIZED SCHEMA LAYER                                 │
+│           (Source-agnostic data contracts / JSON & CSV schemas)              │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│                         ┌─────────────────────────┐                          │
+│                         │  Performance Analysis   │                          │
+│                         │        MCP              │                          │
+│                         │ (source-agnostic)       │                          │
+│                         └───────────┬─────────────┘                          │
+│                                     │                                        │
+│                                     ▼                                        │
+│                         ┌─────────────────────────┐                          │
+│                         │  Performance Report     │                          │
+│                         │        MCP              │                          │
+│                         │ (source-agnostic)       │                          │
+│                         └───────────┬─────────────┘                          │
+│                                     │                                        │
+│                    ┌────────────────┼────────────────┐                       │
+│                    ▼                ▼                ▼                       │
+│              ┌──────────┐    ┌──────────┐    ┌──────────────┐                │
+│              │Confluence│    │ MS Graph │    │ Other Output │                │
+│              │   MCP    │    │   MCP    │    │   Adapters   │                │
+│              └──────────┘    └──────────┘    └──────────────┘                │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Key Benefits
+
+| Benefit | Description |
+|---------|-------------|
+| **Extensibility** | Add new APM tools or load test platforms by implementing an adapter that outputs the standard schema |
+| **Loose Coupling** | PerfAnalysis and PerfReport MCPs remain unchanged when new data sources are added |
+| **Community Contributions** | Clear schema contracts make it easy for contributors to add support for their preferred tools |
+| **Maintainability** | Changes to source APIs (e.g., Datadog v3) only affect their respective adapter, not the entire pipeline |
+
+#### Planned Milestones
+
+- [ ] **APM MCP Server**: Unified entry point supporting multiple APM tools via adapter modules
+  - Datadog (current implementation migrated as adapter)
+  - New Relic adapter
+  - Dynatrace adapter  
+  - AppDynamics adapter
+  - Splunk APM adapter
+
+- [ ] **Load Test MCP Server**: Unified entry point supporting multiple load testing tools
+  - BlazeMeter (current implementation migrated as adapter)
+  - LoadRunner adapter
+  - Gatling adapter
+  - k6 adapter
+  - Locust adapter
+
+- [ ] **Schema Documentation**: Formal JSON/CSV schema specifications for data interchange
+
+### Other Planned Enhancements
+
+- Enhance the **Test Analysis MCP Server** utilizing OpenAI GPT or other LLMs for enhanced test result analysis
+- Add test results log analysis to identify potential issues or bottlenecks
+- Continue refinement of the **Reporting MCP Server** to produce executive-friendly reports and dashboards from test analysis data
+- Enable seamless workflow orchestration across MCP servers for a comprehensive performance testing pipeline
 
 ---
 
