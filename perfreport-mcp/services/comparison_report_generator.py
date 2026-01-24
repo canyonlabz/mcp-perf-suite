@@ -27,7 +27,11 @@ ARTIFACTS_CONFIG = CONFIG.get('artifacts', {})
 REPORT_CONFIG = CONFIG.get('perf_report', {})
 ARTIFACTS_PATH = Path(ARTIFACTS_CONFIG.get('artifacts_path', './artifacts'))
 TEMPLATES_PATH = Path(REPORT_CONFIG.get('templates_path', './templates'))
-MCP_VERSION = (CONFIG.get('general') or {}).get('mcp_version', 'unknown')
+
+# Server version info (standardized across all MCPs)
+SERVER_CONFIG = CONFIG.get('server', {})
+MCP_VERSION = SERVER_CONFIG.get('version', 'unknown')
+MCP_BUILD_DATE = SERVER_CONFIG.get('build', {}).get('date', 'unknown')
 
 # Maximum recommended runs for comparison
 MAX_RECOMMENDED_RUNS = 5
@@ -188,6 +192,7 @@ def _build_comparison_context(run_id_list: List[str], run_metadata_list: List[Di
         "RUN_COUNT": str(run_count),
         "ENVIRONMENT": _determine_common_environment(run_metadata_list),
         "MCP_VERSION": MCP_VERSION,
+        "MCP_BUILD_DATE": MCP_BUILD_DATE,
         "RUN_IDS_LIST": ", ".join(run_id_list)
     }
     

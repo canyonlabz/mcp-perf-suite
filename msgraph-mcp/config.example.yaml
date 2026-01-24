@@ -1,3 +1,10 @@
+server:
+  name: "msgraph-mcp"
+  version: "0.1.0-dev"
+  description: "Microsoft Graph MCP Server for SharePoint and Teams integration (concept phase)"
+  build:
+    date: "2026-01-23"
+
 general:
   enable_debug: False   # Enable/disable debug mode
   enable_logging: True  # Enable/disable logging

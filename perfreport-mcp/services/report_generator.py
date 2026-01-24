@@ -37,7 +37,11 @@ REPORT_DISPLAY_CONFIG = load_report_config()
 
 ARTIFACTS_PATH = Path(ARTIFACTS_CONFIG.get('artifacts_path', './artifacts'))
 TEMPLATES_PATH = Path(REPORT_CONFIG.get('templates_path', './templates'))
-MCP_VERSION = (CONFIG.get('general') or {}).get('mcp_version', 'unknown')
+
+# Server version info (standardized across all MCPs)
+SERVER_CONFIG = CONFIG.get('server', {})
+MCP_VERSION = SERVER_CONFIG.get('version', 'unknown')
+MCP_BUILD_DATE = SERVER_CONFIG.get('build', {}).get('date', 'unknown')
 
 # -----------------------------------------------
 # Main Performance Report functions
@@ -443,6 +447,7 @@ def _build_report_context(
         "RUN_ID": run_id,
         "GENERATED_TIMESTAMP": timestamp,
         "MCP_VERSION": MCP_VERSION,
+        "MCP_BUILD_DATE": MCP_BUILD_DATE,
         "ENVIRONMENT": "Unknown",
         "TEST_TYPE": "Load Test",
         "MAX_VIRTUAL_USERS": max_virtual_users,

@@ -12,8 +12,10 @@ artifacts:
 
 server:
   name: "perfanalysis-mcp"
-  version: "1.0.0"
+  version: "0.7.0-alpha.1"
   description: "Performance Analysis MCP Server for BlazeMeter and Datadog correlation"
+  build:
+    date: "2026-01-23"
 
 # Performance Analysis Settings  
 perf_analysis:
