@@ -180,16 +180,31 @@ def get_kubernetes_resource_allocation(entity_config: Dict, entity_name: str, co
     }
 
 def analyze_k8s_entity_metrics(entity_data: pd.DataFrame, resource_allocation: Dict, config: Dict) -> Dict:
-    """Analyze individual K8s entity (service or pod) metrics with correct nanocore calculations"""
+    """
+    Analyze individual K8s entity (service or pod) metrics with DYNAMIC limits from Datadog.
     
-    # Separate CPU and Memory metrics
-    cpu_data = entity_data[entity_data['metric'].str.contains('cpu', case=False, na=False)]
-    memory_data = entity_data[entity_data['metric'].str.contains('mem', case=False, na=False)]
+    IMPORTANT: CPU/Memory limits are now read from the CSV (kubernetes.cpu.limits, 
+    kubernetes.memory.limits) rather than from environments.json. The static 
+    resource_allocation is used as fallback only if dynamic limits are not available.
+    
+    Note: A value of -1 for cpu_util_pct or mem_util_pct indicates that Kubernetes
+    limits are not defined for that service/pod.
+    """
+    
+    # Separate metrics by type using explicit metric names
+    cpu_usage_data = entity_data[entity_data['metric'] == 'kubernetes.cpu.usage.total']
+    cpu_limits_data = entity_data[entity_data['metric'] == 'kubernetes.cpu.limits']
+    cpu_util_data = entity_data[entity_data['metric'] == 'cpu_util_pct']
+    
+    mem_usage_data = entity_data[entity_data['metric'] == 'kubernetes.memory.usage']
+    mem_limits_data = entity_data[entity_data['metric'] == 'kubernetes.memory.limits']
+    mem_util_data = entity_data[entity_data['metric'] == 'mem_util_pct']
     
     entity_metrics = {
-        "resource_allocation": resource_allocation,
+        "resource_allocation": resource_allocation,  # Keep for reference/fallback
         "cpu_analysis": {},
         "memory_analysis": {},
+        "limits_status": {},  # NEW: Track whether limits were defined
         "containers": {},
         "time_range": {},
         "peak_utilization": {}
@@ -203,50 +218,133 @@ def analyze_k8s_entity_metrics(entity_data: pd.DataFrame, resource_allocation: D
             "duration_minutes": calculate_duration_minutes(entity_data['timestamp_utc'])
         }
     
-    # CPU Analysis with CORRECT nanocore conversion
-    if not cpu_data.empty:
-        # CRITICAL: Use /1e9 for nanocores to cores conversion
-        cpu_data_converted = cpu_data.copy()
-        cpu_data_converted['cpu_cores'] = cpu_data_converted['value'] / 1e9  # nanocores to cores
-
+    # --- CPU Analysis ---
+    if not cpu_usage_data.empty:
+        # Convert nanocores to cores
+        cpu_usage_converted = cpu_usage_data.copy()
+        cpu_usage_converted['cpu_cores'] = cpu_usage_converted['value'] / 1e9
+        
         entity_metrics["cpu_analysis"] = {
-            "allocated_cores": resource_allocation['cpus'],
-            "peak_usage_cores": float(cpu_data_converted['cpu_cores'].max()),
-            "avg_usage_cores": float(cpu_data_converted['cpu_cores'].mean()),
-            "min_usage_cores": float(cpu_data_converted['cpu_cores'].min()),
-            "peak_utilization_pct": float((cpu_data_converted['cpu_cores'].max() / resource_allocation['cpus']) * 100),
-            "avg_utilization_pct": float((cpu_data_converted['cpu_cores'].mean() / resource_allocation['cpus']) * 100),
-            "samples_count": len(cpu_data_converted)
+            "peak_usage_cores": float(cpu_usage_converted['cpu_cores'].max()),
+            "avg_usage_cores": float(cpu_usage_converted['cpu_cores'].mean()),
+            "min_usage_cores": float(cpu_usage_converted['cpu_cores'].min()),
+            "samples_count": len(cpu_usage_converted)
         }
+        
+        # Get allocated cores from DYNAMIC limits (if available)
+        if not cpu_limits_data.empty:
+            # CPU limits are in cores from Datadog
+            valid_limits = cpu_limits_data[cpu_limits_data['value'].astype(float) > 0]['value']
+            if not valid_limits.empty:
+                avg_limit = float(valid_limits.mean())
+                entity_metrics["cpu_analysis"]["allocated_cores"] = avg_limit
+                entity_metrics["limits_status"]["cpu_limits_defined"] = True
+            else:
+                # Limits exist but are all 0 (not defined in K8s)
+                entity_metrics["cpu_analysis"]["allocated_cores"] = resource_allocation.get('cpus', 0)
+                entity_metrics["limits_status"]["cpu_limits_defined"] = False
+        else:
+            # No limits data in CSV - fall back to static config
+            entity_metrics["cpu_analysis"]["allocated_cores"] = resource_allocation.get('cpus', 0)
+            entity_metrics["limits_status"]["cpu_limits_defined"] = False
+        
+        # Get utilization from pre-calculated values (handles -1 = not defined)
+        if not cpu_util_data.empty:
+            # Filter out -1 values (limits not defined) for numeric calculations
+            numeric_util = cpu_util_data[cpu_util_data['value'].astype(float) >= 0]['value'].astype(float)
+            if not numeric_util.empty:
+                entity_metrics["cpu_analysis"]["peak_utilization_pct"] = float(numeric_util.max())
+                entity_metrics["cpu_analysis"]["avg_utilization_pct"] = float(numeric_util.mean())
+                entity_metrics["cpu_analysis"]["min_utilization_pct"] = float(numeric_util.min())
+            else:
+                # All values are -1 (limits not defined)
+                entity_metrics["cpu_analysis"]["peak_utilization_pct"] = None
+                entity_metrics["cpu_analysis"]["avg_utilization_pct"] = None
+                entity_metrics["cpu_analysis"]["min_utilization_pct"] = None
+                entity_metrics["cpu_analysis"]["utilization_status"] = "limits_not_defined"
+        else:
+            # No pre-calculated utilization - calculate if we have valid limits
+            if entity_metrics["limits_status"].get("cpu_limits_defined") and entity_metrics["cpu_analysis"].get("allocated_cores", 0) > 0:
+                allocated = entity_metrics["cpu_analysis"]["allocated_cores"]
+                entity_metrics["cpu_analysis"]["peak_utilization_pct"] = float((cpu_usage_converted['cpu_cores'].max() / allocated) * 100)
+                entity_metrics["cpu_analysis"]["avg_utilization_pct"] = float((cpu_usage_converted['cpu_cores'].mean() / allocated) * 100)
+                entity_metrics["cpu_analysis"]["min_utilization_pct"] = float((cpu_usage_converted['cpu_cores'].min() / allocated) * 100)
+            else:
+                entity_metrics["cpu_analysis"]["peak_utilization_pct"] = None
+                entity_metrics["cpu_analysis"]["avg_utilization_pct"] = None
+                entity_metrics["cpu_analysis"]["min_utilization_pct"] = None
+                entity_metrics["cpu_analysis"]["utilization_status"] = "limits_not_defined"
     
-    # Memory Analysis  
-    if not memory_data.empty:
-        memory_data_converted = memory_data.copy()
-        memory_data_converted['memory_gb'] = memory_data_converted['value'] / 1e9  # bytes to GB
+    # --- Memory Analysis ---
+    if not mem_usage_data.empty:
+        # Convert bytes to GB
+        mem_usage_converted = mem_usage_data.copy()
+        mem_usage_converted['memory_gb'] = mem_usage_converted['value'] / 1e9
         
         entity_metrics["memory_analysis"] = {
-            "allocated_gb": resource_allocation['memory_gb'],
-            "peak_usage_gb": float(memory_data_converted['memory_gb'].max()),
-            "avg_usage_gb": float(memory_data_converted['memory_gb'].mean()),
-            "min_usage_gb": float(memory_data_converted['memory_gb'].min()),
-            "peak_utilization_pct": float((memory_data_converted['memory_gb'].max() / resource_allocation['memory_gb']) * 100),
-            "avg_utilization_pct": float((memory_data_converted['memory_gb'].mean() / resource_allocation['memory_gb']) * 100),
-            "samples_count": len(memory_data_converted)
+            "peak_usage_gb": float(mem_usage_converted['memory_gb'].max()),
+            "avg_usage_gb": float(mem_usage_converted['memory_gb'].mean()),
+            "min_usage_gb": float(mem_usage_converted['memory_gb'].min()),
+            "samples_count": len(mem_usage_converted)
         }
+        
+        # Get allocated memory from DYNAMIC limits (if available)
+        if not mem_limits_data.empty:
+            # Memory limits are in bytes from Datadog, convert to GB
+            valid_limits = mem_limits_data[mem_limits_data['value'].astype(float) > 0]['value']
+            if not valid_limits.empty:
+                avg_limit_gb = float(valid_limits.mean()) / 1e9
+                entity_metrics["memory_analysis"]["allocated_gb"] = avg_limit_gb
+                entity_metrics["limits_status"]["mem_limits_defined"] = True
+            else:
+                # Limits exist but are all 0 (not defined in K8s)
+                entity_metrics["memory_analysis"]["allocated_gb"] = resource_allocation.get('memory_gb', 0)
+                entity_metrics["limits_status"]["mem_limits_defined"] = False
+        else:
+            # No limits data in CSV - fall back to static config
+            entity_metrics["memory_analysis"]["allocated_gb"] = resource_allocation.get('memory_gb', 0)
+            entity_metrics["limits_status"]["mem_limits_defined"] = False
+        
+        # Get utilization from pre-calculated values (handles -1 = not defined)
+        if not mem_util_data.empty:
+            # Filter out -1 values (limits not defined) for numeric calculations
+            numeric_util = mem_util_data[mem_util_data['value'].astype(float) >= 0]['value'].astype(float)
+            if not numeric_util.empty:
+                entity_metrics["memory_analysis"]["peak_utilization_pct"] = float(numeric_util.max())
+                entity_metrics["memory_analysis"]["avg_utilization_pct"] = float(numeric_util.mean())
+                entity_metrics["memory_analysis"]["min_utilization_pct"] = float(numeric_util.min())
+            else:
+                # All values are -1 (limits not defined)
+                entity_metrics["memory_analysis"]["peak_utilization_pct"] = None
+                entity_metrics["memory_analysis"]["avg_utilization_pct"] = None
+                entity_metrics["memory_analysis"]["min_utilization_pct"] = None
+                entity_metrics["memory_analysis"]["utilization_status"] = "limits_not_defined"
+        else:
+            # No pre-calculated utilization - calculate if we have valid limits
+            if entity_metrics["limits_status"].get("mem_limits_defined") and entity_metrics["memory_analysis"].get("allocated_gb", 0) > 0:
+                allocated = entity_metrics["memory_analysis"]["allocated_gb"]
+                entity_metrics["memory_analysis"]["peak_utilization_pct"] = float((mem_usage_converted['memory_gb'].max() / allocated) * 100)
+                entity_metrics["memory_analysis"]["avg_utilization_pct"] = float((mem_usage_converted['memory_gb'].mean() / allocated) * 100)
+                entity_metrics["memory_analysis"]["min_utilization_pct"] = float((mem_usage_converted['memory_gb'].min() / allocated) * 100)
+            else:
+                entity_metrics["memory_analysis"]["peak_utilization_pct"] = None
+                entity_metrics["memory_analysis"]["avg_utilization_pct"] = None
+                entity_metrics["memory_analysis"]["min_utilization_pct"] = None
+                entity_metrics["memory_analysis"]["utilization_status"] = "limits_not_defined"
     
-    # Container-level breakdown
+    # --- Container-level breakdown ---
     containers = entity_data['container_or_pod'].unique()
     for container in containers:
         container_data = entity_data[entity_data['container_or_pod'] == container]
         
-        container_cpu = container_data[container_data['metric'].str.contains('cpu', case=False, na=False)]
-        container_memory = container_data[container_data['metric'].str.contains('mem', case=False, na=False)]
+        container_cpu_usage = container_data[container_data['metric'] == 'kubernetes.cpu.usage.total']
+        container_mem_usage = container_data[container_data['metric'] == 'kubernetes.memory.usage']
         
         entity_metrics["containers"][container] = {
-            "cpu_samples": len(container_cpu),
-            "memory_samples": len(container_memory),
-            "peak_cpu_cores": float(container_cpu['value'].max() / 1e6) if not container_cpu.empty else 0,
-            "peak_memory_gb": float(container_memory['value'].max() / 1e9) if not container_memory.empty else 0
+            "cpu_samples": len(container_cpu_usage),
+            "memory_samples": len(container_mem_usage),
+            "peak_cpu_cores": float(container_cpu_usage['value'].max() / 1e9) if not container_cpu_usage.empty else 0,
+            "peak_memory_gb": float(container_mem_usage['value'].max() / 1e9) if not container_mem_usage.empty else 0
         }
     
     return entity_metrics
@@ -622,17 +720,31 @@ def generate_resource_insights(analysis_results: Dict, config: Dict) -> Dict:
     return insights
 
 def analyze_k8s_utilization(entity_name: str, entity_metrics: Dict, cpu_thresholds: Dict, memory_thresholds: Dict, insights: Dict):
-    """Analyze K8s entity utilization against thresholds"""
+    """
+    Analyze K8s entity utilization against thresholds.
+    
+    Handles None values for utilization when limits are not defined in Kubernetes.
+    """
     
     cpu_analysis = entity_metrics.get("cpu_analysis", {})
     memory_analysis = entity_metrics.get("memory_analysis", {})
+    limits_status = entity_metrics.get("limits_status", {})
     
     # CPU utilization analysis
     if cpu_analysis:
-        peak_cpu_pct = cpu_analysis.get("peak_utilization_pct", 0)
-        avg_cpu_pct = cpu_analysis.get("avg_utilization_pct", 0)
+        peak_cpu_pct = cpu_analysis.get("peak_utilization_pct")
+        avg_cpu_pct = cpu_analysis.get("avg_utilization_pct")
         
-        if peak_cpu_pct > cpu_thresholds['high']:
+        # Handle None values (limits not defined)
+        if peak_cpu_pct is None or avg_cpu_pct is None:
+            # CPU limits not defined - report as "unknown" status
+            insights["right_sized"].append({
+                "resource": f"{entity_name} (CPU)",
+                "utilization": None,
+                "status": "limits_not_defined",
+                "note": "CPU limits not defined in Kubernetes - cannot calculate % utilization"
+            })
+        elif peak_cpu_pct > cpu_thresholds['high']:
             insights["high_utilization"].append({
                 "resource": f"{entity_name} (CPU)",
                 "type": "kubernetes",
@@ -658,10 +770,19 @@ def analyze_k8s_utilization(entity_name: str, entity_metrics: Dict, cpu_threshol
     
     # Memory utilization analysis  
     if memory_analysis:
-        peak_mem_pct = memory_analysis.get("peak_utilization_pct", 0)
-        avg_mem_pct = memory_analysis.get("avg_utilization_pct", 0)
+        peak_mem_pct = memory_analysis.get("peak_utilization_pct")
+        avg_mem_pct = memory_analysis.get("avg_utilization_pct")
         
-        if peak_mem_pct > memory_thresholds['high']:
+        # Handle None values (limits not defined)
+        if peak_mem_pct is None or avg_mem_pct is None:
+            # Memory limits not defined - report as "unknown" status
+            insights["right_sized"].append({
+                "resource": f"{entity_name} (Memory)",
+                "utilization": None,
+                "status": "limits_not_defined",
+                "note": "Memory limits not defined in Kubernetes - cannot calculate % utilization"
+            })
+        elif peak_mem_pct > memory_thresholds['high']:
             insights["high_utilization"].append({
                 "resource": f"{entity_name} (Memory)",
                 "type": "kubernetes",

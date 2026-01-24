@@ -628,6 +628,8 @@ def _build_cpu_utilization_table(infra_data: Optional[Dict], environment_type: s
     """
     Build Markdown table for per-service/host CPU % utilization.
     
+    Handles cases where Kubernetes limits are not defined (utilization shows as N/A*).
+    
     Args:
         infra_data: Infrastructure analysis data
         environment_type: 'host' or 'kubernetes'
@@ -674,9 +676,13 @@ def _build_cpu_utilization_table(infra_data: Optional[Dict], environment_type: s
     # Sort entities alphabetically
     sorted_entities = sorted(entities.items(), key=lambda x: x[0])
     
+    # Track if any entities have undefined limits (for footnote)
+    any_limits_undefined = False
+    
     for entity_name, entity_data in sorted_entities:
         cpu_analysis = entity_data.get("cpu_analysis", {})
         res_alloc = entity_data.get("resource_allocation", {})
+        limits_status = entity_data.get("limits_status", {})
         
         # Strip environment prefix and trailing wildcard for cleaner display
         display_name = strip_service_name_decorations(entity_name)
@@ -691,13 +697,25 @@ def _build_cpu_utilization_table(infra_data: Optional[Dict], environment_type: s
         peak_pct = cpu_analysis.get("peak_utilization_pct")
         avg_pct = cpu_analysis.get("avg_utilization_pct")
         min_pct = cpu_analysis.get("min_utilization_pct")
-        allocated = res_alloc.get("cpus", cpu_analysis.get("allocated_cpus", "N/A"))
+        allocated = cpu_analysis.get("allocated_cores", res_alloc.get("cpus", "N/A"))
         
-        # Format values
-        peak_str = f"{peak_pct:.2f}" if peak_pct is not None else "N/A"
-        avg_str = f"{avg_pct:.2f}" if avg_pct is not None else "N/A"
-        min_str = f"{min_pct:.2f}" if min_pct is not None else "N/A"
-        allocated_str = str(allocated) if allocated else "N/A"
+        # Check if limits are not defined (utilization values are None)
+        utilization_status = cpu_analysis.get("utilization_status")
+        limits_defined = limits_status.get("cpu_limits_defined", True)
+        
+        if utilization_status == "limits_not_defined" or not limits_defined or peak_pct is None:
+            any_limits_undefined = True
+            # Show N/A* to indicate limits not defined
+            peak_str = "N/A*"
+            avg_str = "N/A*"
+            min_str = "N/A*"
+        else:
+            # Format values normally
+            peak_str = f"{peak_pct:.2f}" if peak_pct is not None else "N/A"
+            avg_str = f"{avg_pct:.2f}" if avg_pct is not None else "N/A"
+            min_str = f"{min_pct:.2f}" if min_pct is not None else "N/A"
+        
+        allocated_str = f"{allocated:.2f}" if isinstance(allocated, (int, float)) else str(allocated) if allocated else "N/A"
         
         if show_allocated:
             line = f"| {display_name} | {peak_str} | {avg_str} | {min_str} | {allocated_str} |"
@@ -705,12 +723,19 @@ def _build_cpu_utilization_table(infra_data: Optional[Dict], environment_type: s
             line = f"| {display_name} | {peak_str} | {avg_str} | {min_str} |"
         lines.append(line)
     
+    # Add footnote if any entities have undefined limits
+    if any_limits_undefined and environment_type == "kubernetes":
+        lines.append("")
+        lines.append("*\\*N/A indicates CPU limits are not defined in Kubernetes for this service. % utilization cannot be calculated.*")
+    
     return "\n".join(lines)
 
 
 def _build_memory_utilization_table(infra_data: Optional[Dict], environment_type: str) -> str:
     """
     Build Markdown table for per-service/host Memory % utilization.
+    
+    Handles cases where Kubernetes limits are not defined (utilization shows as N/A*).
     
     Args:
         infra_data: Infrastructure analysis data
@@ -758,9 +783,13 @@ def _build_memory_utilization_table(infra_data: Optional[Dict], environment_type
     # Sort entities alphabetically
     sorted_entities = sorted(entities.items(), key=lambda x: x[0])
     
+    # Track if any entities have undefined limits (for footnote)
+    any_limits_undefined = False
+    
     for entity_name, entity_data in sorted_entities:
         mem_analysis = entity_data.get("memory_analysis", {})
         res_alloc = entity_data.get("resource_allocation", {})
+        limits_status = entity_data.get("limits_status", {})
         
         # Strip environment prefix and trailing wildcard for cleaner display
         display_name = strip_service_name_decorations(entity_name)
@@ -775,12 +804,24 @@ def _build_memory_utilization_table(infra_data: Optional[Dict], environment_type
         peak_pct = mem_analysis.get("peak_utilization_pct")
         avg_pct = mem_analysis.get("avg_utilization_pct")
         min_pct = mem_analysis.get("min_utilization_pct")
-        allocated_gb = res_alloc.get("memory_gb", mem_analysis.get("allocated_gb"))
+        allocated_gb = mem_analysis.get("allocated_gb", res_alloc.get("memory_gb"))
         
-        # Format values
-        peak_str = f"{peak_pct:.2f}" if peak_pct is not None else "N/A"
-        avg_str = f"{avg_pct:.2f}" if avg_pct is not None else "N/A"
-        min_str = f"{min_pct:.2f}" if min_pct is not None else "N/A"
+        # Check if limits are not defined (utilization values are None)
+        utilization_status = mem_analysis.get("utilization_status")
+        limits_defined = limits_status.get("mem_limits_defined", True)
+        
+        if utilization_status == "limits_not_defined" or not limits_defined or peak_pct is None:
+            any_limits_undefined = True
+            # Show N/A* to indicate limits not defined
+            peak_str = "N/A*"
+            avg_str = "N/A*"
+            min_str = "N/A*"
+        else:
+            # Format values normally
+            peak_str = f"{peak_pct:.2f}" if peak_pct is not None else "N/A"
+            avg_str = f"{avg_pct:.2f}" if avg_pct is not None else "N/A"
+            min_str = f"{min_pct:.2f}" if min_pct is not None else "N/A"
+        
         allocated_str = f"{allocated_gb:.2f} GB" if allocated_gb is not None else "N/A"
         
         if show_allocated:
@@ -788,6 +829,11 @@ def _build_memory_utilization_table(infra_data: Optional[Dict], environment_type
         else:
             line = f"| {display_name} | {peak_str} | {avg_str} | {min_str} |"
         lines.append(line)
+    
+    # Add footnote if any entities have undefined limits
+    if any_limits_undefined and environment_type == "kubernetes":
+        lines.append("")
+        lines.append("*\\*N/A indicates Memory limits are not defined in Kubernetes for this service. % utilization cannot be calculated.*")
     
     return "\n".join(lines)
 
@@ -1294,7 +1340,11 @@ def _build_recommendations(perf_data: Optional[Dict], infra_data: Optional[Dict]
 
 def _extract_infra_peaks(environment_type: str, infra_data: Dict) -> tuple:
     """
-    Extract peak CPU/Memory values from infrastructure data
+    Extract peak CPU/Memory values from infrastructure data.
+    
+    Handles None values gracefully (when Kubernetes limits are not defined,
+    utilization percentages are None and should be skipped).
+    
     Args:
         environment_type: 'host' or 'kubernetes'
         infra_data: Infrastructure analysis data
@@ -1325,16 +1375,31 @@ def _extract_infra_peaks(environment_type: str, infra_data: Dict) -> tuple:
     for entity_data in entities.values():
         cpu_analysis = entity_data.get("cpu_analysis", {})
         mem_analysis = entity_data.get("memory_analysis", {})
-        cpu_peak = max(cpu_peak, cpu_analysis.get("peak_utilization_pct", 0))
-        cpu_avg = max(cpu_avg, cpu_analysis.get("avg_utilization_pct", 0))
-        # Extract CPU core values (max across all services)
-        cpu_peak_cores = max(cpu_peak_cores, cpu_analysis.get("peak_usage_cores", 0))
-        cpu_avg_cores = max(cpu_avg_cores, cpu_analysis.get("avg_usage_cores", 0))
-        mem_peak = max(mem_peak, mem_analysis.get("peak_utilization_pct", 0))
-        mem_avg = max(mem_avg, mem_analysis.get("avg_utilization_pct", 0))
+        
+        # Handle None values for utilization percentages (limits not defined)
+        # Note: PerfAnalysis sets utilization to None when K8s limits are not defined
+        peak_cpu_pct = cpu_analysis.get("peak_utilization_pct")
+        avg_cpu_pct = cpu_analysis.get("avg_utilization_pct")
+        if peak_cpu_pct is not None:
+            cpu_peak = max(cpu_peak, peak_cpu_pct)
+        if avg_cpu_pct is not None:
+            cpu_avg = max(cpu_avg, avg_cpu_pct)
+        
+        # Extract CPU core values (max across all services) - these are always available
+        cpu_peak_cores = max(cpu_peak_cores, cpu_analysis.get("peak_usage_cores", 0) or 0)
+        cpu_avg_cores = max(cpu_avg_cores, cpu_analysis.get("avg_usage_cores", 0) or 0)
+        
+        # Handle None values for memory utilization
+        peak_mem_pct = mem_analysis.get("peak_utilization_pct")
+        avg_mem_pct = mem_analysis.get("avg_utilization_pct")
+        if peak_mem_pct is not None:
+            mem_peak = max(mem_peak, peak_mem_pct)
+        if avg_mem_pct is not None:
+            mem_avg = max(mem_avg, avg_mem_pct)
+        
         res_alloc = entity_data.get("resource_allocation", {})
         cpu_cores = max(cpu_cores, _parse_numeric(res_alloc.get("cpus", 0), default=0.0))
-        mem_gb = max(mem_gb, res_alloc.get("memory_gb", 0))
+        mem_gb = max(mem_gb, res_alloc.get("memory_gb", 0) or 0)
     
     return cpu_peak, cpu_avg, mem_peak, mem_avg, cpu_cores, mem_gb, cpu_peak_cores, cpu_avg_cores
 

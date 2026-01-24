@@ -6,6 +6,10 @@ This document summarizes the enhancements and new features added to the MCP Perf
 
 ## Table of Contents
 
+- [0. Datadog MCP Dynamic Limits (January 23, 2026)](#0-datadog-mcp-dynamic-limits-january-23-2026)
+  - [0.1 Phase 1: Datadog MCP Changes](#01-phase-1-datadog-mcp-changes)
+  - [0.2 Phase 2: PerfAnalysis MCP Changes](#02-phase-2-perfanalysis-mcp-changes)
+  - [0.3 Phase 3: PerfReport MCP Changes](#03-phase-3-perfreport-mcp-changes)
 - [1. Report Enhancements (PerfReport MCP)](#1-report-enhancements-perfreport-mcp)
   - [1.1 Human-Readable Test Duration](#11-human-readable-test-duration)
   - [1.2 Cleaner Infrastructure Summaries](#12-cleaner-infrastructure-summaries)
@@ -21,6 +25,169 @@ This document summarizes the enhancements and new features added to the MCP Perf
   - [2.5 CPU Core Comparison Bar Chart](#25-cpu-core-comparison-bar-chart)
   - [2.6 Memory Usage Comparison Bar Chart](#26-memory-usage-comparison-bar-chart)
 - [3. Future Updates](#3-future-updates)
+
+---
+
+## 0. Datadog MCP Dynamic Limits (January 23, 2026)
+
+**Summary:** CPU and Memory resource limits are now queried dynamically from Datadog rather than relying on static configurations in `environments.json`. This ensures accurate % utilization calculations that reflect actual Kubernetes resource configurations.
+
+### Problem Solved
+
+Previously, the Datadog MCP calculated % CPU/Memory utilization by:
+1. Querying **usage** from Datadog (`kubernetes.cpu.usage.total`, `kubernetes.memory.usage`)
+2. Reading **limits** from static `environments.json` configuration
+3. Calculating: `% = (usage / static_limit) * 100`
+
+**Issues:**
+- Static limits become stale when DevOps changes resource allocations
+- Manual maintenance burden to keep configurations in sync
+- Inaccurate KPIs when static config doesn't match actual K8s limits
+
+**Solution:** Query both usage AND limits directly from Datadog, ensuring % utilization is always calculated from the actual Kubernetes configuration.
+
+---
+
+### 0.1 Phase 1: Datadog MCP Changes
+
+**File:** `datadog-mcp/services/datadog_api.py`
+
+#### New Query Functions
+
+Added functions that return both usage and limits queries:
+- `svc_cpu_with_limits_query()` - Service CPU usage + limits
+- `svc_mem_with_limits_query()` - Service Memory usage + limits  
+- `pod_cpu_with_limits_query()` - Pod CPU usage + limits
+- `pod_mem_with_limits_query()` - Pod Memory usage + limits
+
+#### New Helper Functions
+
+| Function | Purpose |
+|----------|---------|
+| `_build_combined_metrics_request()` | Builds Datadog v2 API request with both usage and limits queries |
+| `_extract_series_with_limits()` | Parses response separating usage (query_index=0) and limits (query_index=1) |
+| `_calculate_utilization_with_dynamic_limits()` | Calculates % utilization; returns `-1` when limits not defined |
+| `_fill_missing_limits_series()` | Fills `0.0` when Datadog returns no limits data (CSV consistency) |
+
+#### CSV Output Changes
+
+**New metric rows added:**
+```csv
+# Limits from Datadog (new rows)
+env_name,env_tag,k8s,,service*,container,timestamp,kubernetes.cpu.limits,2.0,cores
+env_name,env_tag,k8s,,service*,container,timestamp,kubernetes.memory.limits,4294967296.0,bytes
+
+# Utilization calculated from dynamic limits
+env_name,env_tag,k8s,,service*,container,timestamp,cpu_util_pct,5.25,%
+env_name,env_tag,k8s,,service*,container,timestamp,mem_util_pct,15.17,%
+
+# When limits = 0 (not defined in Kubernetes)
+env_name,env_tag,k8s,,service*,container,timestamp,cpu_util_pct,-1,%
+```
+
+#### Aggregates Structure Updated
+
+```json
+{
+  "filter": "application-svc*",
+  "entity_type": "service",
+  "avg_cpu_nanocores": 1821261.16,
+  "avg_mem_bytes": 651773952.0,
+  "cpu_limits_available": true,
+  "mem_limits_available": true,
+  "avg_cpu_pct": 5.25,
+  "avg_mem_pct": 15.17
+}
+```
+
+When limits not defined:
+```json
+{
+  "cpu_limits_available": false,
+  "avg_cpu_pct": -1
+}
+```
+
+---
+
+### 0.2 Phase 2: PerfAnalysis MCP Changes
+
+**File:** `perfanalysis-mcp/services/apm_analyzer.py`
+
+#### Updated `analyze_k8s_entity_metrics()`
+
+- Reads `kubernetes.cpu.limits` and `kubernetes.memory.limits` rows from CSV
+- Reads pre-calculated `cpu_util_pct` and `mem_util_pct` values
+- Filters out `-1` values when calculating statistics (min/avg/max)
+- Sets utilization fields to `None` when limits not defined
+- Falls back to `environments.json` only when limits rows are missing entirely (backward compatibility)
+
+#### New `limits_status` Field
+
+JSON output now includes status flags:
+```json
+{
+  "limits_status": {
+    "cpu_limits_defined": true,
+    "mem_limits_defined": false
+  }
+}
+```
+
+#### Updated `analyze_k8s_utilization()`
+
+- Handles `None` utilization values gracefully
+- Reports "limits_not_defined" status in resource insights
+
+---
+
+### 0.3 Phase 3: PerfReport MCP Changes
+
+**File:** `perfreport-mcp/services/report_generator.py`
+
+#### Updated Table Builders
+
+`_build_cpu_utilization_table()` and `_build_memory_utilization_table()`:
+- Shows `N/A*` when limits not defined
+- Adds explanatory footnote when any service has undefined limits
+
+**Example Output:**
+```markdown
+| Service Name | Peak (%) | Avg (%) | Min (%) | Allocated |
+|--------------|----------|---------|---------|-----------|
+| api-gateway | 45.23 | 32.15 | 12.05 | 2.00 |
+| auth-service | N/A* | N/A* | N/A* | 0.00 |
+
+*\*N/A indicates CPU limits are not defined in Kubernetes for this service. % utilization cannot be calculated.*
+```
+
+#### Updated `_extract_infra_peaks()`
+
+- Safely handles `None` values (skips instead of treating as 0)
+- Prevents errors when aggregating infrastructure metrics
+
+---
+
+### Data Flow Summary
+
+```
+┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
+│    Datadog MCP      │    │   PerfAnalysis MCP  │    │   PerfReport MCP    │
+│                     │    │                     │    │                     │
+│ CSV output:         │──▶│ JSON output:        │───▶│ Report output:      │
+│ - cpu_util_pct: -1  │    │ - peak_util: None   │    │ - Peak (%): N/A*    │
+│ - limits: 0         │    │ - limits_defined:   │    │ - Footnote added    │
+│                     │    │   false             │    │                     │
+└─────────────────────┘    └─────────────────────┘    └─────────────────────┘
+```
+
+---
+
+### Backward Compatibility
+
+- **CSV Schema:** Unchanged structure; new metrics added as rows, not columns
+- **environments.json:** Not modified; static values ignored for K8s (used as fallback only)
+- **Host environments:** Unchanged behavior; dynamic limits only apply to Kubernetes
 
 ---
 
@@ -368,7 +535,7 @@ unit:
 *This section will be updated as new enhancements are released.*
 
 ### Planned: Datadog MCP Enhancements
-- *Coming soon*
+- ~~Dynamic CPU/Memory limits from Datadog~~ ✅ **Completed January 23, 2026**
 
 ---
 
@@ -385,7 +552,9 @@ unit:
 ### Files Modified
 | File | Changes |
 |------|---------|
-| `perfreport-mcp/services/report_generator.py` | Duration formatting, header stripping, bottleneck formatting, BlazeMeter link, service name cleanup, config-driven allocation columns |
+| `datadog-mcp/services/datadog_api.py` | Dynamic limits queries, combined usage+limits requests, utilization calculation with -1 marker, CSV consistency fix |
+| `perfanalysis-mcp/services/apm_analyzer.py` | Read limits from CSV, filter -1 values, limits_status tracking, None handling for undefined limits |
+| `perfreport-mcp/services/report_generator.py` | Duration formatting, header stripping, bottleneck formatting, BlazeMeter link, service name cleanup, config-driven allocation columns, N/A* footnotes for undefined limits |
 | `perfreport-mcp/services/comparison_report_generator.py` | Duration formatting integration |
 | `perfreport-mcp/services/chart_generator.py` | New chart registrations and data source handlers |
 | `perfreport-mcp/services/charts/dual_axis_charts.py` | CPU/Memory vs VUsers charts |
@@ -396,4 +565,4 @@ unit:
 
 ---
 
-*Last Updated: January 17, 2026*
+*Last Updated: January 23, 2026*
