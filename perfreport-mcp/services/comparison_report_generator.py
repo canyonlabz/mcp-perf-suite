@@ -303,6 +303,13 @@ def _populate_run_column(context: Dict, run_num: int, metadata: Dict, index: int
     duration_seconds = test_config.get('test_duration', 0)
     duration_formatted = _format_duration(duration_seconds)
     
+    # Use 'or 0' pattern to handle both missing keys AND keys with None values
+    success_rate = test_config.get('success_rate') or 0
+    avg_throughput = perf_metrics.get('avg_throughput') or 0
+    peak_throughput = perf_metrics.get('peak_throughput') or 0
+    error_rate = perf_metrics.get('error_rate') or 0
+    error_count = perf_metrics.get('error_count') or 0
+    
     context.update({
         f"{prefix}ID": metadata.get("run_id", "N/A"),
         f"{prefix}LABEL": f"Run {run_num}",
@@ -311,16 +318,16 @@ def _populate_run_column(context: Dict, run_num: int, metadata: Dict, index: int
         f"{prefix}END_TIME": end_time,
         f"{prefix}MAX_VU": max_vu_str,
         f"{prefix}DURATION": duration_formatted,
-        f"{prefix}SAMPLES": str(test_config.get("total_samples", 0)),
-        f"{prefix}SUCCESS_RATE": f"{test_config.get('success_rate', 0):.2f}",
+        f"{prefix}SAMPLES": str(test_config.get("total_samples") or 0),
+        f"{prefix}SUCCESS_RATE": f"{success_rate:.2f}",
         f"{prefix}ENV": test_config.get("environment", "Unknown"),
         f"{prefix}TYPE": test_config.get("test_type", "Load Test"),
         
         # Performance
-        f"{prefix}AVG_THROUGHPUT": f"{perf_metrics.get('avg_throughput', 0):.2f}",
-        f"{prefix}PEAK_THROUGHPUT": f"{perf_metrics.get('peak_throughput', 0):.2f}",
-        f"{prefix}ERROR_COUNT": str(perf_metrics.get("error_count", 0)),
-        f"{prefix}ERROR_RATE": f"{perf_metrics.get('error_rate', 0):.2f}",
+        f"{prefix}AVG_THROUGHPUT": f"{avg_throughput:.2f}",
+        f"{prefix}PEAK_THROUGHPUT": f"{peak_throughput:.2f}",
+        f"{prefix}ERROR_COUNT": str(error_count),
+        f"{prefix}ERROR_RATE": f"{error_rate:.2f}",
         f"{prefix}ERROR_DELTA": delta_str,
         f"{prefix}TOP_ERROR": perf_metrics.get("top_error_type", "N/A")
     })
@@ -373,6 +380,10 @@ def _calculate_delta(current: float, previous: float, lower_is_better: bool = Tr
     Returns:
         (delta_pct, trend_symbol)
     """
+    # Handle None values - treat as 0 for calculation purposes
+    current = current if current is not None else 0
+    previous = previous if previous is not None else 0
+    
     if previous == 0:
         return 0.0, "➡️"
     
@@ -448,8 +459,9 @@ def _build_executive_summary(run_metadata_list: List[Dict]) -> str:
     first_run = run_metadata_list[0]["performance_metrics"]
     last_run = run_metadata_list[-1]["performance_metrics"]
     
-    first_rt = first_run.get("avg_response_time", 0)
-    last_rt = last_run.get("avg_response_time", 0)
+    # Use 'or 0' to handle None values
+    first_rt = first_run.get("avg_response_time") or 0
+    last_rt = last_run.get("avg_response_time") or 0
     
     delta, trend = _calculate_delta(last_rt, first_rt, lower_is_better=True)
     
@@ -462,9 +474,9 @@ def _build_executive_summary(run_metadata_list: List[Dict]) -> str:
     else:
         summary += "**stable** performance with minimal variation across runs. "
     
-    # Add error rate summary
-    first_errors = first_run.get("error_rate", 0)
-    last_errors = last_run.get("error_rate", 0)
+    # Add error rate summary - use 'or 0' to handle None values
+    first_errors = first_run.get("error_rate") or 0
+    last_errors = last_run.get("error_rate") or 0
     
     if last_errors > first_errors:
         summary += f"Error rates increased from {first_errors:.2f}% to {last_errors:.2f}%. "
@@ -483,18 +495,18 @@ def _build_key_findings(run_metadata_list: List[Dict]) -> str:
     elif rt_trend == "⬆️":
         findings.append("- Response times improved across test runs")
     
-    # Infrastructure observations
-    first_cpu = run_metadata_list[0]["infrastructure_metrics"]["summary"].get("cpu_peak_pct", 0)
-    last_cpu = run_metadata_list[-1]["infrastructure_metrics"]["summary"].get("cpu_peak_pct", 0)
+    # Infrastructure observations - use 'or 0' to handle None values
+    first_cpu = run_metadata_list[0]["infrastructure_metrics"]["summary"].get("cpu_peak_pct") or 0
+    last_cpu = run_metadata_list[-1]["infrastructure_metrics"]["summary"].get("cpu_peak_pct") or 0
     
-    if last_cpu > first_cpu * 1.5:
+    if first_cpu > 0 and last_cpu > first_cpu * 1.5:
         findings.append("- CPU utilization increased significantly")
     
-    # Resource allocation
-    first_mem = run_metadata_list[0]["infrastructure_metrics"]["summary"].get("memory_allocated_gb", 0)
-    last_mem = run_metadata_list[-1]["infrastructure_metrics"]["summary"].get("memory_allocated_gb", 0)
+    # Resource allocation - use 'or 0' to handle None values
+    first_mem = run_metadata_list[0]["infrastructure_metrics"]["summary"].get("memory_allocated_gb") or 0
+    last_mem = run_metadata_list[-1]["infrastructure_metrics"]["summary"].get("memory_allocated_gb") or 0
     
-    if last_mem < first_mem:
+    if first_mem > 0 and last_mem < first_mem:
         findings.append("- Resource allocation reduced in later runs")
     
     if not findings:
@@ -557,8 +569,8 @@ def _build_infrastructure_concerns(run_metadata_list: List[Dict]) -> str:
     """Build infrastructure concerns rows."""
     rows = []
     
-    # Check CPU concerns
-    last_cpu = run_metadata_list[-1]["infrastructure_metrics"]["summary"].get("cpu_peak_pct", 0)
+    # Check CPU concerns - use 'or 0' to handle None values
+    last_cpu = run_metadata_list[-1]["infrastructure_metrics"]["summary"].get("cpu_peak_pct") or 0
     if last_cpu > 50:
         rows.append(f"| High CPU Usage | CPU | Run {len(run_metadata_list)} | CPU utilization peaked at {last_cpu:.2f}% |")
     
@@ -570,12 +582,14 @@ def _build_infrastructure_concerns(run_metadata_list: List[Dict]) -> str:
 
 def _build_error_rate_summary(run_metadata_list: List[Dict]) -> str:
     """Build error rate summary."""
-    error_rates = [meta["performance_metrics"].get("error_rate", 0) for meta in run_metadata_list]
+    # Use 'or 0' to handle None values in the list
+    error_rates = [(meta["performance_metrics"].get("error_rate") or 0) for meta in run_metadata_list]
     
-    if max(error_rates) < 1.0:
+    max_error_rate = max(error_rates) if error_rates else 0
+    if max_error_rate < 1.0:
         return "Error rates remain low (< 1%) across all test runs."
     else:
-        return f"Error rates peaked at {max(error_rates):.2f}% in Run {error_rates.index(max(error_rates)) + 1}."
+        return f"Error rates peaked at {max_error_rate:.2f}% in Run {error_rates.index(max_error_rate) + 1}."
 
 
 def _build_api_comparison_table(run_metadata_list: List[Dict]) -> str:
@@ -625,12 +639,18 @@ def _build_top_offenders_table(run_metadata_list: List[Dict]) -> str:
 
 def _build_throughput_summary(run_metadata_list: List[Dict]) -> str:
     """Build throughput summary."""
-    throughputs = [meta["performance_metrics"].get("avg_throughput", 0) for meta in run_metadata_list]
+    # Use 'or 0' to handle None values in the list
+    throughputs = [(meta["performance_metrics"].get("avg_throughput") or 0) for meta in run_metadata_list]
     
-    if max(throughputs) - min(throughputs) < max(throughputs) * 0.1:
+    max_throughput = max(throughputs) if throughputs else 0
+    min_throughput = min(throughputs) if throughputs else 0
+    
+    if max_throughput == 0:
+        return "No throughput data available for comparison."
+    elif max_throughput - min_throughput < max_throughput * 0.1:
         return "Throughput remains consistent across all test runs with less than 10% variation."
     else:
-        return f"Throughput varies from {min(throughputs):.2f} to {max(throughputs):.2f} req/sec across runs."
+        return f"Throughput varies from {min_throughput:.2f} to {max_throughput:.2f} req/sec across runs."
 
 
 def _determine_environment_type(run_metadata_list: List[Dict]) -> str:
@@ -872,8 +892,9 @@ def _build_cpu_core_comparison_table(run_metadata_list: List[Dict]) -> str:
             entity = next((e for e in entities if e.get("entity_name") == entity_name), None)
             
             if entity:
-                peak_cores = entity.get("cpu_peak_cores", 0)
-                avg_cores = entity.get("cpu_avg_cores", 0)
+                # Use 'or 0' to handle None values
+                peak_cores = entity.get("cpu_peak_cores") or 0
+                avg_cores = entity.get("cpu_avg_cores") or 0
                 
                 # Track first and last for trend calculation (use original values)
                 if i == 0:
@@ -881,7 +902,7 @@ def _build_cpu_core_comparison_table(run_metadata_list: List[Dict]) -> str:
                 if i == len(run_metadata_list) - 1:
                     last_peak = peak_cores
                 
-                # Format values - show N/A if zero (host environments)
+                # Format values - show N/A if zero or None (host environments or undefined limits)
                 if peak_cores == 0 and avg_cores == 0:
                     row_data.append("N/A")
                     row_data.append("N/A")
@@ -975,8 +996,9 @@ def _build_memory_usage_comparison_table(run_metadata_list: List[Dict]) -> str:
             entity = next((e for e in entities if e.get("entity_name") == entity_name), None)
             
             if entity:
-                peak_gb = entity.get("memory_peak_gb", 0)
-                avg_gb = entity.get("memory_avg_gb", 0)
+                # Use 'or 0' to handle None values
+                peak_gb = entity.get("memory_peak_gb") or 0
+                avg_gb = entity.get("memory_avg_gb") or 0
                 
                 # Track first and last for trend calculation (use original values)
                 if i == 0:
@@ -984,7 +1006,7 @@ def _build_memory_usage_comparison_table(run_metadata_list: List[Dict]) -> str:
                 if i == len(run_metadata_list) - 1:
                     last_peak = peak_gb
                 
-                # Format values
+                # Format values - show N/A if zero or None (undefined limits)
                 if peak_gb == 0 and avg_gb == 0:
                     row_data.append("N/A")
                     row_data.append("N/A")
@@ -1035,9 +1057,13 @@ def _build_cpu_comparison_table(run_metadata_list: List[Dict]) -> str:
             found_entity = next((e for e in meta_entities 
                                 if e.get("entity_name") == entity_name), None)
             if found_entity:
-                cpu_peak = found_entity.get("cpu_peak_pct", 0)
+                # Use 'or 0' to handle None values
+                cpu_peak = found_entity.get("cpu_peak_pct") or 0
                 cpu_values.append(cpu_peak)
-                row_data.append(f"{cpu_peak:.2f}%")
+                if cpu_peak == 0:
+                    row_data.append("N/A")
+                else:
+                    row_data.append(f"{cpu_peak:.2f}%")
             else:
                 row_data.append("N/A")
         
@@ -1080,9 +1106,13 @@ def _build_memory_comparison_table(run_metadata_list: List[Dict]) -> str:
             found_entity = next((e for e in meta_entities 
                                 if e.get("entity_name") == entity_name), None)
             if found_entity:
-                mem_peak = found_entity.get("memory_peak_pct", 0)
+                # Use 'or 0' to handle None values
+                mem_peak = found_entity.get("memory_peak_pct") or 0
                 mem_values.append(mem_peak)
-                row_data.append(f"{mem_peak:.2f}%")
+                if mem_peak == 0:
+                    row_data.append("N/A")
+                else:
+                    row_data.append(f"{mem_peak:.2f}%")
             else:
                 row_data.append("N/A")
         
