@@ -1,10 +1,10 @@
-# 📘 **Datadog APM & Log Query Guide**
+# 📘 Datadog APM & Log Query Guide
 
 ### *A visual & intuitive guide to building queries inside the Datadog MCP Server*
 
 ---
 
-# 🎯 1. Overview
+## 🎯 1. Overview
 
 The Datadog MCP Server supports a flexible, layered system for defining and executing both **APM Trace** and **Log Search** queries.
 
@@ -19,7 +19,7 @@ Queries can come from multiple sources:
 
 ---
 
-# 🧠 2. Query Resolution Order (Priority System)
+## 🧠 2. Query Resolution Order (Priority System)
 
 When a tool receives a `query_type`, it resolves it in this strict order:
 
@@ -32,7 +32,7 @@ When a tool receives a `query_type`, it resolves it in this strict order:
 
 ---
 
-# 🚀 3. Built-in APM Templates
+## 🚀 3. Built-in APM Templates
 
 Templates that work anywhere without extra configuration.
 
@@ -45,7 +45,7 @@ Templates that work anywhere without extra configuration.
 
 ---
 
-# 📊 4. Built-in Log Templates
+## 📊 4. Built-in Log Templates
 
 | Query Type    | Description            | Example                                          | 
 | ------------- | ---------------------- | ------------------------------------------------ | 
@@ -56,13 +56,13 @@ Templates that work anywhere without extra configuration.
 
 ---
 
-# 🏗️ 5. Environment-Based Dynamic Templates
+## 🏗️ 5. Environment-Based Dynamic Templates
 
 These depend on what’s defined inside `environments.json`.
 
 ---
 
-## 🔧 5.1 `service_errors`
+### 🔧 5.1 `service_errors`
 
 Given:
 
@@ -81,7 +81,7 @@ Generated query:
 
 ---
 
-## 🖥️ 5.2 `host_errors`
+### 🖥️ 5.2 `host_errors`
 
 Given:
 
@@ -100,7 +100,7 @@ Generated query:
 
 ---
 
-## ☸️ 5.3 `kubernetes_errors`
+### ☸️ 5.3 `kubernetes_errors`
 
 Given:
 
@@ -121,7 +121,7 @@ Generated query:
 
 ---
 
-# ✍️ 6. Inline Custom Query (Maximum Flexibility)
+## ✍️ 6. Inline Custom Query (Maximum Flexibility)
 
 Set:
 
@@ -137,13 +137,13 @@ No templates apply.
 
 ---
 
-# 📁 7. Global Custom Queries via `custom_queries.json`
+## 📁 7. Global Custom Queries via `custom_queries.json`
 
 This is the recommended way to define reusable project-level queries.
 
 ---
 
-## 📁 File Location
+### 📁 File Location
 
 ```
 datadog-mcp/custom_queries.json
@@ -151,7 +151,7 @@ datadog-mcp/custom_queries.json
 
 ---
 
-## 📁 File Structure
+### 📁 File Structure
 
 ```jsonc
 {
@@ -175,7 +175,7 @@ datadog-mcp/custom_queries.json
 
 ---
 
-# 🧮 8. Summary of All Query Sources
+## 🧮 8. Summary of All Query Sources
 
 | Source                                | Description                | Recommended?         |
 | ------------------------------------- | -------------------------- | -------------------- |
@@ -186,9 +186,9 @@ datadog-mcp/custom_queries.json
 
 ---
 
-# 🧪 9. Example MCP Tool Usage
+## 🧪 9. Example MCP Tool Usage
 
-## 🔵 APM Example
+### 🔵 APM Example
 
 ```json
 {
@@ -199,7 +199,7 @@ datadog-mcp/custom_queries.json
 }
 ```
 
-## 🟠 Logs Example
+### 🟠 Logs Example
 
 ```json
 {

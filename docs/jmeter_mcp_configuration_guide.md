@@ -1,10 +1,10 @@
 # 📘 JMeter MCP Configuration Guide
 
-This guide explains how to configure the JMeter MCP (Model Context Protocol) server using YAML configuration files. The JMeter MCP automates the creation of JMeter test scripts from browser automation recordings.
+### *This guide explains how to configure the JMeter MCP (Model Context Protocol) server using YAML configuration files. The JMeter MCP automates the creation of JMeter test scripts from browser automation recordings.*
 
 ---
 
-## 📁 Configuration Files Overview
+## 📁 1. Configuration Files Overview
 
 The JMeter MCP uses **two configuration files**:
 
@@ -17,11 +17,11 @@ The JMeter MCP uses **two configuration files**:
 
 ---
 
-## 🔧 config.yaml — Environment Configuration
+## 🔧 2. config.yaml — Environment Configuration
 
 This file contains system-level settings for paths, directories, and network capture behavior.
 
-### 📦 Artifacts Configuration
+### 📦 2.1 Artifacts Configuration
 
 **Example:**
 ```yaml
@@ -37,7 +37,7 @@ artifacts:
 
 ---
 
-### ☕ JMeter Configuration
+### ☕ 2.2 JMeter Configuration
 
 **Example:**
 ```yaml
@@ -59,7 +59,7 @@ jmeter:
 
 ---
 
-### 📋 Test Specifications
+### 📋 2.3 Browser Automation Specifications
 
 ```yaml
 test_specs:
@@ -78,7 +78,7 @@ test_specs:
 
 ---
 
-### 🌐 Network Capture Configuration
+### 🌐 2.4 Network Capture Configuration
 
 This section controls which HTTP requests are captured during browser automation. These settings are crucial for creating accurate JMeter scripts.
 
@@ -107,7 +107,7 @@ network_capture:
 
 ---
 
-### 🚫 Domain Exclusion List
+### 🚫 2.5 Domain Exclusion List
 
 The `exclude_domains` list filters out requests to APM, analytics, advertising, and other non-essential domains. These are excluded from **both** network capture AND correlation analysis.
 
@@ -140,13 +140,13 @@ network_capture:
 
 ---
 
-## ⚙️ jmeter_config.yaml — JMeter Script Settings
+## ⚙️ 3. jmeter_config.yaml — JMeter Script Settings
 
 This file controls how JMeter test scripts are generated. Each section corresponds to specific JMeter test plan elements.
 
 ---
 
-### 👥 Thread Group Configuration
+### 👥 3.1 Thread Group Configuration
 
 The Thread Group defines the virtual user load profile for your test.
 
@@ -167,7 +167,7 @@ thread_group:
 
 ---
 
-### 🍪 Cookie Manager
+### 🍪 3.2 Cookie Manager
 
 The HTTP Cookie Manager automatically handles cookies across requests, essential for session-based applications.
 
@@ -184,7 +184,7 @@ cookie_manager:
 
 ---
 
-### 📝 User Defined Variables
+### 📝 3.3 User Defined Variables
 
 User Defined Variables (UDV) allow you to define reusable values that can be referenced throughout your test plan.
 
@@ -213,7 +213,7 @@ user_defined_variables:
 
 ---
 
-### 📊 CSV Data Set Configuration
+### 📊 3.4 CSV Data Set Configuration
 
 CSV Data Set Config allows you to parameterize tests with external data files (e.g., user credentials, test data).
 
@@ -255,7 +255,7 @@ csv_dataset_config:
 
 ---
 
-### 🎮 Controller Configuration
+### 🎮 3.5 Controller Configuration
 
 Controllers organize samplers into logical groups (test cases, transactions).
 
@@ -281,7 +281,7 @@ controller_config:
 
 ---
 
-### 🌐 HTTP Sampler Configuration
+### 🌐 3.6 HTTP Sampler Configuration
 
 Controls how HTTP requests are generated in the JMX script.
 
@@ -300,7 +300,7 @@ http_sampler:
 
 ---
 
-### 🏷️ Sampler Naming Convention
+### 🏷️ 3.7 Sampler Naming Convention
 
 Controls the naming pattern for HTTP Request samplers, making test results easier to read.
 
@@ -326,7 +326,7 @@ sampler_naming:
 
 ---
 
-### 🔒 HTTP/2 Headers Configuration
+### 🔒 3.8 HTTP/2 Headers Configuration
 
 Controls handling of HTTP/2 pseudo-headers that may cause issues with HTTP/1.1 backends.
 
@@ -343,7 +343,7 @@ http2_headers:
 
 ---
 
-### ⏸️ Test Action (Think Time) Configuration
+### ⏸️ 3.9 Test Action (Think Time) Configuration
 
 Configures automatic think time pauses between steps to simulate realistic user behavior.
 
@@ -366,7 +366,7 @@ test_action_config:
 
 ---
 
-### 📊 Results Collector Configuration
+### 📊 3.10 Results Collector Configuration
 
 Configures the listeners (results collectors) added to the test plan for viewing and storing results.
 
@@ -405,7 +405,7 @@ results_collector_config:
 
 ---
 
-### 🏠 Hostname Parameterization
+### 🏠 3.11 Hostname Parameterization
 
 Automatically extracts hostnames from captured traffic and creates environment-specific CSV files for easy environment switching.
 
@@ -454,7 +454,7 @@ app.example.com,login.example.com,cdn.example.com
 
 ---
 
-### 🔍 Extractor Placement Configuration
+### 🔍 3.12 Extractor Placement Configuration
 
 Controls how correlation extractors (for dynamic values) are added to the JMX script.
 
@@ -491,7 +491,7 @@ OAuth/SSO flows often involve redirect chains where values like `state`, `nonce`
 
 ---
 
-### 🔐 OAuth Configuration
+### 🔐 3.13 OAuth Configuration
 
 Configures automatic handling of OAuth/SSO tokens in the generated JMX scripts.
 
@@ -534,7 +534,7 @@ oauth_config:
 
 ---
 
-## 🚀 Quick Start Checklist
+## 🚀 4. Quick Start Checklist
 
 Before running the JMeter MCP, verify these settings:
 
@@ -555,7 +555,7 @@ Before running the JMeter MCP, verify these settings:
 
 ---
 
-## 📚 Related Documentation
+## 📚 5. Related Documentation
 
 - **JMeter Official Documentation**: [https://jmeter.apache.org/usermanual/](https://jmeter.apache.org/usermanual/)
 - **Playwright Browser Automation**: See `.cursor/rules/playwright-browser-automation.mdc`
@@ -563,7 +563,7 @@ Before running the JMeter MCP, verify these settings:
 
 ---
 
-## ❓ Troubleshooting
+## ❓ 6. Troubleshooting
 
 ### Common Issues
 

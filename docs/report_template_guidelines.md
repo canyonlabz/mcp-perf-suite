@@ -1,6 +1,6 @@
 # 📘 Template Authoring Guidelines for PerfReport MCP
 
-*How to create custom Markdown templates for performance test reports*
+### *How to create custom Markdown templates for performance test reports*
 
 ---
 

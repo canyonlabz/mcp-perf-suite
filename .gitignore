@@ -247,11 +247,12 @@ artifacts/*
 **/config.mac.yaml
 **/config.windows.yaml
 
-# ignore temp documentation files
+# ignore temp documentation files, but include the main documentation markdown files
 docs/*
 !docs/report_template_guidelines.md
 !docs/datadog_query_guide.md
 !docs/jmeter_mcp_configuration_guide.md
+!docs/metrics_calculations_and_display.md
 !docs/README.md
 
 # Ignore JMeter configuration files all custom JMeter MCP test-spec files
