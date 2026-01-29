@@ -17,7 +17,7 @@ The goal of this directory is to help end-users, contributors, and performance e
 
 This folder will grow over time. For now, here are the key documents:
 
-### 📘 **1. Template Authoring Guidelines (`template_guidelines.md`)**
+### 📘 **1. Template Authoring Guidelines (`report_template_guidelines.md`)**
 
 A detailed guide explaining how to create custom Markdown templates for performance reports, including:
 
@@ -102,7 +102,7 @@ Potential documents coming later:
 docs/
 │
 ├── README.md                  ← You are here
-├── template_guidelines.md     ← Performance report template rules
+├── report_template_guidelines.md     ← Performance report template rules
 │
 ├── config_reference.md        ← (Planned)
 ├── mcp_tools_index.md         ← (Planned)
