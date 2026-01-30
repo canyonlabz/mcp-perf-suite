@@ -22,7 +22,7 @@ async def list_available_reports(test_run_id: Optional[str] = None, ctx: Context
         List of report metadata dicts with:
         - filename
         - filepath
-        - report_type ("single" or "comparison")
+        - report_type ("single_run" or "comparison")
         - test_run_ids (list)
         - comparison_id (for comparison reports)
         - display_name (parsed title or filename)
@@ -77,7 +77,7 @@ async def list_available_reports(test_run_id: Optional[str] = None, ctx: Context
         else:
             # This is a regular test_run_id - single test run reports
             report_dir = Path(ARTIFACTS_PATH) / test_run_id / "reports"
-            report_type = "single"
+            report_type = "single_run"
             
             if not report_dir.exists():
                 warning_msg = f"Report directory not found: {report_dir}"

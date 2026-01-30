@@ -11,7 +11,7 @@ CNF_CONFIG = CONFIG.get('confluence', {})
 ARTIFACTS_PATH = CONFIG['artifacts']['artifacts_path']
 
 
-async def markdown_to_confluence_xhtml(test_run_id: str, filename: str, ctx: Context = None, report_type: str = "single") -> Union[str, Dict]:
+async def markdown_to_confluence_xhtml(test_run_id: str, filename: str, ctx: Context = None, report_type: str = "single_run") -> Union[str, Dict]:
     """
     Converts a Markdown performance report to Confluence storage-format XHTML.
     
@@ -19,8 +19,8 @@ async def markdown_to_confluence_xhtml(test_run_id: str, filename: str, ctx: Con
         test_run_id: ID of the test run or comparison_id (used for artifact path).
         filename: Filename of the markdown report.
         ctx: FastMCP context for logging.
-        report_type: Type of report - "single" (default) or "comparison".
-            - "single": Path is artifacts/{test_run_id}/reports/
+        report_type: Type of report - "single_run" (default) or "comparison".
+            - "single_run": Path is artifacts/{test_run_id}/reports/
             - "comparison": Path is artifacts/comparisons/{test_run_id}/
     
     Returns:
@@ -29,7 +29,7 @@ async def markdown_to_confluence_xhtml(test_run_id: str, filename: str, ctx: Con
     
     Examples:
         # Single-run report
-        markdown_to_confluence_xhtml("80247571", "performance_report_80247571.md", report_type="single")
+        markdown_to_confluence_xhtml("80247571", "performance_report_80247571.md", report_type="single_run")
         
         # Comparison report (test_run_id is comparison_id)
         markdown_to_confluence_xhtml("2026-01-21-09-03-30", "comparison_report_run1_run2.md", report_type="comparison")

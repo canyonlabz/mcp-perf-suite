@@ -252,7 +252,7 @@ For each test run:
    - filename: The report filename selected from step 4 (e.g., `performance_report_{test_run_id}.md`)
    - mode: The Confluence mode ("cloud" or "onprem") from prerequisites
    - parent_id: The parent page ID from step 3 (REQUIRED - must be provided)
-   - report_type: "single" (for individual test run reports)
+   - report_type: "single_run" (for individual test run reports)
    - title: (Optional) Custom page title. If not provided, title is extracted from markdown H1 heading.
    - The tool will automatically convert the Markdown report to Confluence XHTML format and create the page nested under the parent page.
    - Store the returned page_ref (page ID) for use in steps 6 and 7.
@@ -260,22 +260,22 @@ For each test run:
    - page_ref: The page_ref (page ID) returned from step 5
    - test_run_id: The test run ID from prerequisites
    - mode: The Confluence mode ("cloud" or "onprem") from prerequisites
-   - report_type: "single" (for individual test run reports)
+   - report_type: "single_run" (for individual test run reports)
    - This uploads ALL PNG chart images from `artifacts/{test_run_id}/charts/` to the page.
    - Check the response for attached/failed counts. Continue even if some fail.
 7. Use tool `update_page` with:
    - page_ref: The page_ref (page ID) returned from step 5
    - test_run_id: The test run ID from prerequisites
    - mode: The Confluence mode ("cloud" or "onprem") from prerequisites
-   - report_type: "single" (for individual test run reports)
+   - report_type: "single_run" (for individual test run reports)
    - This replaces `{{CHART_PLACEHOLDER: ID}}` markers in the page with embedded `<ac:image>` markup.
    - Check the response for placeholders_replaced and placeholders_remaining.
 
 **Note on report_type parameter:**
-- Use `report_type: "single"` for individual test run reports (this workflow)
+- Use `report_type: "single_run"` for individual test run reports (this workflow)
 - Use `report_type: "comparison"` for comparison reports (see comparison-report-workflow.mdc)
 - The report_type determines the artifact path:
-  - "single": `artifacts/{test_run_id}/reports/` and `artifacts/{test_run_id}/charts/`
+  - "single_run": `artifacts/{test_run_id}/reports/` and `artifacts/{test_run_id}/charts/`
   - "comparison": `artifacts/comparisons/{comparison_id}/` and `artifacts/comparisons/{comparison_id}/charts/`
 8. **Error Handling:**
    - If API calls fail, retry up to 3 times

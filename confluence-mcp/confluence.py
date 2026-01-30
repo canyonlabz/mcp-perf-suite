@@ -215,7 +215,7 @@ async def get_page_content(page_ref: str, mode: str, ctx: Context) -> dict:
         return await get_page_content_v1(page_ref, ctx)
 
 @mcp.tool
-async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str, ctx: Context, parent_id: str, title: str = None, report_type: str = "single") -> dict:
+async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str, ctx: Context, parent_id: str, title: str = None, report_type: str = "single_run") -> dict:
     """
     Creates a new Confluence page by importing a Markdown performance report.
     
@@ -231,8 +231,8 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
             alphanumeric, whitespace, underscores, dashes, parentheses, square brackets,
             commas, periods, colons, semi-colons, hash, forward slash, percent, ampersand,
             and apostrophe. Maximum length: 255 characters.
-        report_type (str): Type of report - "single" (default) or "comparison".
-            - "single": Path is artifacts/{test_run_id}/reports/
+        report_type (str): Type of report - "single_run" (default) or "comparison".
+            - "single_run": Path is artifacts/{test_run_id}/reports/
             - "comparison": Path is artifacts/comparisons/{test_run_id}/ (test_run_id is comparison_id)
     
     Returns:
@@ -247,7 +247,7 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
         # Single-run report
         create_page(space_ref="MYQA", test_run_id="80247571", 
                     filename="performance_report_80247571.md", mode="onprem", 
-                    report_type="single", ...)
+                    report_type="single_run", ...)
         
         # Comparison report (test_run_id is comparison_id)
         create_page(space_ref="MYQA", test_run_id="2026-01-21-09-03-30", 
@@ -324,7 +324,7 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
     return result
 
 @mcp.tool
-async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context, report_type: str = "single") -> dict:
+async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context, report_type: str = "single_run") -> dict:
     """
     Attaches all PNG chart images from a test run to an existing Confluence page.
     
@@ -336,8 +336,8 @@ async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context
         test_run_id (str): Test run ID or comparison_id whose charts to upload.
         mode (str): "cloud" or "onprem".
         ctx (Context): FastMCP context for chaining/error handling.
-        report_type (str): Type of report - "single" (default) or "comparison".
-            - "single": Path is artifacts/{test_run_id}/charts/
+        report_type (str): Type of report - "single_run" (default) or "comparison".
+            - "single_run": Path is artifacts/{test_run_id}/charts/
             - "comparison": Path is artifacts/comparisons/{test_run_id}/charts/
     
     Returns:
@@ -356,7 +356,7 @@ async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context
             page_ref="123456789",
             test_run_id="80593110",
             mode="onprem",
-            report_type="single",
+            report_type="single_run",
             ctx=ctx
         )
         
@@ -463,7 +463,7 @@ async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context
 
 
 @mcp.tool
-async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, report_type: str = "single") -> dict:
+async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, report_type: str = "single_run") -> dict:
     """
     Updates a Confluence page by replacing chart placeholders with embedded images.
     
@@ -485,8 +485,8 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, 
         test_run_id (str): Test run ID or comparison_id whose XHTML and charts to use.
         mode (str): "cloud" or "onprem".
         ctx (Context): FastMCP context.
-        report_type (str): Type of report - "single" (default) or "comparison".
-            - "single": Paths are artifacts/{test_run_id}/reports/ and charts/
+        report_type (str): Type of report - "single_run" (default) or "comparison".
+            - "single_run": Paths are artifacts/{test_run_id}/reports/ and charts/
             - "comparison": Paths are artifacts/comparisons/{test_run_id}/ (root and charts/)
     
     Returns:
@@ -502,9 +502,9 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, 
     
     Example workflow:
         # Single-run report
-        1. create_page(..., report_type="single") -> page_ref
-        2. attach_images(page_ref, test_run_id, mode, ctx, report_type="single")
-        3. update_page(page_ref, test_run_id, mode, ctx, report_type="single")
+        1. create_page(..., report_type="single_run") -> page_ref
+        2. attach_images(page_ref, test_run_id, mode, ctx, report_type="single_run")
+        3. update_page(page_ref, test_run_id, mode, ctx, report_type="single_run")
         
         # Comparison report (test_run_id is comparison_id)
         1. create_page(..., report_type="comparison") -> page_ref
@@ -697,7 +697,7 @@ async def get_available_charts(test_run_id: str = None, ctx: Context = None) -> 
     return await list_available_charts(test_run_id, ctx)
 
 @mcp.tool
-async def convert_markdown_to_xhtml(test_run_id: str, filename: str, ctx: Context = None, report_type: str = "single") -> str:
+async def convert_markdown_to_xhtml(test_run_id: str, filename: str, ctx: Context = None, report_type: str = "single_run") -> str:
     """
     Converts a Markdown performance report to Confluence storage-format XHTML.
     
@@ -705,8 +705,8 @@ async def convert_markdown_to_xhtml(test_run_id: str, filename: str, ctx: Contex
         test_run_id: ID of the test run or comparison_id (used for artifact path).
         filename: Filename of the markdown report. NOTE: full path is constructed internally. Get list from get_available_reports.
         ctx: FastMCP context for error/status reporting.
-        report_type: Type of report - "single" (default) or "comparison".
-            - "single": Path is artifacts/{test_run_id}/reports/
+        report_type: Type of report - "single_run" (default) or "comparison".
+            - "single_run": Path is artifacts/{test_run_id}/reports/
             - "comparison": Path is artifacts/comparisons/{test_run_id}/
     
     Returns:
