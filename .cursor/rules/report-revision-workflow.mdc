@@ -1,0 +1,353 @@
+# AI-Assisted Report Revision Workflow
+
+This workflow orchestrates the AI-assisted revision of performance test reports using a Human-In-The-Loop (HITL) approach. It enables iterative refinement of report sections through three PerfReport MCP tools that work together to discover data, generate revisions, and assemble the final report.
+
+## Workflow Overview
+
+The report revision workflow executes the following steps:
+
+1. **Discovery Phase** - Gather all available data files and context
+2. **AI Generation Phase** - Generate revised content for enabled sections (Cursor/AI)
+3. **Save Revisions Phase** - Save each revised section with version tracking
+4. **Assembly Phase** - Assemble the final revised report
+5. **HITL Iteration** (Optional) - Refine revisions based on user feedback
+
+This workflow supports both `single_run` reports and `comparison` reports.
+
+---
+
+## 0. Prerequisites Collection
+
+**Before starting, collect ALL required information from the user:**
+
+### Required Information
+
+- **Test run ID** (run_id) - The test run identifier for single_run reports, or comparison_id for comparison reports
+- **Report type** - "single_run" (default) or "comparison"
+
+### Optional Information
+
+- **Additional context** - Project name, purpose, feature/PBI details from ADO/JIRA
+  - Example: "The project name is 'Micro Front-End APIs (MFE)' and the purpose is to test the migration of GUI applications moving from IIS to AKS."
+- **Sections to revise** - If user has preferences on which sections to revise
+
+### Prerequisites Checklist
+
+Before starting, verify:
+- [ ] Performance test report has been generated (`create_performance_test_report`)
+- [ ] Report exists at `artifacts/{run_id}/reports/performance_report_{run_id}.md`
+- [ ] Analysis data exists at `artifacts/{run_id}/analysis/` (JSON, CSV, MD files)
+- [ ] Desired sections are enabled in `report_config.yaml` under `revisable_sections`
+
+**Do not proceed until the original report has been generated.**
+
+---
+
+## 1. Initialize Task Tracking
+
+Create task items to monitor progress through the revision workflow:
+
+- [ ] Discovery: Run discover_revision_data
+- [ ] AI Generation: Read data files and generate content
+- [ ] Save Revisions: Run prepare_revision_context (per section)
+- [ ] Assembly: Run revise_performance_test_report
+- [ ] Review: User reviews revised report
+- [ ] HITL Iteration (if needed)
+
+---
+
+## 2. Discovery Phase
+
+### 2.1 Run discover_revision_data
+
+Use the `discover_revision_data` tool to gather all available data:
+
+```
+Tool: discover_revision_data
+Parameters:
+  - run_id: The test run ID (required)
+  - report_type: "single_run" or "comparison" (default: "single_run")
+  - additional_context: User-provided context string (optional)
+```
+
+**The tool returns:**
+- `data_sources`: Organized file paths by MCP source (blazemeter, datadog, analysis, reports)
+- `revisable_sections`: All sections with enabled/disabled status
+- `enabled_section_count`: Number of sections ready for revision
+- `revision_output_path`: Where revision files will be saved
+- `existing_revisions`: Any previous revision versions per section
+- `revision_guidelines`: Instructions for generating content
+
+### 2.2 Validate Discovery Results
+
+Before proceeding, verify:
+- At least one section is enabled (`enabled_section_count > 0`)
+- Required data files exist in `data_sources`
+- If no sections enabled, inform user to update `report_config.yaml`
+
+**If no sections are enabled:**
+```
+User action required: Enable sections in report_config.yaml
+
+Location: perfreport-mcp/report_config.yaml
+Section: revisable_sections.single_run (or .comparison)
+
+Set enabled: true for desired sections:
+- executive_summary
+- key_observations  
+- issues_table
+```
+
+---
+
+## 3. AI Generation Phase
+
+### 3.1 Read Data Files
+
+Based on the `data_sources` from discovery, read the relevant files to build context:
+
+**Priority files for single_run reports:**
+1. `artifacts/{run_id}/analysis/performance_analysis.json` - Core metrics
+2. `artifacts/{run_id}/analysis/performance_summary.md` - Human-readable summary
+3. `artifacts/{run_id}/analysis/infrastructure_analysis.json` - Infrastructure metrics
+4. `artifacts/{run_id}/analysis/correlation_analysis.json` - Correlations
+5. `artifacts/{run_id}/blazemeter/test_config.json` - Test configuration
+6. `artifacts/{run_id}/reports/performance_report_{run_id}.md` - Current report
+
+**Read these files to understand:**
+- Test results and success rates
+- Response time metrics (avg, P90, P95, P99)
+- Error counts and types
+- Infrastructure utilization (CPU, Memory)
+- Correlation insights
+
+### 3.2 Generate Revised Content
+
+For each enabled section, generate improved content following these guidelines:
+
+#### Executive Summary Guidelines
+- Provide a high-level overview of test results
+- Include key metrics: success rate, avg response time, throughput
+- Highlight any critical issues or SLA violations
+- Keep to 3-5 sentences or bullet points
+- Mention the test environment and date if relevant
+- If `additional_context` was provided, incorporate project context
+
+#### Key Observations Guidelines
+- List 3-7 key observations from the test
+- Use bullet points for clarity
+- Include both positive findings and concerns
+- Reference specific APIs or services when relevant
+- Prioritize observations by impact
+
+#### Issues Table Guidelines
+- Create a markdown table of issues observed
+- Include columns: Issue Type, Severity, Count, Description
+- Sort by severity (Critical > High > Medium > Low)
+- Include error rates and specific error messages if available
+- Reference the affected APIs or endpoints
+
+**Writing Style:**
+- Professional tone suitable for leadership/stakeholders
+- Concise but informative
+- Include specific metrics and data points
+- Use markdown formatting (headers, bullet points, tables)
+
+---
+
+## 4. Save Revisions Phase
+
+### 4.1 Run prepare_revision_context (Per Section)
+
+For each section with generated content, save it using the `prepare_revision_context` tool:
+
+```
+Tool: prepare_revision_context
+Parameters:
+  - run_id: The test run ID (required)
+  - section_id: Section identifier (required)
+    - Valid values: "executive_summary", "key_observations", "issues_table"
+  - revised_content: The AI-generated markdown content (required)
+  - report_type: "single_run" or "comparison" (default: "single_run")
+  - additional_context: User context that was used (optional, for traceability)
+```
+
+**The tool returns:**
+- `section_full_id`: Composite ID (e.g., "single_run.executive_summary")
+- `revision_number`: Version assigned (1, 2, 3...)
+- `revision_path`: Full path to the saved file
+- `previous_versions`: List of any existing versions
+
+### 4.2 Repeat for Each Enabled Section
+
+Call `prepare_revision_context` once for each enabled section:
+
+1. If `executive_summary` is enabled → save executive summary content
+2. If `key_observations` is enabled → save key observations content
+3. If `issues_table` is enabled → save issues table content
+
+**Track which sections were saved and their version numbers.**
+
+---
+
+## 5. Assembly Phase
+
+### 5.1 Run revise_performance_test_report
+
+Assemble the final revised report using the `revise_performance_test_report` tool:
+
+```
+Tool: revise_performance_test_report
+Parameters:
+  - run_id: The test run ID (required)
+  - report_type: "single_run" or "comparison" (default: "single_run")
+  - revision_version: Specific version to use (optional, defaults to latest)
+```
+
+**The tool:**
+1. Backs up original report to `performance_report_{run_id}_original.md`
+2. Backs up metadata to `report_metadata_{run_id}_original.json`
+3. Replaces placeholders with AI-revised content
+4. Saves revised report to `performance_report_{run_id}_revised.md`
+5. Updates metadata with revision info
+
+**The tool returns:**
+- `revised_report_path`: Path to the new revised report
+- `backup_report_path`: Path where original was backed up
+- `sections_revised`: List of sections that were revised
+- `revision_versions_used`: Dict mapping section_id to version used
+- `warnings`: Any non-fatal warnings
+
+### 5.2 Validate Assembly Results
+
+After assembly, verify:
+- `status` is "success"
+- `sections_revised` contains all expected sections
+- `revised_report_path` file exists
+- Review any warnings
+
+---
+
+## 6. User Review
+
+### 6.1 Present Revised Report
+
+After assembly, present the results to the user:
+
+1. Display the path to the revised report
+2. Summarize which sections were revised
+3. Show the version numbers used
+4. Note any warnings from the assembly
+
+### 6.2 Ask for Feedback
+
+Ask the user:
+- "Would you like to review the revised report?"
+- "Are there any sections that need further refinement?"
+- "Should I make any adjustments to the content?"
+
+---
+
+## 7. HITL Iteration (Optional)
+
+If the user requests changes, repeat the workflow for specific sections:
+
+### 7.1 Gather Feedback
+
+Collect specific feedback from the user:
+- Which section needs revision?
+- What changes are needed?
+- Any additional context to incorporate?
+
+### 7.2 Re-generate Content
+
+Generate new content incorporating the feedback.
+
+### 7.3 Save New Version
+
+Call `prepare_revision_context` again for the section:
+- The tool will automatically increment the version number
+- New file will be created (e.g., `AI_EXECUTIVE_SUMMARY_v2.md`)
+
+### 7.4 Re-assemble Report
+
+Call `revise_performance_test_report` with the new version:
+- Optionally specify `revision_version` to use a specific version
+- Or omit to use the latest version for each section
+
+### 7.5 Repeat Until Satisfied
+
+Continue the HITL loop until the user approves the revised report.
+
+---
+
+## 8. Final Output Summary
+
+After the revision workflow completes, provide a summary:
+
+### 8.1 File Locations
+
+- Original report (backed up): `artifacts/{run_id}/reports/performance_report_{run_id}_original.md`
+- Revised report: `artifacts/{run_id}/reports/performance_report_{run_id}_revised.md`
+- Revision files: `artifacts/{run_id}/reports/revisions/`
+- Metadata: `artifacts/{run_id}/reports/report_metadata_{run_id}.json`
+
+### 8.2 Revision Summary Table
+
+| Section | Versions Created | Final Version Used |
+|---------|------------------|-------------------|
+| executive_summary | v1, v2 | v2 |
+| key_observations | v1 | v1 |
+| issues_table | v1 | v1 |
+
+### 8.3 Next Steps
+
+Inform the user of available next steps:
+- Publish revised report to Confluence using `confluence-mcp`
+- Generate additional charts with `create_chart`
+- Create a comparison report if multiple test runs exist
+
+---
+
+## Error Handling
+
+### Discovery Errors
+
+If `discover_revision_data` fails:
+- Check if the run_id is correct
+- Verify the artifacts folder exists
+- Ensure the original report was generated first
+
+### Save Errors
+
+If `prepare_revision_context` fails:
+- Check if the section_id is valid
+- Verify the content is not empty
+- Check the report_type matches the run_id
+
+### Assembly Errors
+
+If `revise_performance_test_report` fails:
+- Verify revision files exist in the revisions folder
+- Check that at least one section is enabled
+- Review the warnings for specific issues
+
+---
+
+## Important Notes
+
+1. **Prerequisites:** The original report must exist before running the revision workflow. Run `create_performance_test_report` first.
+
+2. **Configuration:** Sections must be enabled in `report_config.yaml` before they can be revised. All sections are disabled by default.
+
+3. **Version Management:** Each call to `prepare_revision_context` creates a new version. Previous versions are preserved for comparison.
+
+4. **Backup Safety:** The original report and metadata are backed up before any modifications. Backups are not overwritten if they already exist.
+
+5. **Report Types:** Use `report_type="single_run"` for individual test reports and `report_type="comparison"` for comparison reports. The paths are different:
+   - single_run: `artifacts/{run_id}/reports/`
+   - comparison: `artifacts/comparisons/{comparison_id}/`
+
+6. **HITL Best Practice:** When iterating, provide specific feedback to improve subsequent versions. Include what worked well and what needs adjustment.
+
+7. **Confluence Publishing:** After finalizing the revised report, it can be published to Confluence using the standard Confluence workflow with the revised report file.

@@ -289,6 +289,7 @@ perfreport-mcp/tests/**
 !.cursor/rules/playwright-browser-automation.mdc
 !.cursor/rules/performance-testing-workflow.mdc
 !.cursor/rules/comparison-report-workflow.mdc
+!.cursor/rules/report-revision-workflow.mdc
 
 # Temp test files
 test_datadog.py
