@@ -6,7 +6,7 @@
 # Note: This configuration is separate from config.yaml which handles global settings
 # like file paths. This file is specifically for report appearance and content options.
 
-version: "1.0"
+version: "1.1"
 
 # Infrastructure table display options
 # =====================================
@@ -51,6 +51,91 @@ infrastructure_tables:
     # Options: "gb" (default) or "mb"
     unit:
       type: "mb"
+
+# Revisable sections configuration
+# =================================
+# These settings control which report sections are available for AI-assisted revision.
+# Each section can be enabled/disabled independently.
+# Default: All sections disabled (false). User must explicitly enable.
+#
+# When enabled, AI can generate improved verbiage for these sections by:
+# 1. Reviewing raw data from BlazeMeter, Datadog, and PerfAnalysis outputs
+# 2. Creating revised content in artifacts/{run_id}/reports/revisions/
+# 3. Assembling a new report with the AI-revised sections
+#
+# Workflow:
+# 1. Run create_performance_test_report() to generate first draft
+# 2. Enable desired sections below (set enabled: true)
+# 3. Run discover_revision_data() to get data manifest and provide additional context
+# 4. AI (Cursor) reads data files and generates revised content
+# 5. Run prepare_revision_context() to save each revision (supports versioning: v1, v2, etc.)
+# 6. Run revise_performance_test_report() to assemble final revised report
+#
+# Multiple revisions are supported (HITL - Human-In-The-Loop):
+# - Each call to prepare_revision_context creates a new version (_v1.md, _v2.md, etc.)
+# - User can review and request additional revisions with feedback
+# - revise_performance_test_report can use a specific version or the latest
+
+revisable_sections:
+  # Single-run report sections
+  # ==========================
+  single_run:
+    # Section 1.0 - Executive Summary
+    # Current placeholder: {{EXECUTIVE_SUMMARY}}
+    # AI placeholder: {{AI_EXECUTIVE_SUMMARY}}
+    executive_summary:
+      enabled: false
+      placeholder: "EXECUTIVE_SUMMARY"
+      ai_placeholder: "AI_EXECUTIVE_SUMMARY"
+      output_file: "AI_EXECUTIVE_SUMMARY"    # Version suffix added automatically (_v1.md, _v2.md)
+      description: "High-level test outcome summary with key metrics and findings"
+    
+    # Section 2.0 - Key Observations
+    # Current placeholder: {{KEY_OBSERVATIONS}}
+    # AI placeholder: {{AI_KEY_OBSERVATIONS}}
+    key_observations:
+      enabled: false
+      placeholder: "KEY_OBSERVATIONS"
+      ai_placeholder: "AI_KEY_OBSERVATIONS"
+      output_file: "AI_KEY_OBSERVATIONS"
+      description: "Bullet-point observations about test performance and issues"
+    
+    # Section 2.1 - Issues Observed
+    # Current placeholder: {{ISSUES_TABLE}}
+    # AI placeholder: {{AI_ISSUES_TABLE}}
+    issues_table:
+      enabled: false
+      placeholder: "ISSUES_TABLE"
+      ai_placeholder: "AI_ISSUES_TABLE"
+      output_file: "AI_ISSUES_TABLE"
+      description: "Table of issues and errors observed during test execution"
+
+  # Comparison report sections (stub for future implementation)
+  # ===========================================================
+  comparison:
+    # Section 1.0 - Executive Summary
+    executive_summary:
+      enabled: false
+      placeholder: "EXECUTIVE_SUMMARY"
+      ai_placeholder: "AI_EXECUTIVE_SUMMARY"
+      output_file: "AI_EXECUTIVE_SUMMARY"
+      description: "Comparison summary across multiple test runs"
+    
+    # Section 1.1 - Key Findings
+    key_findings:
+      enabled: false
+      placeholder: "KEY_FINDINGS_BULLETS"
+      ai_placeholder: "AI_KEY_FINDINGS_BULLETS"
+      output_file: "AI_KEY_FINDINGS_BULLETS"
+      description: "Key findings from comparing test runs"
+    
+    # Section 3.0 - Issues Summary
+    issues_summary:
+      enabled: false
+      placeholder: "ISSUES_SUMMARY"
+      ai_placeholder: "AI_ISSUES_SUMMARY"
+      output_file: "AI_ISSUES_SUMMARY"
+      description: "Summary of issues across compared runs"
 
 # Future configuration options (planned)
 # ======================================
