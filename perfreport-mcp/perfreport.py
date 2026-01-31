@@ -14,6 +14,7 @@ from services.template_manager import (
 from services.comparison_report_generator import generate_comparison_report
 from services.revision_data_discovery import discover_revision_data as get_revision_data
 from services.revision_context_manager import prepare_revision_context as save_revision_context
+from services.report_revision_generator import revise_performance_test_report as generate_revised_report
 
 
 mcp = FastMCP(name="perfreport")
@@ -117,20 +118,44 @@ async def prepare_revision_context(
 
 
 @mcp.tool
-async def revise_performance_test_report(run_id: str, feedback: str, ctx: Context = None) -> dict:
+async def revise_performance_test_report(
+    run_id: str,
+    report_type: str = "single_run",
+    revision_version: Optional[int] = None,
+    ctx: Context = None
+) -> dict:
     """
-    Revise a performance test report based on human or AI-agent feedback.
+    Assemble a revised performance test report using AI-generated content.
+    
+    This tool assembles the final revised report by:
+    1. Loading AI revision content for each enabled section
+    2. Backing up the original report and metadata
+    3. Replacing placeholders with AI-revised content
+    4. Saving the new revised report
+    
+    Prerequisites:
+    - Run create_performance_test_report() first to generate initial report
+    - Enable desired sections in report_config.yaml
+    - Run discover_revision_data() to get data context
+    - Run prepare_revision_context() for each section with AI content
+    
     Args:
-        run_id: Unique test run identifier.
-        feedback: Free text with revisions or questions.
+        run_id: Test run ID (for single_run) or comparison_id (for comparison).
+        report_type: "single_run" (default) or "comparison".
+        revision_version: Optional specific version of revisions to use (1, 2, 3...).
+                         If None, uses the latest version for each section.
         ctx: Workflow chaining context.
+    
     Returns:
-        dict with run_id, synopsis of changes, and path to the revised report, or error info.
+        dict containing:
+            - revised_report_path: Path to the new revised report
+            - backup_report_path: Path where original was backed up
+            - sections_revised: List of sections that were revised
+            - revision_versions_used: Dict mapping section_id to version used
+            - warnings: Any non-fatal warnings
+            - status: "success" or "error"
     """
-    return {
-        "error": "Report revision feature not yet implemented",
-        "run_id": run_id
-    }
+    return await generate_revised_report(run_id, report_type, revision_version)
 
 @mcp.tool
 async def create_chart(run_id: str, chart_id: str, env_name: Optional[str] = None, ctx: Context = None) -> dict:
