@@ -12,6 +12,7 @@ from services.template_manager import (
     get_template_details as get_template_info
 )
 from services.comparison_report_generator import generate_comparison_report
+from services.revision_data_discovery import discover_revision_data as get_revision_data
 
 
 mcp = FastMCP(name="perfreport")
@@ -48,6 +49,38 @@ async def create_comparison_report(run_id_list: list, template: str = None, form
     """
     return await generate_comparison_report(run_id_list, ctx, format, template)
     
+@mcp.tool
+async def discover_revision_data(
+    run_id: str,
+    report_type: str = "single_run",
+    additional_context: Optional[str] = None,
+    ctx: Context = None
+) -> dict:
+    """
+    Discover available data files for AI-assisted report revision.
+    
+    Scans artifacts folder structure to identify all output files from BlazeMeter,
+    Datadog, and PerfAnalysis MCPs that can be used for generating revised content.
+    
+    Args:
+        run_id: Test run ID (for single_run) or comparison_id (for comparison).
+        report_type: "single_run" (default) or "comparison".
+        additional_context: Optional user-provided context to incorporate into revisions
+                           (e.g., project name, purpose, feature/PBI details from ADO/JIRA).
+        ctx: Workflow chaining context.
+    
+    Returns:
+        dict containing:
+            - data_sources: Organized file paths by MCP source
+            - revisable_sections: Enabled sections from config
+            - revision_output_path: Path for saving revision files
+            - additional_context: User context passed through for AI
+            - existing_revisions: Current revision versions per section
+            - revision_guidelines: Instructions for AI on expected output
+    """
+    return await get_revision_data(run_id, report_type, additional_context)
+
+
 @mcp.tool
 async def revise_performance_test_report(run_id: str, feedback: str, ctx: Context = None) -> dict:
     """
