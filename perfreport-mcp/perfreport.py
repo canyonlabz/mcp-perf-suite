@@ -13,6 +13,7 @@ from services.template_manager import (
 )
 from services.comparison_report_generator import generate_comparison_report
 from services.revision_data_discovery import discover_revision_data as get_revision_data
+from services.revision_context_manager import prepare_revision_context as save_revision_context
 
 
 mcp = FastMCP(name="perfreport")
@@ -79,6 +80,40 @@ async def discover_revision_data(
             - revision_guidelines: Instructions for AI on expected output
     """
     return await get_revision_data(run_id, report_type, additional_context)
+
+
+@mcp.tool
+async def prepare_revision_context(
+    run_id: str,
+    section_id: str,
+    revised_content: str,
+    report_type: str = "single_run",
+    additional_context: Optional[str] = None,
+    ctx: Context = None
+) -> dict:
+    """
+    Save AI-generated revised content for a report section.
+    
+    Supports Human-In-The-Loop (HITL) workflows by automatically incrementing
+    version numbers. Call this for each section after generating revised content.
+    
+    Args:
+        run_id: Test run ID (for single_run) or comparison_id (for comparison).
+        section_id: Section identifier (e.g., "executive_summary", "key_observations").
+        revised_content: AI-generated markdown content for the section.
+        report_type: "single_run" (default) or "comparison".
+        additional_context: Optional context that was used during revision (for traceability).
+        ctx: Workflow chaining context.
+    
+    Returns:
+        dict containing:
+            - section_full_id: Composite identifier (e.g., "single_run.executive_summary")
+            - revision_number: Version number assigned (1, 2, 3...)
+            - revision_path: Full path to the saved revision file
+            - previous_versions: List of existing versions before this save
+            - status: "success" or "error"
+    """
+    return await save_revision_context(run_id, section_id, revised_content, report_type, additional_context)
 
 
 @mcp.tool
