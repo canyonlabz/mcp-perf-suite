@@ -151,20 +151,20 @@ The AI-assisted revision follows this workflow:
 ┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
 │  1. Discovery       │    │  2. AI Generation   │    │  3. Save Revisions  │
 │                     │    │                     │    │                     │
-│ discover_revision   │───▶│ Cursor reads data   │───▶│ prepare_revision    │
+│ discover_revision   │──▶│ AI reads data        │──▶│ prepare_revision    │
 │ _data()             │    │ & generates content │    │ _context()          │
 └─────────────────────┘    └─────────────────────┘    └─────────────────────┘
                                                                │
                                                                ▼
 ┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
 │  6. HITL Iteration  │    │  5. User Review     │    │  4. Assembly        │
-│     (Optional)      │◀───│                     │◀───│                     │
+│     (Optional)      │◀───│                     │◀──│                     │
 │                     │    │ Review revised      │    │ revise_performance  │
 │ Repeat steps 2-4    │    │ report              │    │ _test_report()      │
 └─────────────────────┘    └─────────────────────┘    └─────────────────────┘
 ```
 
-**Artifacts Structure:**
+**Example Artifacts Structure:**
 ```
 artifacts/{run_id}/
 ├── reports/
