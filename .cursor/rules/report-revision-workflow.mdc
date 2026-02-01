@@ -142,16 +142,50 @@ For each enabled section, generate improved content following these guidelines:
 
 #### Issues Table Guidelines
 - Create a markdown table of issues observed
-- Include columns: Issue Type, Severity, Count, Description
+- Include columns: Issue Type, Severity, Count/Impact, Affected Endpoint, Description
 - Sort by severity (Critical > High > Medium > Low)
 - Include error rates and specific error messages if available
 - Reference the affected APIs or endpoints
+- For HTTP errors, recommend reviewing JMeter logs for specific error messages
 
 **Writing Style:**
 - Professional tone suitable for leadership/stakeholders
 - Concise but informative
 - Include specific metrics and data points
 - Use markdown formatting (headers, bullet points, tables)
+
+**Technical Term Definitions:**
+
+When using technical or statistical terms that non-technical stakeholders may not understand, follow these guidelines:
+
+1. **For 1-2 technical terms:** Add a small footnote section immediately after the Key Observations section with brief definitions.
+
+   ```markdown
+   > **Terms:** *Coefficient of variation (CoV)* — A measure of response time consistency; values >1.0 indicate high variability and potentially unstable performance.
+   ```
+
+2. **For 3+ technical terms:** Add a "Glossary" section at the end of the report, just before "Report Generation Details". Use a table format with anchor links from the terms above.
+
+   ```markdown
+   ## 📚 Glossary
+   
+   | Term | Definition |
+   |------|------------|
+   | Coefficient of Variation (CoV) | A statistical measure of response time consistency. Values >1.0 indicate high variability. |
+   | P90/P95/P99 | Percentile response times — 90%, 95%, or 99% of requests completed within this time. |
+   | SLA | Service Level Agreement — The maximum acceptable response time for an endpoint. |
+   | Throughput | Number of requests processed per second (req/sec). |
+   ```
+
+**Common Terms Requiring Definition:**
+- Coefficient of Variation (CoV)
+- Percentiles (P90, P95, P99)
+- SLA (Service Level Agreement)
+- Throughput
+- Latency vs Response Time
+- Error Rate
+- mCPU (millicores)
+- Connection Pool
 
 ---
 
