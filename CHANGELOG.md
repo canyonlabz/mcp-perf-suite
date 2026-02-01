@@ -6,29 +6,226 @@ This document summarizes the enhancements and new features added to the MCP Perf
 
 ## Table of Contents
 
-- [0. Datadog MCP Dynamic Limits (January 23, 2026)](#0-datadog-mcp-dynamic-limits-january-23-2026)
-  - [0.1 Phase 1: Datadog MCP Changes](#01-phase-1-datadog-mcp-changes)
-  - [0.2 Phase 2: PerfAnalysis MCP Changes](#02-phase-2-perfanalysis-mcp-changes)
-  - [0.3 Phase 3: PerfReport MCP Changes](#03-phase-3-perfreport-mcp-changes)
-- [1. Report Enhancements (PerfReport MCP)](#1-report-enhancements-perfreport-mcp)
-  - [1.1 Human-Readable Test Duration](#11-human-readable-test-duration)
-  - [1.2 Cleaner Infrastructure Summaries](#12-cleaner-infrastructure-summaries)
-  - [1.3 Formatted Bottleneck Analysis](#13-formatted-bottleneck-analysis)
-  - [1.4 BlazeMeter Report Link](#14-blazemeter-report-link)
-  - [1.5 Cleaner Service/Host Names](#15-cleaner-servicehost-names)
-  - [1.6 Configurable Resource Allocation Display](#16-configurable-resource-allocation-display)
-- [2. New Charts Available](#2-new-charts-available)
-  - [2.1 CPU Utilization vs Virtual Users (Dual-Axis)](#21-cpu-utilization-vs-virtual-users-dual-axis)
-  - [2.2 Memory Utilization vs Virtual Users (Dual-Axis)](#22-memory-utilization-vs-virtual-users-dual-axis)
-  - [2.3 CPU Core Usage Over Time](#23-cpu-core-usage-over-time)
-  - [2.4 Memory Usage Over Time](#24-memory-usage-over-time)
-  - [2.5 CPU Core Comparison Bar Chart](#25-cpu-core-comparison-bar-chart)
-  - [2.6 Memory Usage Comparison Bar Chart](#26-memory-usage-comparison-bar-chart)
-- [3. Future Updates](#3-future-updates)
+- [AI-Assisted Report Revision (January 31, 2026)](#ai-assisted-report-revision-january-31-2026)
+  - [Overview](#overview)
+  - [New MCP Tools](#new-mcp-tools)
+  - [Configuration](#configuration)
+  - [Workflow](#workflow)
+  - [Files Created/Modified](#files-createdmodified)
+- [1. Datadog MCP Dynamic Limits (January 23, 2026)](#1-datadog-mcp-dynamic-limits-january-23-2026)
+  - [1.1 Phase 1: Datadog MCP Changes](#11-phase-1-datadog-mcp-changes)
+  - [1.2 Phase 2: PerfAnalysis MCP Changes](#12-phase-2-perfanalysis-mcp-changes)
+  - [1.3 Phase 3: PerfReport MCP Changes](#13-phase-3-perfreport-mcp-changes)
+- [2. Report Enhancements (PerfReport MCP)](#2-report-enhancements-perfreport-mcp)
+  - [2.1 Human-Readable Test Duration](#21-human-readable-test-duration)
+  - [2.2 Cleaner Infrastructure Summaries](#22-cleaner-infrastructure-summaries)
+  - [2.3 Formatted Bottleneck Analysis](#23-formatted-bottleneck-analysis)
+  - [2.4 BlazeMeter Report Link](#24-blazemeter-report-link)
+  - [2.5 Cleaner Service/Host Names](#25-cleaner-servicehost-names)
+  - [2.6 Configurable Resource Allocation Display](#26-configurable-resource-allocation-display)
+- [3. New Charts Available](#3-new-charts-available)
+  - [3.1 CPU Utilization vs Virtual Users (Dual-Axis)](#31-cpu-utilization-vs-virtual-users-dual-axis)
+  - [3.2 Memory Utilization vs Virtual Users (Dual-Axis)](#32-memory-utilization-vs-virtual-users-dual-axis)
+  - [3.3 CPU Core Usage Over Time](#33-cpu-core-usage-over-time)
+  - [3.4 Memory Usage Over Time](#34-memory-usage-over-time)
+  - [3.5 CPU Core Comparison Bar Chart](#35-cpu-core-comparison-bar-chart)
+  - [3.6 Memory Usage Comparison Bar Chart](#36-memory-usage-comparison-bar-chart)
+- [4. Future Updates](#4-future-updates)
 
 ---
 
-## 0. Datadog MCP Dynamic Limits (January 23, 2026)
+## AI-Assisted Report Revision (January 31, 2026)
+
+### Overview
+
+A new AI-assisted workflow enables intelligent revision of performance test reports using a Human-In-The-Loop (HITL) approach. This feature allows MCP clients like Cursor to analyze test data and generate improved content for specific report sections while preserving all original metrics, tables, and data.
+
+**Key Features:**
+- AI-generated Executive Summary, Key Observations, and Issues Table
+- Full preservation of original report data (BlazeMeter links, API tables, infrastructure metrics)
+- Version-controlled revisions with rollback capability
+- Support for iterative feedback and refinement
+- Configurable sections (enabled/disabled per section)
+
+---
+
+### New MCP Tools
+
+Three new tools were added to PerfReport MCP:
+
+| Tool | Purpose |
+|------|---------|
+| `discover_revision_data` | Gathers all available data files and provides AI with context for generating revisions |
+| `prepare_revision_context` | Saves AI-generated content to versioned markdown files for HITL iteration |
+| `revise_performance_test_report` | Assembles the final revised report using AI content + original data |
+
+#### discover_revision_data
+
+```python
+discover_revision_data(
+    run_id: str,                    # Test run ID
+    report_type: str = "single_run", # "single_run" or "comparison"
+    additional_context: str = None   # Optional project context
+) -> dict
+```
+
+**Returns:**
+- `data_sources`: Organized file paths by MCP source (blazemeter, datadog, analysis, reports)
+- `revisable_sections`: All sections with enabled/disabled status
+- `existing_revisions`: Any previous revision versions per section
+- `revision_guidelines`: Instructions for generating content
+
+#### prepare_revision_context
+
+```python
+prepare_revision_context(
+    run_id: str,
+    section_id: str,                # "executive_summary", "key_observations", "issues_table"
+    revised_content: str,           # AI-generated markdown content
+    report_type: str = "single_run",
+    additional_context: str = None  # For traceability
+) -> dict
+```
+
+**Returns:**
+- `section_full_id`: Composite ID (e.g., "single_run.executive_summary")
+- `revision_number`: Auto-incremented version (1, 2, 3...)
+- `revision_path`: Full path to saved file
+
+#### revise_performance_test_report
+
+```python
+revise_performance_test_report(
+    run_id: str,
+    report_type: str = "single_run",
+    revision_version: int = None    # Optional specific version, defaults to latest
+) -> dict
+```
+
+**Returns:**
+- `revised_report_path`: Path to new revised report
+- `backup_report_path`: Path to original (backed up)
+- `sections_revised`: List of sections updated
+- `ai_template_path`: Path to AI-enhanced template created
+
+---
+
+### Configuration
+
+New `revisable_sections` block added to `report_config.yaml`:
+
+```yaml
+revisable_sections:
+  single_run:
+    executive_summary:
+      enabled: false  # Set to true to enable revision
+      placeholder: "EXECUTIVE_SUMMARY"
+      ai_placeholder: "AI_EXECUTIVE_SUMMARY"
+      output_file: "AI_EXECUTIVE_SUMMARY"
+      description: "High-level summary of test results"
+    key_observations:
+      enabled: false
+      placeholder: "KEY_OBSERVATIONS"
+      ai_placeholder: "AI_KEY_OBSERVATIONS"
+      output_file: "AI_KEY_OBSERVATIONS"
+      description: "Key findings and observations"
+    issues_table:
+      enabled: false
+      placeholder: "ISSUES_TABLE"
+      ai_placeholder: "AI_ISSUES_TABLE"
+      output_file: "AI_ISSUES_TABLE"
+      description: "Table of issues observed during testing"
+  comparison:
+    # Similar structure for comparison reports
+```
+
+**Default Behavior:** All sections are disabled by default. Users must explicitly enable sections for revision.
+
+---
+
+### Workflow
+
+The AI-assisted revision follows this workflow:
+
+```
+┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
+│  1. Discovery       │    │  2. AI Generation   │    │  3. Save Revisions  │
+│                     │    │                     │    │                     │
+│ discover_revision   │───▶│ Cursor reads data   │───▶│ prepare_revision    │
+│ _data()             │    │ & generates content │    │ _context()          │
+└─────────────────────┘    └─────────────────────┘    └─────────────────────┘
+                                                               │
+                                                               ▼
+┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
+│  6. HITL Iteration  │    │  5. User Review     │    │  4. Assembly        │
+│     (Optional)      │◀───│                     │◀───│                     │
+│                     │    │ Review revised      │    │ revise_performance  │
+│ Repeat steps 2-4    │    │ report              │    │ _test_report()      │
+└─────────────────────┘    └─────────────────────┘    └─────────────────────┘
+```
+
+**Artifacts Structure:**
+```
+artifacts/{run_id}/
+├── reports/
+│   ├── performance_report_{run_id}.md          # Current report
+│   ├── performance_report_{run_id}_original.md # Backed up original
+│   ├── performance_report_{run_id}_revised.md  # AI-revised report
+│   ├── report_metadata_{run_id}.json           # Updated metadata
+│   ├── report_metadata_{run_id}_original.json  # Backed up metadata
+│   └── revisions/                              # AI content versions
+│       ├── AI_EXECUTIVE_SUMMARY_v1.md
+│       ├── AI_EXECUTIVE_SUMMARY_v2.md          # HITL iteration
+│       ├── AI_KEY_OBSERVATIONS_v1.md
+│       └── AI_ISSUES_TABLE_v1.md
+```
+
+**AI Template Creation:**
+- Creates `ai_<template_name>.md` in templates folder
+- Replaces original placeholders with AI placeholders for enabled sections
+- Reused for future revisions of reports using the same template
+
+---
+
+### Files Created/Modified
+
+#### New Files
+
+| File | Description |
+|------|-------------|
+| `perfreport-mcp/services/revision_data_discovery.py` | Discovery tool implementation |
+| `perfreport-mcp/services/revision_context_manager.py` | Save/load revision content with versioning |
+| `perfreport-mcp/services/report_revision_generator.py` | Report assembly with AI content |
+| `perfreport-mcp/utils/revision_utils.py` | Path helpers, validation, version management |
+| `.cursor/rules/report-revision-workflow.mdc` | Cursor Rules for orchestrating the workflow |
+| `docs/reports/TODO-project-specific-slas.md` | Enhancement proposal for project-level SLAs |
+| `docs/reports/TODO-report-data-loader-refactoring.md` | Enhancement proposal for shared data loader |
+
+#### Modified Files
+
+| File | Changes |
+|------|---------|
+| `perfreport-mcp/perfreport.py` | Registered 3 new MCP tools |
+| `perfreport-mcp/utils/config.py` | Added `load_revisable_sections_config()`, `get_section_config()` |
+| `perfreport-mcp/report_config.example.yaml` | Added `revisable_sections` configuration block |
+
+---
+
+### Technical Notes
+
+1. **Data Preservation:** The revision generator reuses `_build_report_context()` from `report_generator.py` to ensure all original data (tables, links, metrics) is populated correctly.
+
+2. **Version Control:** Each call to `prepare_revision_context()` creates a new version file (v1, v2, v3...). Previous versions are preserved for comparison.
+
+3. **Backup Safety:** Original report and metadata are backed up with `_original` suffix before any modifications. Backups are not overwritten.
+
+4. **Template Reuse:** AI templates are created once and reused for future revisions of reports using the same base template.
+
+5. **Glossary Support:** Cursor Rules include guidelines for adding technical term definitions (footnotes for 1-2 terms, glossary table for 3+).
+
+---
+
+## 1. Datadog MCP Dynamic Limits (January 23, 2026)
 
 **Summary:** CPU and Memory resource limits are now queried dynamically from Datadog rather than relying on static configurations in `environments.json`. This ensures accurate % utilization calculations that reflect actual Kubernetes resource configurations.
 
@@ -48,7 +245,7 @@ Previously, the Datadog MCP calculated % CPU/Memory utilization by:
 
 ---
 
-### 0.1 Phase 1: Datadog MCP Changes
+### 1.1 Phase 1: Datadog MCP Changes
 
 **File:** `datadog-mcp/services/datadog_api.py`
 
@@ -110,7 +307,7 @@ When limits not defined:
 
 ---
 
-### 0.2 Phase 2: PerfAnalysis MCP Changes
+### 1.2 Phase 2: PerfAnalysis MCP Changes
 
 **File:** `perfanalysis-mcp/services/apm_analyzer.py`
 
@@ -141,7 +338,7 @@ JSON output now includes status flags:
 
 ---
 
-### 0.3 Phase 3: PerfReport MCP Changes
+### 1.3 Phase 3: PerfReport MCP Changes
 
 **File:** `perfreport-mcp/services/report_generator.py`
 
@@ -191,9 +388,9 @@ JSON output now includes status flags:
 
 ---
 
-## 1. Report Enhancements (PerfReport MCP)
+## 2. Report Enhancements (PerfReport MCP)
 
-### 1.1 Human-Readable Test Duration
+### 2.1 Human-Readable Test Duration
 
 **What Changed:** Test duration is now displayed in a human-friendly format instead of raw seconds.
 
@@ -219,7 +416,7 @@ JSON output now includes status flags:
 
 ---
 
-### 1.2 Cleaner Infrastructure Summaries
+### 2.2 Cleaner Infrastructure Summaries
 
 **What Changed:** Removed auto-generated headers and footers from infrastructure and correlation analysis sections that were redundant in the final report.
 
@@ -244,7 +441,7 @@ The infrastructure analysis shows...
 
 ---
 
-### 1.3 Formatted Bottleneck Analysis
+### 2.3 Formatted Bottleneck Analysis
 
 **What Changed:** Bottleneck insights are now displayed as properly formatted markdown bullet points instead of raw list notation.
 
@@ -266,7 +463,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 1.4 BlazeMeter Report Link
+### 2.4 BlazeMeter Report Link
 
 **What Changed:** Performance reports now include a direct link to the BlazeMeter public report for the test run.
 
@@ -288,7 +485,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 1.5 Cleaner Service/Host Names
+### 2.5 Cleaner Service/Host Names
 
 **What Changed:** Service and host names in infrastructure tables are now displayed without environment prefixes and Datadog query wildcards.
 
@@ -315,7 +512,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 1.6 Configurable Resource Allocation Display
+### 2.6 Configurable Resource Allocation Display
 
 **What Changed:** A new `report_config.yaml` file allows you to show or hide resource allocation columns in infrastructure tables.
 
@@ -356,9 +553,9 @@ infrastructure_tables:
 
 ---
 
-## 2. New Charts Available
+## 3. New Charts Available
 
-### 2.1 CPU Utilization vs Virtual Users (Dual-Axis)
+### 3.1 CPU Utilization vs Virtual Users (Dual-Axis)
 
 **Chart ID:** `CPU_UTILIZATION_VUSERS_DUALAXIS`
 
@@ -391,7 +588,7 @@ infrastructure_tables:
 
 ---
 
-### 2.2 Memory Utilization vs Virtual Users (Dual-Axis)
+### 3.2 Memory Utilization vs Virtual Users (Dual-Axis)
 
 **Chart ID:** `MEMORY_UTILIZATION_VUSERS_DUALAXIS`
 
@@ -406,7 +603,7 @@ infrastructure_tables:
 
 ---
 
-### 2.3 CPU Core Usage Over Time
+### 3.3 CPU Core Usage Over Time
 
 **Chart ID:** `CPU_CORES_LINE`
 
@@ -431,7 +628,7 @@ unit:
 
 ---
 
-### 2.4 Memory Usage Over Time
+### 3.4 Memory Usage Over Time
 
 **Chart ID:** `MEMORY_USAGE_LINE`
 
@@ -456,7 +653,7 @@ unit:
 
 ---
 
-### 2.5 CPU Core Comparison Bar Chart
+### 3.5 CPU Core Comparison Bar Chart
 
 **Chart ID:** `CPU_CORE_COMPARISON_BAR`
 
@@ -493,7 +690,7 @@ unit:
 
 ---
 
-### 2.6 Memory Usage Comparison Bar Chart
+### 3.6 Memory Usage Comparison Bar Chart
 
 **Chart ID:** `MEMORY_USAGE_COMPARISON_BAR`
 
@@ -530,7 +727,7 @@ unit:
 
 ---
 
-## 3. Future Updates
+## 4. Future Updates
 
 *This section will be updated as new enhancements are released.*
 
@@ -545,15 +742,24 @@ unit:
 | File | Description |
 |------|-------------|
 | `perfreport-mcp/utils/report_utils.py` | Shared utility functions for report formatting |
+| `perfreport-mcp/utils/revision_utils.py` | Path helpers, validation, version management for revisions |
 | `perfreport-mcp/report_config.yaml` | Report display configuration |
 | `perfreport-mcp/report_config.example.yaml` | Documented configuration template |
 | `perfreport-mcp/services/charts/comparison_bar_charts.py` | Horizontal bar chart generators |
+| `perfreport-mcp/services/revision_data_discovery.py` | Discovery tool for AI revision workflow |
+| `perfreport-mcp/services/revision_context_manager.py` | Save/load revision content with versioning |
+| `perfreport-mcp/services/report_revision_generator.py` | Report assembly with AI content |
+| `.cursor/rules/report-revision-workflow.mdc` | Cursor Rules for AI-assisted revision workflow |
+| `docs/reports/TODO-project-specific-slas.md` | Enhancement proposal for project-level SLAs |
+| `docs/reports/TODO-report-data-loader-refactoring.md` | Enhancement proposal for shared data loader |
 
 ### Files Modified
 | File | Changes |
 |------|---------|
 | `datadog-mcp/services/datadog_api.py` | Dynamic limits queries, combined usage+limits requests, utilization calculation with -1 marker, CSV consistency fix |
 | `perfanalysis-mcp/services/apm_analyzer.py` | Read limits from CSV, filter -1 values, limits_status tracking, None handling for undefined limits |
+| `perfreport-mcp/perfreport.py` | Registered 3 new MCP tools for AI-assisted revision |
+| `perfreport-mcp/utils/config.py` | Added `load_revisable_sections_config()`, `get_section_config()` functions |
 | `perfreport-mcp/services/report_generator.py` | Duration formatting, header stripping, bottleneck formatting, BlazeMeter link, service name cleanup, config-driven allocation columns, N/A* footnotes for undefined limits |
 | `perfreport-mcp/services/comparison_report_generator.py` | Duration formatting integration |
 | `perfreport-mcp/services/chart_generator.py` | New chart registrations and data source handlers |
@@ -565,4 +771,4 @@ unit:
 
 ---
 
-*Last Updated: January 23, 2026*
+*Last Updated: January 31, 2026*
