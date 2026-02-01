@@ -245,10 +245,10 @@ charts:
     x_axis:
       label: "Test Run"
     y_axis:
-      label: "CPU Usage"
+      label: "CPU Usage (Millicores)"
     # Unit configuration: "cores" (default) or "millicores"
     unit:
-      type: "cores"  # Options: "cores", "millicores"
+      type: "millicores"  # Options: "cores", "millicores"
     # Colors: Uses 'comparison' palette from chart_colors.yaml (navy-blue gradient)
     # To override, uncomment and specify: colors: ["primary", "secondary", ...]
     show_grid: true
@@ -263,10 +263,10 @@ charts:
     x_axis:
       label: "Test Run"
     y_axis:
-      label: "Memory Usage"
+      label: "Memory Usage (MB)"
     # Unit configuration: "gb" (default) or "mb"
     unit:
-      type: "gb"  # Options: "gb", "mb"
+      type: "mb"  # Options: "gb", "mb"
     # Colors: Uses 'comparison' palette from chart_colors.yaml (navy-blue gradient)
     # To override, uncomment and specify: colors: ["warning", "info", "primary", "secondary", "error"]
     show_grid: true

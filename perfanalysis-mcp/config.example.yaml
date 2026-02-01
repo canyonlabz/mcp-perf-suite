@@ -1,3 +1,10 @@
+server:
+  name: "perfanalysis-mcp"
+  version: "0.7.0-alpha.1"
+  description: "Performance Analysis MCP Server for BlazeMeter and Datadog correlation"
+  build:
+    date: "2026-01-23"
+
 general:
   enable_debug: False   # Enable/disable debug mode
   enable_logging: True  # Enable/disable logging
@@ -9,13 +16,6 @@ logging:
 
 artifacts:
   artifacts_path: "/path_to_root/mcp-perf-suite/artifacts"  # Path for artifacts
-
-server:
-  name: "perfanalysis-mcp"
-  version: "0.7.0-alpha.1"
-  description: "Performance Analysis MCP Server for BlazeMeter and Datadog correlation"
-  build:
-    date: "2026-01-23"
 
 # Performance Analysis Settings  
 perf_analysis:
@@ -30,15 +30,6 @@ perf_analysis:
   correlation_threshold: 0.3
   min_samples_required: 100
   correlation_granularity_window: 60  # seconds (1 minute)
-
-  # Default resource allocations when datadog-mcp/environments.json is incomplete
-  default_resources:
-    host:
-      cpus: 4           # Default host/VM CPUs
-      memory_gb: 16     # Default host/VM memory in GB
-    kubernetes:
-      cpus: 2.0         # Default K8s container CPU cores
-      memory_gb: 8      # Default K8s container memory in GB
   
   # Infrastructure utilization thresholds
   resource_thresholds:
