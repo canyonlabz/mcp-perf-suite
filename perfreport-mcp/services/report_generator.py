@@ -28,6 +28,7 @@ from utils.report_utils import (
     strip_report_headers_footers,
     strip_service_names_in_markdown
 )
+from utils.data_loader_utils import load_report_data
 
 # Load configuration globally
 CONFIG = load_config()
@@ -43,6 +44,7 @@ SERVER_CONFIG = CONFIG.get('server', {})
 MCP_VERSION = SERVER_CONFIG.get('version', 'unknown')
 MCP_BUILD_DATE = SERVER_CONFIG.get('build', {}).get('date', 'unknown')
 
+
 # -----------------------------------------------
 # Main Performance Report functions
 # ----------------------------------------------- 
@@ -54,137 +56,56 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
         run_id: Test run identifier
         ctx: Workflow context for chaining
         format: Output format ('md', 'pdf', 'docx')
-        template: Optional template name
+        template: Optional template name. If not provided, defaults to
+                  'default_report_template.md'.
         
     Returns:
         Dict with metadata and paths
+        
+    Note:
+        When regenerating an existing report, check the 'template_used' field
+        in the report metadata JSON file (report_metadata_{run_id}.json) to
+        ensure template consistency. Pass that template name explicitly to
+        maintain the same report format.
+        
+        Example:
+            # Check existing metadata first
+            metadata = load_json(f"artifacts/{run_id}/reports/report_metadata_{run_id}.json")
+            template_name = metadata.get("template_used", "default_report_template.md")
+            
+        TODO: Auto-detect template from existing metadata when not specified.
+              See: docs/todo/TODO-report-template-auto-detection.md
     """
     try:
         generated_timestamp = datetime.now().isoformat()
-        warnings = []
-        missing_sections = []
         
-        # Validate run_id path
-        run_path = ARTIFACTS_PATH / run_id
-        analysis_path = run_path / "analysis"
+        # Load all report data using shared helper
+        data = await load_report_data(run_id)
         
-        if not run_path.exists():
-            await ctx.error(f"Run path not found: {run_path}")
+        if data["status"] == "error":
+            await ctx.error(data["error"])
             return {
                 "run_id": run_id,
-                "error": f"Run path not found: {run_path}",
+                "error": data["error"],
                 "generated_timestamp": generated_timestamp
             }
         
-        if not analysis_path.exists():
-            await ctx.error(f"Analysis path not found: {analysis_path}")
-            return {
-                "run_id": run_id,
-                "error": f"Analysis path not found: {analysis_path}",
-                "generated_timestamp": generated_timestamp
-            }
-        
-        # Load analysis files
-        source_files = {}
-        perf_data = await _load_json_safe(
-            analysis_path / "performance_analysis.json",
-            "performance_analysis",
-            source_files,
-            warnings,
-            missing_sections
-        )
-        
-        infra_data = await _load_json_safe(
-            analysis_path / "infrastructure_analysis.json",
-            "infrastructure_analysis",
-            source_files,
-            warnings,
-            missing_sections
-        )
-        
-        corr_data = await _load_json_safe(
-            analysis_path / "correlation_analysis.json",
-            "correlation_analysis",
-            source_files,
-            warnings,
-            missing_sections
-        )
-        # Determine environment type ('host' or 'kubernetes') from correlation_analysis.json only.
-        environment_type = None
-        if corr_data:
-            env_raw = corr_data.get("environment_type")
-            if isinstance(env_raw, str):
-                env_norm = env_raw.strip().lower()
-                if env_norm in {"host", "kubernetes"}:
-                    environment_type = env_norm
-
-        if environment_type not in {"host", "kubernetes"}:
-            msg = (
-                "Environment type not detected in correlation_analysis.json. "
-                "Expected 'host' or 'kubernetes' in field 'environment_type'."
-            )
-            await ctx.error(msg)
-            return {
-                "run_id": run_id,
-                "error": msg,
-                "generated_timestamp": generated_timestamp
-            }
-
-        # Load markdown summaries (optional)
-        perf_summary_md = await _load_text_safe(
-            analysis_path / "performance_summary.md",
-            "performance_summary_md",
-            source_files,
-            warnings
-        )
-        
-        infra_summary_md = await _load_text_safe(
-            analysis_path / "infrastructure_summary.md",
-            "infrastructure_summary_md",
-            source_files,
-            warnings
-        )
-        
-        corr_summary_md = await _load_text_safe(
-            analysis_path / "correlation_analysis.md",
-            "correlation_analysis_md",
-            source_files,
-            warnings
-        )
-        
-        # Load log analysis data (optional)
-        log_data = await _load_json_safe(
-            analysis_path / "log_analysis.json",
-            "log_analysis",
-            source_files,
-            warnings,
-            missing_sections
-        )
-        
-        # Load APM trace data from datadog folder (optional)
-        datadog_path = run_path / "datadog"
-        apm_trace_summary = await _load_apm_trace_summary(datadog_path, source_files, warnings)
-        
-        # Load BlazeMeter test configuration (optional - contains max_virtual_users, actual test dates)
-        blazemeter_path = run_path / "blazemeter"
-        blazemeter_config = await _load_json_safe(
-            blazemeter_path / "test_config.json",
-            "blazemeter_test_config",
-            source_files,
-            warnings,
-            []  # Don't add to missing_sections - this is optional
-        )
-        
-        # Load BlazeMeter public report URL (optional)
-        # TODO: In the future, BlazeMeter MCP should inject public_url directly into test_config.json
-        # before it's written. For now, we check for a separate public_report.json file.
-        blazemeter_public_report = await _load_json_safe(
-            blazemeter_path / "public_report.json",
-            "blazemeter_public_report",
-            source_files,
-            warnings,
-            []  # Don't add to missing_sections - this is optional
-        )
+        # Extract data from loader response
+        run_path = data["run_path"]
+        environment_type = data["environment_type"]
+        perf_data = data["perf_data"]
+        infra_data = data["infra_data"]
+        corr_data = data["corr_data"]
+        perf_summary_md = data["perf_summary_md"]
+        infra_summary_md = data["infra_summary_md"]
+        corr_summary_md = data["corr_summary_md"]
+        log_data = data["log_data"]
+        apm_trace_summary = data["apm_trace_summary"]
+        load_test_config = data["load_test_config"]
+        load_test_public_report = data["load_test_public_report"]
+        source_files = data["source_files"]
+        warnings = data["warnings"]
+        missing_sections = data["missing_sections"]
         
         # Select template
         template_name = template or "default_report_template.md"
@@ -213,18 +134,19 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             corr_summary_md,
             log_data,
             apm_trace_summary,
-            blazemeter_config
+            load_test_config
         )
         
-        # Add BlazeMeter public report link to context
-        # This is loaded from artifacts/{run_id}/blazemeter/public_report.json if available
-        if blazemeter_public_report and blazemeter_public_report.get("public_url"):
-            public_url = blazemeter_public_report.get("public_url")
+        # Add load test public report link to context
+        # TODO: Currently uses BlazeMeter-specific key. Future schema-driven architecture
+        # will abstract this to support multiple load testing tools.
+        if load_test_public_report and load_test_public_report.get("public_url"):
+            public_url = load_test_public_report.get("public_url")
             context["BLAZEMETER_REPORT_LINK"] = f"[View Report]({public_url})"
         else:
             # Fallback: check if URL is in test_config.json (future enhancement)
-            if blazemeter_config and blazemeter_config.get("public_url"):
-                public_url = blazemeter_config.get("public_url")
+            if load_test_config and load_test_config.get("public_url"):
+                public_url = load_test_config.get("public_url")
                 context["BLAZEMETER_REPORT_LINK"] = f"[View Report]({public_url})"
             else:
                 context["BLAZEMETER_REPORT_LINK"] = "Not available"
@@ -425,20 +347,22 @@ def _build_report_context(
     corr_md: Optional[str],
     log_data: Optional[Dict] = None,
     apm_trace_summary: Optional[Dict] = None,
-    blazemeter_config: Optional[Dict] = None
+    load_test_config: Optional[Dict] = None
 ) -> Dict:
     """Build context dictionary for template rendering"""
     
-    # Extract BlazeMeter test configuration (max_virtual_users, actual test dates/times)
+    # Extract load test configuration (max_virtual_users, actual test dates/times)
+    # TODO: Currently assumes BlazeMeter JSON structure. Future schema-driven architecture
+    # will support multiple load testing tools with a unified config schema.
     max_virtual_users = "N/A"
     test_date = "N/A"
     start_time_full = "N/A"
     end_time_full = "N/A"
-    if blazemeter_config:
-        max_virtual_users = blazemeter_config.get("max_virtual_users", "N/A")
+    if load_test_config:
+        max_virtual_users = load_test_config.get("max_virtual_users", "N/A")
         # Get full start/end times (format: "2025-12-16 07:03:53 UTC")
-        start_time_full = blazemeter_config.get("start_time", "N/A")
-        end_time_full = blazemeter_config.get("end_time", "N/A")
+        start_time_full = load_test_config.get("start_time", "N/A")
+        end_time_full = load_test_config.get("end_time", "N/A")
         # Extract just the date portion (YYYY-MM-DD) for test_date
         if start_time_full and start_time_full != "N/A":
             test_date = start_time_full.split(" ")[0] if " " in start_time_full else start_time_full[:10]
@@ -1611,69 +1535,6 @@ def _build_apm_trace_analysis(apm_summary: Optional[Dict]) -> str:
             lines.append(f"| {err.get('error_type', 'Unknown')} | {err.get('count', 0)} |")
     
     return "\n".join(lines)
-
-
-async def _load_apm_trace_summary(datadog_path: Path, source_files: Dict, warnings: List) -> Dict:
-    """Load and summarize APM trace data from datadog folder"""
-    import csv
-    from collections import Counter
-    
-    result = {"available": False}
-    
-    if not datadog_path.exists():
-        return result
-    
-    # Find APM trace files
-    apm_files = list(datadog_path.glob("apm_traces_*.csv"))
-    if not apm_files:
-        return result
-    
-    result["available"] = True
-    result["file_count"] = len(apm_files)
-    
-    total_spans = 0
-    http_status_counts = Counter()
-    service_error_counts = Counter()
-    error_type_counts = Counter()
-    
-    for apm_file in apm_files:
-        try:
-            source_files[f"apm_trace_{apm_file.name}"] = str(apm_file)
-            with open(apm_file, 'r', encoding='utf-8', errors='replace') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    total_spans += 1
-                    
-                    # Count HTTP status codes
-                    http_status = row.get("http_status_code", "")
-                    if http_status:
-                        http_status_counts[http_status] += 1
-                    
-                    # Count services with errors
-                    service = row.get("service", "unknown")
-                    if row.get("error") == "1" or row.get("status") == "error":
-                        service_error_counts[service] += 1
-                    
-                    # Count error types
-                    error_type = row.get("error_type", "")
-                    if error_type:
-                        error_type_counts[error_type] += 1
-                        
-        except Exception as e:
-            warnings.append(f"Failed to parse APM file {apm_file.name}: {str(e)}")
-    
-    result["total_error_spans"] = total_spans
-    result["http_status_counts"] = dict(http_status_counts)
-    result["top_services"] = [
-        {"service": svc, "count": cnt} 
-        for svc, cnt in service_error_counts.most_common(10)
-    ]
-    result["top_error_types"] = [
-        {"error_type": err, "count": cnt}
-        for err, cnt in error_type_counts.most_common(10)
-    ]
-    
-    return result
 
 
 def _parse_numeric(value, default=0.0) -> float:

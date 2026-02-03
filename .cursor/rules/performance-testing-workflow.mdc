@@ -186,7 +186,10 @@ For each test run:
    Do not proceed until the PerfAnalysis workflow has completed successfully.
 1. Use tool `create_performance_test_report` with the run_id.
    - Default format is Markdown ("md"), but can also generate PDF ("pdf") or Word ("docx") formats.
-   - Optional: Specify a template name if a custom template should be used.
+   - **Template Selection:** 
+     - If regenerating an existing report, first check `artifacts/{run_id}/reports/report_metadata_{run_id}.json` for the `template_used` field and pass that value as the `template` parameter to maintain consistency.
+     - For new reports, optionally specify a template name if a custom template should be used.
+     - If no template is specified, defaults to `default_report_template.md`.
    - Requires: `artifacts/{run_id}/analysis/performance_analysis.json` and other analysis JSON files from PerfAnalysis workflow.
 2. Use tool `list_chart_types` to see all available chart options.
    - This helps identify the correct chart_id values for chart creation.

@@ -36,17 +36,15 @@ from utils.revision_utils import (
     get_latest_revision_version,
 )
 from utils.file_utils import (
-    _load_json_safe,
-    _load_text_safe,
     _load_text_file,
     _save_text_file,
 )
+from utils.data_loader_utils import load_report_data
 from services.revision_context_manager import get_revision_content
 # Import the context builder from report_generator
 from services.report_generator import (
     _build_report_context,
     _render_template,
-    _load_apm_trace_summary,
 )
 
 
@@ -84,6 +82,12 @@ async def revise_performance_test_report(
     6. Overrides AI placeholders with AI-generated content from revision files
     7. Renders the AI template with full context
     8. Backs up original report and saves the revised version
+    
+    Note:
+        This function automatically reads the 'template_used' field from the
+        existing report metadata JSON (report_metadata_{run_id}.json) to ensure
+        template consistency with the original report. The AI template variant
+        (ai_<template_name>) is created or reused based on this value.
     
     Args:
         run_id: Test run ID (for single_run) or comparison_id (for comparison).
@@ -269,88 +273,32 @@ async def revise_performance_test_report(
                 warnings=warnings
             )
         
-        # Step 5: Load ALL source data files (same as create_performance_test_report)
-        source_files = {}
+        # Step 5: Load ALL source data files using shared helper
+        data = await load_report_data(run_id)
         
-        # Load analysis files
-        perf_data = await _load_json_safe(
-            analysis_path / "performance_analysis.json",
-            "performance_analysis",
-            source_files, warnings, missing_sections
-        )
-        
-        infra_data = await _load_json_safe(
-            analysis_path / "infrastructure_analysis.json",
-            "infrastructure_analysis",
-            source_files, warnings, missing_sections
-        )
-        
-        corr_data = await _load_json_safe(
-            analysis_path / "correlation_analysis.json",
-            "correlation_analysis",
-            source_files, warnings, missing_sections
-        )
-        
-        # Determine environment type from correlation_analysis.json
-        environment_type = None
-        if corr_data:
-            env_raw = corr_data.get("environment_type")
-            if isinstance(env_raw, str):
-                env_norm = env_raw.strip().lower()
-                if env_norm in {"host", "kubernetes"}:
-                    environment_type = env_norm
-        
-        if environment_type not in {"host", "kubernetes"}:
+        if data["status"] == "error":
             return _error_response(
                 run_id, report_type,
-                "Environment type not detected in correlation_analysis.json. "
-                "Expected 'host' or 'kubernetes' in field 'environment_type'."
+                data["error"],
+                warnings=warnings
             )
         
-        # Load markdown summaries (optional)
-        perf_summary_md = await _load_text_safe(
-            analysis_path / "performance_summary.md",
-            "performance_summary_md",
-            source_files, warnings
-        )
+        # Extract data from loader response
+        environment_type = data["environment_type"]
+        perf_data = data["perf_data"]
+        infra_data = data["infra_data"]
+        corr_data = data["corr_data"]
+        perf_summary_md = data["perf_summary_md"]
+        infra_summary_md = data["infra_summary_md"]
+        corr_summary_md = data["corr_summary_md"]
+        log_data = data["log_data"]
+        apm_trace_summary = data["apm_trace_summary"]
+        load_test_config = data["load_test_config"]
+        load_test_public_report = data["load_test_public_report"]
         
-        infra_summary_md = await _load_text_safe(
-            analysis_path / "infrastructure_summary.md",
-            "infrastructure_summary_md",
-            source_files, warnings
-        )
-        
-        corr_summary_md = await _load_text_safe(
-            analysis_path / "correlation_analysis.md",
-            "correlation_analysis_md",
-            source_files, warnings
-        )
-        
-        # Load log analysis data (optional)
-        log_data = await _load_json_safe(
-            analysis_path / "log_analysis.json",
-            "log_analysis",
-            source_files, warnings, missing_sections
-        )
-        
-        # Load APM trace data from datadog folder (optional)
-        datadog_path = run_path / "datadog"
-        apm_trace_summary = await _load_apm_trace_summary(datadog_path, source_files, warnings)
-        
-        # Load BlazeMeter test configuration (optional)
-        blazemeter_path = run_path / "blazemeter"
-        blazemeter_config = await _load_json_safe(
-            blazemeter_path / "test_config.json",
-            "blazemeter_test_config",
-            source_files, warnings, []
-        )
-        
-        # Load BlazeMeter public report URL (optional)
-        blazemeter_public_report = await _load_json_safe(
-            blazemeter_path / "public_report.json",
-            "blazemeter_public_report",
-            source_files, warnings, []
-        )
+        # Merge warnings from data loader
+        warnings.extend(data["warnings"])
+        missing_sections.extend(data["missing_sections"])
         
         # Step 6: Build full context using report_generator's _build_report_context
         full_context = _build_report_context(
@@ -365,15 +313,17 @@ async def revise_performance_test_report(
             corr_summary_md,
             log_data,
             apm_trace_summary,
-            blazemeter_config
+            load_test_config
         )
         
-        # Add BlazeMeter public report link
-        if blazemeter_public_report and blazemeter_public_report.get("public_url"):
-            public_url = blazemeter_public_report.get("public_url")
+        # Add load test public report link
+        # TODO: Currently uses BlazeMeter-specific template key. Future schema-driven
+        # architecture will abstract this to support multiple load testing tools.
+        if load_test_public_report and load_test_public_report.get("public_url"):
+            public_url = load_test_public_report.get("public_url")
             full_context["BLAZEMETER_REPORT_LINK"] = f"[View Report]({public_url})"
-        elif blazemeter_config and blazemeter_config.get("public_url"):
-            public_url = blazemeter_config.get("public_url")
+        elif load_test_config and load_test_config.get("public_url"):
+            public_url = load_test_config.get("public_url")
             full_context["BLAZEMETER_REPORT_LINK"] = f"[View Report]({public_url})"
         else:
             full_context["BLAZEMETER_REPORT_LINK"] = "Not available"

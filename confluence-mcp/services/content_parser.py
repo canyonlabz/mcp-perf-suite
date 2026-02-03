@@ -107,7 +107,14 @@ def _markdown_to_confluence_storage_format(markdown: str) -> str:
     """
     Internal function to convert markdown to Confluence storage XHTML.
     Handles headings, tables, bold, italic, lists, code blocks, and chart placeholders.
+    
+    Note: HTML comments (<!-- ... -->) are stripped from output as they should not
+    be published to Confluence, though they remain in the source markdown file.
     """
+    # Strip HTML comments before processing (single-line and multi-line)
+    # This removes metadata comments like <!-- AI-REVISED REPORT ... -->
+    markdown = re.sub(r'<!--[\s\S]*?-->', '', markdown)
+    
     lines = markdown.split('\n')
     xhtml_lines = []
     in_table = False
