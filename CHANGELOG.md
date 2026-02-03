@@ -6,37 +6,37 @@ This document summarizes the enhancements and new features added to the MCP Perf
 
 ## Table of Contents
 
-- [AI-Assisted Report Revision (January 31, 2026)](#ai-assisted-report-revision-january-31-2026)
-  - [Overview](#overview)
-  - [New MCP Tools](#new-mcp-tools)
-  - [Configuration](#configuration)
-  - [Workflow](#workflow)
-  - [Files Created/Modified](#files-createdmodified)
-- [1. Datadog MCP Dynamic Limits (January 23, 2026)](#1-datadog-mcp-dynamic-limits-january-23-2026)
-  - [1.1 Phase 1: Datadog MCP Changes](#11-phase-1-datadog-mcp-changes)
-  - [1.2 Phase 2: PerfAnalysis MCP Changes](#12-phase-2-perfanalysis-mcp-changes)
-  - [1.3 Phase 3: PerfReport MCP Changes](#13-phase-3-perfreport-mcp-changes)
-- [2. Report Enhancements (PerfReport MCP)](#2-report-enhancements-perfreport-mcp)
-  - [2.1 Human-Readable Test Duration](#21-human-readable-test-duration)
-  - [2.2 Cleaner Infrastructure Summaries](#22-cleaner-infrastructure-summaries)
-  - [2.3 Formatted Bottleneck Analysis](#23-formatted-bottleneck-analysis)
-  - [2.4 BlazeMeter Report Link](#24-blazemeter-report-link)
-  - [2.5 Cleaner Service/Host Names](#25-cleaner-servicehost-names)
-  - [2.6 Configurable Resource Allocation Display](#26-configurable-resource-allocation-display)
-- [3. New Charts Available](#3-new-charts-available)
-  - [3.1 CPU Utilization vs Virtual Users (Dual-Axis)](#31-cpu-utilization-vs-virtual-users-dual-axis)
-  - [3.2 Memory Utilization vs Virtual Users (Dual-Axis)](#32-memory-utilization-vs-virtual-users-dual-axis)
-  - [3.3 CPU Core Usage Over Time](#33-cpu-core-usage-over-time)
-  - [3.4 Memory Usage Over Time](#34-memory-usage-over-time)
-  - [3.5 CPU Core Comparison Bar Chart](#35-cpu-core-comparison-bar-chart)
-  - [3.6 Memory Usage Comparison Bar Chart](#36-memory-usage-comparison-bar-chart)
-- [4. Future Updates](#4-future-updates)
+- [1. AI-Assisted Report Revision (January 31, 2026)](#1-ai-assisted-report-revision-january-31-2026)
+  - [1.1 Overview](#11-overview)
+  - [1.2 New MCP Tools](#12-new-mcp-tools)
+  - [1.3 Configuration](#13-configuration)
+  - [1.4 Workflow](#14-workflow)
+  - [1.5 Files Created/Modified](#15-files-createdmodified)
+- [2. Datadog MCP Dynamic Limits (January 23, 2026)](#2-datadog-mcp-dynamic-limits-january-23-2026)
+  - [2.1 Phase 1: Datadog MCP Changes](#21-phase-1-datadog-mcp-changes)
+  - [2.2 Phase 2: PerfAnalysis MCP Changes](#22-phase-2-perfanalysis-mcp-changes)
+  - [2.3 Phase 3: PerfReport MCP Changes](#23-phase-3-perfreport-mcp-changes)
+- [3. Report Enhancements (PerfReport MCP)](#3-report-enhancements-perfreport-mcp)
+  - [3.1 Human-Readable Test Duration](#31-human-readable-test-duration)
+  - [3.2 Cleaner Infrastructure Summaries](#32-cleaner-infrastructure-summaries)
+  - [3.3 Formatted Bottleneck Analysis](#33-formatted-bottleneck-analysis)
+  - [3.4 BlazeMeter Report Link](#34-blazemeter-report-link)
+  - [3.5 Cleaner Service/Host Names](#35-cleaner-servicehost-names)
+  - [3.6 Configurable Resource Allocation Display](#36-configurable-resource-allocation-display)
+- [4. New Charts Available](#4-new-charts-available)
+  - [4.1 CPU Utilization vs Virtual Users (Dual-Axis)](#41-cpu-utilization-vs-virtual-users-dual-axis)
+  - [4.2 Memory Utilization vs Virtual Users (Dual-Axis)](#42-memory-utilization-vs-virtual-users-dual-axis)
+  - [4.3 CPU Core Usage Over Time](#43-cpu-core-usage-over-time)
+  - [4.4 Memory Usage Over Time](#44-memory-usage-over-time)
+  - [4.5 CPU Core Comparison Bar Chart](#45-cpu-core-comparison-bar-chart)
+  - [4.6 Memory Usage Comparison Bar Chart](#46-memory-usage-comparison-bar-chart)
+- [5. Future Updates](#5-future-updates)
 
 ---
 
-## AI-Assisted Report Revision (January 31, 2026)
+## 1. AI-Assisted Report Revision (January 31, 2026)
 
-### Overview
+### 1.1 Overview
 
 A new AI-assisted workflow enables intelligent revision of performance test reports using a Human-In-The-Loop (HITL) approach. This feature allows MCP clients like Cursor to analyze test data and generate improved content for specific report sections while preserving all original metrics, tables, and data.
 
@@ -49,7 +49,7 @@ A new AI-assisted workflow enables intelligent revision of performance test repo
 
 ---
 
-### New MCP Tools
+### 1.2 New MCP Tools
 
 Three new tools were added to PerfReport MCP:
 
@@ -110,7 +110,7 @@ revise_performance_test_report(
 
 ---
 
-### Configuration
+### 1.3 Configuration
 
 New `revisable_sections` block added to `report_config.yaml`:
 
@@ -143,7 +143,7 @@ revisable_sections:
 
 ---
 
-### Workflow
+### 1.4 Workflow
 
 The AI-assisted revision follows this workflow:
 
@@ -187,7 +187,7 @@ artifacts/{run_id}/
 
 ---
 
-### Files Created/Modified
+### 1.5 Files Created/Modified
 
 #### New Files
 
@@ -225,7 +225,7 @@ artifacts/{run_id}/
 
 ---
 
-## 1. Datadog MCP Dynamic Limits (January 23, 2026)
+## 2. Datadog MCP Dynamic Limits (January 23, 2026)
 
 **Summary:** CPU and Memory resource limits are now queried dynamically from Datadog rather than relying on static configurations in `environments.json`. This ensures accurate % utilization calculations that reflect actual Kubernetes resource configurations.
 
@@ -245,7 +245,7 @@ Previously, the Datadog MCP calculated % CPU/Memory utilization by:
 
 ---
 
-### 1.1 Phase 1: Datadog MCP Changes
+### 2.1 Phase 1: Datadog MCP Changes
 
 **File:** `datadog-mcp/services/datadog_api.py`
 
@@ -307,7 +307,7 @@ When limits not defined:
 
 ---
 
-### 1.2 Phase 2: PerfAnalysis MCP Changes
+### 2.2 Phase 2: PerfAnalysis MCP Changes
 
 **File:** `perfanalysis-mcp/services/apm_analyzer.py`
 
@@ -338,7 +338,7 @@ JSON output now includes status flags:
 
 ---
 
-### 1.3 Phase 3: PerfReport MCP Changes
+### 2.3 Phase 3: PerfReport MCP Changes
 
 **File:** `perfreport-mcp/services/report_generator.py`
 
@@ -388,9 +388,9 @@ JSON output now includes status flags:
 
 ---
 
-## 2. Report Enhancements (PerfReport MCP)
+## 3. Report Enhancements (PerfReport MCP)
 
-### 2.1 Human-Readable Test Duration
+### 3.1 Human-Readable Test Duration
 
 **What Changed:** Test duration is now displayed in a human-friendly format instead of raw seconds.
 
@@ -416,7 +416,7 @@ JSON output now includes status flags:
 
 ---
 
-### 2.2 Cleaner Infrastructure Summaries
+### 3.2 Cleaner Infrastructure Summaries
 
 **What Changed:** Removed auto-generated headers and footers from infrastructure and correlation analysis sections that were redundant in the final report.
 
@@ -441,7 +441,7 @@ The infrastructure analysis shows...
 
 ---
 
-### 2.3 Formatted Bottleneck Analysis
+### 3.3 Formatted Bottleneck Analysis
 
 **What Changed:** Bottleneck insights are now displayed as properly formatted markdown bullet points instead of raw list notation.
 
@@ -463,7 +463,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 2.4 BlazeMeter Report Link
+### 3.4 BlazeMeter Report Link
 
 **What Changed:** Performance reports now include a direct link to the BlazeMeter public report for the test run.
 
@@ -485,7 +485,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 2.5 Cleaner Service/Host Names
+### 3.5 Cleaner Service/Host Names
 
 **What Changed:** Service and host names in infrastructure tables are now displayed without environment prefixes and Datadog query wildcards.
 
@@ -512,7 +512,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 2.6 Configurable Resource Allocation Display
+### 3.6 Configurable Resource Allocation Display
 
 **What Changed:** A new `report_config.yaml` file allows you to show or hide resource allocation columns in infrastructure tables.
 
@@ -553,9 +553,9 @@ infrastructure_tables:
 
 ---
 
-## 3. New Charts Available
+## 4. New Charts Available
 
-### 3.1 CPU Utilization vs Virtual Users (Dual-Axis)
+### 4.1 CPU Utilization vs Virtual Users (Dual-Axis)
 
 **Chart ID:** `CPU_UTILIZATION_VUSERS_DUALAXIS`
 
@@ -588,7 +588,7 @@ infrastructure_tables:
 
 ---
 
-### 3.2 Memory Utilization vs Virtual Users (Dual-Axis)
+### 4.2 Memory Utilization vs Virtual Users (Dual-Axis)
 
 **Chart ID:** `MEMORY_UTILIZATION_VUSERS_DUALAXIS`
 
@@ -603,7 +603,7 @@ infrastructure_tables:
 
 ---
 
-### 3.3 CPU Core Usage Over Time
+### 4.3 CPU Core Usage Over Time
 
 **Chart ID:** `CPU_CORES_LINE`
 
@@ -628,7 +628,7 @@ unit:
 
 ---
 
-### 3.4 Memory Usage Over Time
+### 4.4 Memory Usage Over Time
 
 **Chart ID:** `MEMORY_USAGE_LINE`
 
@@ -653,7 +653,7 @@ unit:
 
 ---
 
-### 3.5 CPU Core Comparison Bar Chart
+### 4.5 CPU Core Comparison Bar Chart
 
 **Chart ID:** `CPU_CORE_COMPARISON_BAR`
 
@@ -690,7 +690,7 @@ unit:
 
 ---
 
-### 3.6 Memory Usage Comparison Bar Chart
+### 4.6 Memory Usage Comparison Bar Chart
 
 **Chart ID:** `MEMORY_USAGE_COMPARISON_BAR`
 
@@ -727,7 +727,7 @@ unit:
 
 ---
 
-## 4. Future Updates
+## 5. Future Updates
 
 *This section will be updated as new enhancements are released.*
 
@@ -771,4 +771,4 @@ unit:
 
 ---
 
-*Last Updated: January 31, 2026*
+*Last Updated: February 1, 2026*
