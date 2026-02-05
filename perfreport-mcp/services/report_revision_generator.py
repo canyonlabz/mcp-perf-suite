@@ -40,11 +40,17 @@ from utils.file_utils import (
     _save_text_file,
 )
 from utils.data_loader_utils import load_report_data
+from utils.revision_utils import get_artifacts_base_path
 from services.revision_context_manager import get_revision_content
 # Import the context builder from report_generator
 from services.report_generator import (
     _build_report_context,
     _render_template,
+)
+# Import comparison report functions for context building
+from services.comparison_report_generator import (
+    _build_comparison_context,
+    _render_comparison_template,
 )
 
 
@@ -61,7 +67,7 @@ MCP_VERSION = SERVER_CONFIG.get('version', 'unknown')
 
 
 # -----------------------------------------------
-# Main Report Revision Function
+# Main Report Revision Function (Router)
 # -----------------------------------------------
 
 async def revise_performance_test_report(
@@ -71,6 +77,8 @@ async def revise_performance_test_report(
 ) -> Dict:
     """
     Assemble a revised performance test report using AI-generated content.
+    
+    This function routes to the appropriate revision handler based on report_type.
     
     This function reuses the report_generator infrastructure to ensure
     all data (tables, links, metrics) is populated correctly:
@@ -111,17 +119,48 @@ async def revise_performance_test_report(
             - error: Error message if status is "error"
             - warnings: List of non-fatal warnings
     """
+    # Validate report_type first
+    is_valid, error = validate_report_type(report_type)
+    if not is_valid:
+        return _error_response(run_id, report_type, error)
+    
+    # Route to appropriate handler based on report_type
+    if report_type == "comparison":
+        return await _revise_comparison_report(run_id, revision_version)
+    else:
+        return await _revise_single_run_report(run_id, revision_version)
+
+
+# -----------------------------------------------
+# Single-Run Report Revision
+# -----------------------------------------------
+
+async def _revise_single_run_report(
+    run_id: str,
+    revision_version: Optional[int] = None
+) -> Dict:
+    """
+    Assemble a revised single-run performance test report using AI-generated content.
+    
+    This is the internal implementation for single-run report revision.
+    Called by revise_performance_test_report() when report_type="single_run".
+    
+    Args:
+        run_id: Test run ID.
+        revision_version: Specific version of revisions to use.
+                         If None, uses the latest version for each section.
+    
+    Returns:
+        dict with revision results or error information.
+    """
+    report_type = "single_run"
+    
     try:
         warnings = []
         missing_sections = []
         revised_timestamp = datetime.now().isoformat()
         
-        # Validate report_type
-        is_valid, error = validate_report_type(report_type)
-        if not is_valid:
-            return _error_response(run_id, report_type, error)
-        
-        # Get paths
+        # Get paths (single-run specific)
         run_path = ARTIFACTS_PATH / run_id
         analysis_path = run_path / "analysis"
         reports_folder = get_reports_folder_path(run_id, report_type)
@@ -751,30 +790,300 @@ def _error_response(
 
 
 # -----------------------------------------------
-# Comparison Report Revision (Stub)
+# Comparison Report Revision
 # -----------------------------------------------
 
-async def revise_comparison_report(
+async def _revise_comparison_report(
     comparison_id: str,
     revision_version: Optional[int] = None
 ) -> Dict:
     """
     Assemble a revised comparison report using AI-generated content.
     
-    NOTE: This is a stub for future implementation.
+    This is the internal implementation for comparison report revision.
+    Called by revise_performance_test_report() when report_type="comparison".
+    
+    Key differences from single-run revision:
+    - Base path: artifacts/comparisons/{comparison_id}/
+    - Report file: comparison_report_*.md (uses glob)
+    - Metadata file: comparison_metadata_*.json (uses glob)
+    - No analysis folder validation (comparison has no analysis subfolder)
+    - Sections: executive_summary, key_findings, issues_summary
+    - Uses comparison context builder and template renderer
     
     Args:
         comparison_id: Comparison identifier.
         revision_version: Specific version of revisions to use.
+                         If None, uses the latest version for each section.
     
     Returns:
-        dict with error indicating not yet implemented.
+        dict with revision results or error information.
     """
-    return {
-        "comparison_id": comparison_id,
-        "report_type": "comparison",
-        "status": "error",
-        "error": "Comparison report revision is not yet implemented. "
-                "Use revise_performance_test_report with report_type='comparison' "
-                "when this feature is available."
-    }
+    report_type = "comparison"
+    
+    try:
+        warnings = []
+        revised_timestamp = datetime.now().isoformat()
+        
+        # Get paths using comparison-aware helpers
+        base_path = get_artifacts_base_path(comparison_id, report_type)
+        reports_folder = get_reports_folder_path(comparison_id, report_type)
+        revisions_folder = get_revisions_folder_path(comparison_id, report_type)
+        
+        # Validate base path exists
+        if not base_path.exists():
+            return _error_response(
+                comparison_id, report_type,
+                f"Comparison folder not found: {base_path}"
+            )
+        
+        # Note: Comparison reports don't have an analysis subfolder
+        # Skip analysis path validation (key difference from single-run)
+        
+        if not reports_folder.exists():
+            return _error_response(
+                comparison_id, report_type,
+                f"Reports folder not found: {reports_folder}"
+            )
+        
+        # Get original report path (uses glob for comparison_report_*.md)
+        original_report_path = get_original_report_path(comparison_id, report_type)
+        
+        if not original_report_path.exists():
+            return _error_response(
+                comparison_id, report_type,
+                f"Original comparison report not found: {original_report_path}"
+            )
+        
+        # Get enabled sections (comparison sections)
+        enabled_sections = load_revisable_sections_config(report_type, enabled_only=True)
+        
+        if not enabled_sections:
+            return _error_response(
+                comparison_id, report_type,
+                "No comparison sections are enabled for revision. "
+                "Enable sections in report_config.yaml under 'comparison:' first."
+            )
+        
+        # Check if revisions folder has any content
+        if not revisions_folder.exists() or not any(revisions_folder.iterdir()):
+            return _error_response(
+                comparison_id, report_type,
+                f"No revision files found in {revisions_folder}. "
+                "Run prepare_revision_context() for each section first."
+            )
+        
+        # Step 1: Read metadata to find which template was used
+        metadata_path = get_metadata_path(comparison_id, report_type)
+        if not metadata_path.exists():
+            return _error_response(
+                comparison_id, report_type,
+                f"Comparison metadata file not found: {metadata_path}"
+            )
+        
+        with open(metadata_path, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        # Get run_id_list for building comparison context
+        run_id_list = metadata.get("run_id_list", [])
+        if not run_id_list:
+            return _error_response(
+                comparison_id, report_type,
+                "No run_id_list found in comparison metadata"
+            )
+        
+        original_template_name = metadata.get("template_used", "default_comparison_report_template.md")
+        original_template_path = TEMPLATES_PATH / original_template_name
+        
+        if not original_template_path.exists():
+            return _error_response(
+                comparison_id, report_type,
+                f"Original comparison template not found: {original_template_path}"
+            )
+        
+        # Step 2: Create or load AI template
+        ai_template_name = f"ai_{original_template_name}"
+        ai_template_path = TEMPLATES_PATH / ai_template_name
+        
+        ai_template_result = _ensure_ai_template_exists(
+            original_template_path, ai_template_path, enabled_sections, warnings
+        )
+        
+        if ai_template_result.get("status") == "error":
+            return _error_response(
+                comparison_id, report_type,
+                f"Failed to create AI template: {ai_template_result.get('error')}",
+                warnings=warnings
+            )
+        
+        # Step 3: Load AI template content
+        ai_template_content = await _load_text_file(ai_template_path)
+        
+        # Step 4: Collect revision content for AI sections
+        sections_revised = []
+        revision_versions_used = {}
+        ai_context = {}
+        
+        for section_id, section_config in enabled_sections.items():
+            # Check if revision exists for this section
+            existing_versions = get_existing_revision_versions(comparison_id, section_id, report_type)
+            
+            if not existing_versions:
+                warnings.append(
+                    f"No revision found for enabled section '{section_id}'. Skipping."
+                )
+                continue
+            
+            # Determine which version to use
+            if revision_version is not None:
+                if revision_version in existing_versions:
+                    version_to_use = revision_version
+                else:
+                    warnings.append(
+                        f"Requested version {revision_version} not found for section "
+                        f"'{section_id}'. Using latest (v{max(existing_versions)})."
+                    )
+                    version_to_use = max(existing_versions)
+            else:
+                version_to_use = max(existing_versions)
+            
+            # Read revision content
+            revision_result = await get_revision_content(
+                comparison_id, section_id, version_to_use, report_type
+            )
+            
+            if revision_result.get("status") != "success":
+                warnings.append(
+                    f"Failed to read revision for section '{section_id}': "
+                    f"{revision_result.get('error', 'Unknown error')}"
+                )
+                continue
+            
+            # Get the AI placeholder name
+            ai_placeholder = section_config.get("ai_placeholder", "")
+            
+            if not ai_placeholder:
+                warnings.append(
+                    f"No AI placeholder defined for section '{section_id}'. Skipping."
+                )
+                continue
+            
+            # Add AI content to context
+            revision_text = revision_result.get("content", "")
+            ai_context[ai_placeholder] = revision_text
+            
+            sections_revised.append(section_id)
+            revision_versions_used[section_id] = version_to_use
+        
+        if not sections_revised:
+            return _error_response(
+                comparison_id, report_type,
+                "No sections were revised. Check warnings for details.",
+                warnings=warnings
+            )
+        
+        # Step 5: Load metadata for each run to build comparison context
+        run_metadata_list = []
+        for run_id in run_id_list:
+            run_metadata_path = ARTIFACTS_PATH / run_id / "reports" / f"report_metadata_{run_id}.json"
+            
+            if not run_metadata_path.exists():
+                warnings.append(f"Metadata not found for run {run_id}: {run_metadata_path}")
+                continue
+            
+            with open(run_metadata_path, 'r', encoding='utf-8') as f:
+                run_metadata = json.load(f)
+                run_metadata_list.append(run_metadata)
+        
+        if not run_metadata_list:
+            return _error_response(
+                comparison_id, report_type,
+                "Could not load metadata for any runs in run_id_list",
+                warnings=warnings
+            )
+        
+        # Step 6: Build comparison context using comparison_report_generator
+        full_context = _build_comparison_context(
+            run_id_list,
+            run_metadata_list,
+            revised_timestamp
+        )
+        
+        # Step 7: Override AI placeholders with AI-generated content
+        full_context.update(ai_context)
+        
+        # Step 8: Render the AI template with full context
+        revised_content = _render_comparison_template(ai_template_content, full_context)
+        
+        # Step 9: Backup original report and metadata
+        backup_result = await _backup_original_files(comparison_id, report_type, warnings)
+        
+        if backup_result.get("status") == "error":
+            return _error_response(
+                comparison_id, report_type,
+                f"Failed to backup original files: {backup_result.get('error')}",
+                warnings=warnings
+            )
+        
+        # Step 10: Add revision header and save
+        revision_header = _build_revision_header(
+            comparison_id, report_type, sections_revised, 
+            revision_versions_used, revised_timestamp,
+            ai_template_name
+        )
+        revised_content = _insert_revision_header(revised_content, revision_header)
+        
+        # Save revised report
+        revised_report_path = get_revised_report_path(comparison_id, report_type)
+        await _save_text_file(revised_report_path, revised_content)
+        
+        # Update metadata file with revision info
+        await _update_metadata_with_revision(
+            comparison_id, report_type, sections_revised,
+            revision_versions_used, revised_timestamp, str(revised_report_path),
+            ai_template_name
+        )
+        
+        return {
+            "run_id": comparison_id,
+            "comparison_id": comparison_id,
+            "run_id_list": run_id_list,
+            "report_type": report_type,
+            "original_report_path": str(original_report_path),
+            "revised_report_path": str(revised_report_path),
+            "backup_report_path": str(backup_result.get("backup_report_path", "")),
+            "backup_metadata_path": str(backup_result.get("backup_metadata_path", "")),
+            "ai_template_path": str(ai_template_path),
+            "ai_template_created": ai_template_result.get("created", False),
+            "sections_revised": sections_revised,
+            "sections_revised_count": len(sections_revised),
+            "revision_versions_used": revision_versions_used,
+            "revision_version_requested": revision_version,
+            "revised_at": revised_timestamp,
+            "mcp_version": MCP_VERSION,
+            "warnings": warnings,
+            "status": "success"
+        }
+        
+    except Exception as e:
+        return _error_response(
+            comparison_id, report_type,
+            f"Comparison report revision failed: {str(e)}"
+        )
+
+
+# Legacy stub for backwards compatibility
+async def revise_comparison_report(
+    comparison_id: str,
+    revision_version: Optional[int] = None
+) -> Dict:
+    """
+    Legacy function - use revise_performance_test_report(run_id, report_type="comparison") instead.
+    
+    This function is kept for backwards compatibility but delegates to the main router.
+    """
+    return await revise_performance_test_report(
+        comparison_id, 
+        report_type="comparison", 
+        revision_version=revision_version
+    )

@@ -110,7 +110,7 @@ revisable_sections:
       output_file: "AI_ISSUES_TABLE"
       description: "Table of issues and errors observed during test execution"
 
-  # Comparison report sections (stub for future implementation)
+  # Comparison report sections
   # ===========================================================
   comparison:
     # Section 1.0 - Executive Summary

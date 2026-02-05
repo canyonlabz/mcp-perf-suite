@@ -33,13 +33,81 @@ This workflow supports both `single_run` reports and `comparison` reports.
 
 ### Prerequisites Checklist
 
-Before starting, verify:
+**For Single-Run Reports:**
 - [ ] Performance test report has been generated (`create_performance_test_report`)
 - [ ] Report exists at `artifacts/{run_id}/reports/performance_report_{run_id}.md`
 - [ ] Analysis data exists at `artifacts/{run_id}/analysis/` (JSON, CSV, MD files)
-- [ ] Desired sections are enabled in `report_config.yaml` under `revisable_sections`
+- [ ] Desired sections are enabled in `report_config.yaml` under `revisable_sections.single_run`
+
+**For Comparison Reports:**
+- [ ] Comparison report has been generated (`create_comparison_report`)
+- [ ] Report exists at `artifacts/comparisons/{comparison_id}/comparison_report_*.md`
+- [ ] Comparison metadata exists at `artifacts/comparisons/{comparison_id}/comparison_metadata_*.json`
+- [ ] Individual run reports exist for each run in `run_id_list`
+- [ ] Desired sections are enabled in `report_config.yaml` under `revisable_sections.comparison`
 
 **Do not proceed until the original report has been generated.**
+
+---
+
+## Comparison Report Revision (Specific Guidance)
+
+When `report_type="comparison"`, the revision workflow has key differences from single-run reports:
+
+### Comparison-Specific Sections
+
+| Section ID | Placeholder | Description |
+|------------|-------------|-------------|
+| `executive_summary` | `{{EXECUTIVE_SUMMARY}}` | Overall comparison findings |
+| `key_findings` | `{{KEY_FINDINGS_BULLETS}}` | Trends and insights across runs |
+| `issues_summary` | `{{ISSUES_SUMMARY}}` | Aggregated issues from all runs |
+
+**Note:** These are different from single-run sections:
+- Single-run uses `key_observations` → Comparison uses `key_findings`
+- Single-run uses `issues_table` → Comparison uses `issues_summary`
+
+### Comparison Report Paths
+
+```
+artifacts/comparisons/{comparison_id}/
+├── comparison_report_*.md              # Original report
+├── comparison_report_*_original.md     # Backup (after revision)
+├── comparison_report_*_revised.md      # AI-revised report
+├── comparison_metadata_*.json          # Metadata
+├── comparison_metadata_*_original.json # Backup metadata
+├── charts/                             # Comparison charts
+└── revisions/                          # AI revision files
+    ├── AI_EXECUTIVE_SUMMARY_v1.md
+    ├── AI_KEY_FINDINGS_BULLETS_v1.md
+    └── AI_ISSUES_SUMMARY_v1.md
+```
+
+### AI Content Guidelines for Comparison Reports
+
+When generating AI content for comparison reports, consider:
+
+1. **Trends Analysis:**
+   - How performance changed across runs
+   - Whether improvements or degradations occurred
+   - Pattern identification (stable, improving, degrading)
+
+2. **Multi-Run Context:**
+   - User load scaling (e.g., 25 → 100 → 250 → 500 VUs)
+   - Throughput changes across runs
+   - Success rate consistency
+
+3. **Infrastructure Insights:**
+   - CPU/Memory scaling behavior as load increases
+   - Resource utilization patterns
+   - Correlation between load and resource usage
+
+4. **Aggregated Issues:**
+   - Recurring issues vs one-time issues
+   - Issues resolved between runs
+   - Critical patterns requiring attention
+
+**Example Executive Summary for Comparison:**
+> "Analysis of 5 test runs (25-750 VUs) shows stable system performance under increasing load. Throughput scaled linearly from 1.76 to 161.54 req/sec while maintaining 99.98%+ success rate. CPU utilization increased proportionally (220 → 1040 mCPU) indicating healthy resource scaling. Minor latency increase at P90 for authorization endpoints suggests potential optimization opportunity."
 
 ---
 
@@ -114,12 +182,20 @@ Based on the `data_sources` from discovery, read the relevant files to build con
 5. `artifacts/{run_id}/blazemeter/test_config.json` - Test configuration
 6. `artifacts/{run_id}/reports/performance_report_{run_id}.md` - Current report
 
+**Priority files for comparison reports:**
+1. `artifacts/comparisons/{comparison_id}/comparison_metadata_*.json` - Run IDs and config
+2. `artifacts/comparisons/{comparison_id}/comparison_report_*.md` - Current comparison report
+3. For each run in `run_id_list`:
+   - `artifacts/{run_id}/reports/report_metadata_{run_id}.json` - Individual run metrics
+   - `artifacts/{run_id}/analysis/performance_analysis.json` - Detailed metrics per run
+
 **Read these files to understand:**
 - Test results and success rates
 - Response time metrics (avg, P90, P95, P99)
 - Error counts and types
 - Infrastructure utilization (CPU, Memory)
 - Correlation insights
+- **For comparison:** Trends across runs, scaling behavior, pattern identification
 
 ### 3.2 Generate Revised Content
 
@@ -321,10 +397,17 @@ After the revision workflow completes, provide a summary:
 
 ### 8.1 File Locations
 
+**For Single-Run Reports:**
 - Original report (backed up): `artifacts/{run_id}/reports/performance_report_{run_id}_original.md`
 - Revised report: `artifacts/{run_id}/reports/performance_report_{run_id}_revised.md`
 - Revision files: `artifacts/{run_id}/reports/revisions/`
 - Metadata: `artifacts/{run_id}/reports/report_metadata_{run_id}.json`
+
+**For Comparison Reports:**
+- Original report (backed up): `artifacts/comparisons/{comparison_id}/comparison_report_*_original.md`
+- Revised report: `artifacts/comparisons/{comparison_id}/comparison_report_*_revised.md`
+- Revision files: `artifacts/comparisons/{comparison_id}/revisions/`
+- Metadata: `artifacts/comparisons/{comparison_id}/comparison_metadata_*.json`
 
 ### 8.2 Revision Summary Table
 
