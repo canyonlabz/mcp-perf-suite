@@ -501,7 +501,40 @@ def _categorize_error(entry: dict) -> Tuple[str, str]:
     Returns:
         Tuple of (error_category, severity).
     """
-    pass
+    log_level = (entry.get("log_level") or "").upper()
+    response_code = entry.get("response_code", "N/A")
+    error_message = entry.get("error_message", "")
+    raw_block = entry.get("raw_block", "")
+    search_text = f"{error_message} {raw_block}"
+
+    # 1. FATAL log level
+    if log_level == "FATAL":
+        return ("Fatal JMeter Error", "Critical")
+
+    # 2. HTTP response code classification
+    if response_code != "N/A":
+        try:
+            code_int = int(response_code)
+            for category_name, category_def in ERROR_CATEGORIES.items():
+                if "code_range" in category_def and code_int in category_def["code_range"]:
+                    return (category_name, category_def["severity"])
+        except (ValueError, TypeError):
+            pass
+
+    # 3. Keyword matching against ERROR_CATEGORIES (non-HTTP-code categories)
+    for category_name, category_def in ERROR_CATEGORIES.items():
+        if "keywords" not in category_def:
+            continue
+        for keyword in category_def["keywords"]:
+            if keyword.lower() in search_text.lower():
+                return (category_name, category_def["severity"])
+
+    # 4. JSR223 [ERROR]: marker → Custom Logic Error
+    if "[ERROR]:" in raw_block:
+        return ("Custom Logic Error", "High")
+
+    # 5. Fallback
+    return ("General Error", "Medium")
 
 
 # ============================================================
@@ -535,7 +568,89 @@ def _group_errors(entries: List[dict]) -> List[dict]:
           first_occurrence_description, first_occurrence_request,
           first_occurrence_response, log_file, sample_line_numbers
     """
-    pass
+    if not entries:
+        return []
+
+    # Group entries by signature
+    signature_groups: Dict[str, List[dict]] = defaultdict(list)
+    for entry in entries:
+        sig = generate_error_signature(
+            entry.get("error_category", "General Error"),
+            entry.get("response_code", "N/A"),
+            entry.get("api_endpoint", "N/A"),
+            entry.get("error_message", ""),
+        )
+        signature_groups[sig].append(entry)
+
+    # Build grouped results
+    grouped = []
+    for sig, group_entries in signature_groups.items():
+        # Sort entries by timestamp (earliest first) for consistent ordering
+        group_entries.sort(key=lambda e: e.get("timestamp") or "")
+
+        # Use first entry for category/severity/endpoint metadata
+        first = group_entries[0]
+
+        # Collect distinct thread names
+        threads = set()
+        for e in group_entries:
+            if e.get("thread_name"):
+                threads.add(e["thread_name"])
+
+        # Collect line numbers (first 10)
+        line_numbers = [
+            e["line_number"] for e in group_entries[:10]
+            if e.get("line_number")
+        ]
+
+        # Collect log files (could span multiple if multiple .log files)
+        log_files = set()
+        for e in group_entries:
+            if e.get("log_file"):
+                log_files.add(e["log_file"])
+
+        # Get first and last timestamps
+        timestamps = [
+            e["timestamp"] for e in group_entries
+            if e.get("timestamp")
+        ]
+        first_occurrence = timestamps[0] if timestamps else None
+        last_occurrence = timestamps[-1] if timestamps else None
+
+        # Get first occurrence details (description, request, response)
+        first_details = _select_first_occurrence_details(group_entries)
+
+        grouped.append({
+            "error_id": None,  # Assigned after sorting
+            "error_category": first.get("error_category", "General Error"),
+            "severity": first.get("severity", "Medium"),
+            "response_code": first.get("response_code", "N/A"),
+            "api_endpoint": first.get("api_endpoint", "N/A"),
+            "error_count": len(group_entries),
+            "affected_threads": sorted(threads),
+            "first_occurrence": first_occurrence,
+            "last_occurrence": last_occurrence,
+            "first_occurrence_description": first_details["first_occurrence_description"],
+            "first_occurrence_request": first_details["first_occurrence_request"],
+            "first_occurrence_response": first_details["first_occurrence_response"],
+            "first_occurrence_thread": first_details["first_occurrence_thread"],
+            "log_file": "; ".join(sorted(log_files)),
+            "sample_line_numbers": line_numbers,
+        })
+
+    # Sort by severity (Critical → Medium), then by error_count (descending)
+    grouped.sort(
+        key=lambda g: (
+            SEVERITY_ORDER.get(g["severity"], 99),
+            -g["error_count"],
+        )
+    )
+
+    # Assign sequential error IDs
+    for idx, group in enumerate(grouped, start=1):
+        group["error_id"] = f"ERR-{idx:03d}"
+
+    return grouped
 
 
 def _select_first_occurrence_details(entries: List[dict]) -> dict:
@@ -553,7 +668,40 @@ def _select_first_occurrence_details(entries: List[dict]) -> dict:
         dict with: first_occurrence_description, first_occurrence_request,
         first_occurrence_response, first_occurrence_thread
     """
-    pass
+    if not entries:
+        return {
+            "first_occurrence_description": "",
+            "first_occurrence_request": "[not available]",
+            "first_occurrence_response": "[not available]",
+            "first_occurrence_thread": None,
+        }
+
+    first = entries[0]
+
+    # Build description from error message
+    description = first.get("error_message", "")
+    description = truncate(description, MAX_DESCRIPTION_LENGTH)
+
+    # Request details — truncated
+    request = first.get("request_details")
+    if request:
+        request = truncate(request, MAX_REQUEST_LENGTH)
+    else:
+        request = "[not available]"
+
+    # Response details — truncated
+    response = first.get("response_details")
+    if response:
+        response = truncate(response, MAX_RESPONSE_LENGTH)
+    else:
+        response = "[not available]"
+
+    return {
+        "first_occurrence_description": description,
+        "first_occurrence_request": request,
+        "first_occurrence_response": response,
+        "first_occurrence_thread": first.get("thread_name"),
+    }
 
 
 # ============================================================

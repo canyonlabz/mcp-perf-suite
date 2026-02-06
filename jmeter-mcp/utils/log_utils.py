@@ -117,7 +117,7 @@ def is_new_log_entry(line: str) -> bool:
     Returns:
         True if the line starts a new timestamped log entry.
     """
-    pass
+    return RE_LOG_ENTRY.match(line) is not None
 
 
 def is_error_level(log_level: str, error_levels: List[str]) -> bool:
@@ -132,7 +132,7 @@ def is_error_level(log_level: str, error_levels: List[str]) -> bool:
     Returns:
         True if log_level is in the error_levels list (case-insensitive).
     """
-    pass
+    return log_level.upper() in [lvl.upper() for lvl in error_levels]
 
 
 # ============================================================
@@ -151,7 +151,10 @@ def extract_timestamp(line: str) -> Optional[str]:
     Returns:
         Timestamp string, or None if not found.
     """
-    pass
+    match = RE_LOG_ENTRY.match(line)
+    if match:
+        return match.group(1)
+    return None
 
 
 def extract_log_level(line: str) -> Optional[str]:
@@ -164,7 +167,10 @@ def extract_log_level(line: str) -> Optional[str]:
     Returns:
         Log level string (e.g., "ERROR", "FATAL"), or None if not found.
     """
-    pass
+    match = RE_LOG_ENTRY.match(line)
+    if match:
+        return match.group(2)
+    return None
 
 
 def extract_thread_name(text: str) -> Optional[str]:
@@ -181,7 +187,21 @@ def extract_thread_name(text: str) -> Optional[str]:
     Returns:
         Thread name string, or None if not found.
     """
-    pass
+    # Try JSR223 pattern first: [ERROR]:[ThreadName]:
+    match = RE_JSR223_ERROR.search(text)
+    if match:
+        return match.group(1).strip()
+
+    # Fallback: look for "Thread Group" or thread naming patterns
+    thread_match = re.search(
+        r"(Thread\s+Group\s+\S+[\s-]*\d+[-\d]*)",
+        text,
+        re.IGNORECASE,
+    )
+    if thread_match:
+        return thread_match.group(1).strip()
+
+    return None
 
 
 def extract_sampler_name(text: str) -> Optional[str]:
@@ -198,7 +218,29 @@ def extract_sampler_name(text: str) -> Optional[str]:
     Returns:
         Sampler name string, or None if not found.
     """
-    pass
+    # Try JSR223 PostProcessor pattern: PostProcessor (SamplerName):
+    pp_match = re.search(
+        r"PostProcessor\s*\(([^)]+)\)",
+        text,
+    )
+    if pp_match:
+        return pp_match.group(1).strip()
+
+    # Try JSR223 error marker: [ERROR]:[ThreadName]: SamplerName:
+    match = RE_JSR223_ERROR.search(text)
+    if match:
+        return match.group(2).strip()
+
+    # Try HTTPSampler pattern
+    sampler_match = re.search(
+        r"HTTPSampler[:\s]+([^\s]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if sampler_match:
+        return sampler_match.group(1).strip()
+
+    return None
 
 
 def extract_api_endpoint(text: str) -> Optional[str]:
@@ -216,7 +258,36 @@ def extract_api_endpoint(text: str) -> Optional[str]:
     Returns:
         API endpoint URL or path, or None if not found.
     """
-    pass
+    # Try HTTP method + URL pattern
+    match = RE_URL_PATTERN.search(text)
+    if match:
+        url = match.group(2)
+        # Extract just the path portion from the full URL
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            path = parsed.path
+            if path:
+                return path
+        except Exception:
+            pass
+        return url
+
+    # Try standalone URL pattern (without HTTP method)
+    url_match = re.search(r"(https?://[^\s\]\)]+)", text)
+    if url_match:
+        url = url_match.group(1)
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            path = parsed.path
+            if path:
+                return path
+        except Exception:
+            pass
+        return url
+
+    return None
 
 
 def extract_response_code(text: str) -> Optional[str]:
@@ -233,7 +304,20 @@ def extract_response_code(text: str) -> Optional[str]:
     Returns:
         HTTP response code as string (e.g., "500"), or None if not found.
     """
-    pass
+    match = RE_RESPONSE_CODE.search(text)
+    if match:
+        # Group 2: "received [NNN]" pattern — the actual received code
+        if match.group(2):
+            return match.group(2)
+        # Group 3: "Response code: NNN" pattern
+        if match.group(3):
+            return match.group(3)
+        # Group 4: "HTTP NNN" pattern
+        if match.group(4):
+            return match.group(4)
+        # Group 1: "Expected [NNN]" — this is the expected code, not the error
+        # We prefer group 2 (received) over group 1 (expected)
+    return None
 
 
 def extract_error_message(text: str) -> str:
@@ -251,7 +335,25 @@ def extract_error_message(text: str) -> str:
         The primary error message string. Returns the full text
         if no specific message pattern is matched.
     """
-    pass
+    # Try JSR223 error pattern first
+    match = RE_JSR223_ERROR.search(text)
+    if match:
+        return match.group(3).strip()
+
+    # Try standard error pattern: timestamp LEVEL class: message
+    std_match = RE_STANDARD_ERROR.match(text)
+    if std_match:
+        remainder = std_match.group(3)
+        # The remainder is "o.a.j.class: actual message"
+        # Split on first ": " after the class name
+        colon_idx = remainder.find(": ")
+        if colon_idx > 0:
+            return remainder[colon_idx + 2:].strip()
+        return remainder.strip()
+
+    # Fallback: return first line, stripped
+    first_line = text.split("\n")[0] if "\n" in text else text
+    return first_line.strip()
 
 
 def extract_request_details(text: str) -> Optional[str]:
@@ -267,7 +369,32 @@ def extract_request_details(text: str) -> Optional[str]:
     Returns:
         Request details string, or None if no Request block found.
     """
-    pass
+    # Find "Request=[" and extract content up to closing "]"
+    idx = text.find("Request=[")
+    if idx == -1:
+        return None
+
+    # Start after "Request=["
+    start = idx + len("Request=[")
+    # Find the matching closing bracket
+    # We look for "]" that ends the request block
+    # The closing ] is typically on a line by itself or at end of line
+    bracket_depth = 1
+    pos = start
+    while pos < len(text) and bracket_depth > 0:
+        if text[pos] == "[":
+            bracket_depth += 1
+        elif text[pos] == "]":
+            bracket_depth -= 1
+        pos += 1
+
+    if bracket_depth == 0:
+        content = text[start:pos - 1].strip()
+    else:
+        # No matching bracket found — take everything after Request=[
+        content = text[start:].strip()
+
+    return content if content else None
 
 
 def extract_response_details(text: str) -> Optional[str]:
@@ -284,7 +411,28 @@ def extract_response_details(text: str) -> Optional[str]:
         Returns "[empty]" if Response=[] contains no content.
         Returns "[not available]" if no Response block found.
     """
-    pass
+    idx = text.find("Response=[")
+    if idx == -1:
+        return "[not available]"
+
+    # Start after "Response=["
+    start = idx + len("Response=[")
+    # Find the matching closing bracket
+    bracket_depth = 1
+    pos = start
+    while pos < len(text) and bracket_depth > 0:
+        if text[pos] == "[":
+            bracket_depth += 1
+        elif text[pos] == "]":
+            bracket_depth -= 1
+        pos += 1
+
+    if bracket_depth == 0:
+        content = text[start:pos - 1].strip()
+    else:
+        content = text[start:].strip()
+
+    return content if content else "[empty]"
 
 
 def extract_stack_trace(lines: List[str], max_lines: int = 50) -> Optional[str]:
@@ -304,7 +452,14 @@ def extract_stack_trace(lines: List[str], max_lines: int = 50) -> Optional[str]:
         Stack trace as a single string (lines joined by newline),
         or None if no stack trace lines found.
     """
-    pass
+    trace_lines = []
+    for line in lines:
+        if RE_STACK_TRACE.match(line):
+            trace_lines.append(line)
+            if len(trace_lines) >= max_lines:
+                break
+
+    return "\n".join(trace_lines) if trace_lines else None
 
 
 # ============================================================
@@ -331,7 +486,17 @@ def normalize_error_message(message: str) -> str:
     Returns:
         Normalized message string.
     """
-    pass
+    normalized = message
+
+    # Order matters: replace more specific patterns first
+    normalized = RE_UUID.sub("{UUID}", normalized)
+    normalized = RE_EMAIL.sub("{EMAIL}", normalized)
+    normalized = RE_TIMESTAMP_IN_MSG.sub("{TIMESTAMP}", normalized)
+    normalized = RE_IP_ADDRESS.sub("{IP}", normalized)
+    normalized = RE_NUMERIC_ID.sub("{ID}", normalized)
+
+    normalized = normalized.strip().lower()
+    return normalized
 
 
 def generate_error_signature(
@@ -358,7 +523,12 @@ def generate_error_signature(
     Returns:
         Hex digest string of the composite hash.
     """
-    pass
+    normalized_msg = normalize_error_message(error_message)
+    # Use first ~100 characters of normalized message for hashing
+    msg_prefix = normalized_msg[:100]
+
+    composite = f"{error_category}|{response_code}|{api_endpoint}|{msg_prefix}"
+    return hashlib.sha256(composite.encode("utf-8")).hexdigest()
 
 
 # ============================================================
@@ -376,7 +546,14 @@ def truncate(text: str, max_length: int) -> str:
     Returns:
         Original string if within limit, otherwise truncated with '...'.
     """
-    pass
+    if not text:
+        return text
+    if len(text) <= max_length:
+        return text
+    # Ensure we have room for the '...' suffix
+    if max_length <= 3:
+        return text[:max_length]
+    return text[:max_length - 3] + "..."
 
 
 def sanitize_for_csv(text: str) -> str:
@@ -392,4 +569,10 @@ def sanitize_for_csv(text: str) -> str:
     Returns:
         Sanitized single-line string.
     """
-    pass
+    if not text:
+        return ""
+    # Replace all newline variants with a single space
+    sanitized = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    # Collapse multiple spaces into one
+    sanitized = re.sub(r"\s+", " ", sanitized)
+    return sanitized.strip()
