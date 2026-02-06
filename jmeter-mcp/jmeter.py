@@ -23,6 +23,7 @@ from services.jmeter_runner import (
 from services.playwright_adapter import run_playwright_capture_pipeline
 from services.playwright_adapter import archive_existing_traces
 from services.correlations import analyze_traffic  # New modular package (v0.2.0)
+from services.jmeter_log_analyzer import analyze_logs as run_jmeter_log_analysis
 
 # ----------------------------------------------------------
 # Browser Automation Helper Tools
@@ -321,6 +322,55 @@ async def generate_aggregate_report(test_run_id: str, ctx: Context) -> dict:
     """
     _ = ctx  # currently unused, reserved for future context/state
     return generate_aggregate_report_csv(test_run_id)
+
+# ----------------------------------------------------------
+# JMeter Log Analysis Tools
+# ----------------------------------------------------------
+
+@mcp.tool()
+async def analyze_jmeter_log(test_run_id: str, ctx: Context, log_source: str = "blazemeter") -> dict:
+    """
+    Analyze JMeter or BlazeMeter log files for a given test run.
+
+    Performs deep analysis of all .log files under the specified source folder,
+    identifying errors, grouping them by type/API/root cause, capturing first-
+    occurrence request/response details, and optionally correlating with JTL data.
+
+    Outputs three files to artifacts/<test_run_id>/analysis/:
+      - <log_source>_log_analysis.csv  (all issues in tabular form)
+      - <log_source>_log_analysis.json (metadata + summary + full issue list)
+      - <log_source>_log_analysis.md   (human-readable report)
+
+    Args:
+        test_run_id (str): Unique identifier for the test run.
+        ctx (Context): FastMCP context for state/error details.
+        log_source (str): Which log folder to analyze — "jmeter" or "blazemeter".
+            Defaults to "blazemeter".
+
+    Returns:
+        dict: {
+            "test_run_id": str,
+            "log_source": str,
+            "status": "OK" | "NO_LOGS" | "ERROR",
+            "log_files_analyzed": list[str],
+            "jtl_file_analyzed": str | None,
+            "total_issues": int,
+            "total_occurrences": int,
+            "issues_by_severity": dict,
+            "output_files": {"csv": str, "json": str, "markdown": str},
+            "message": str
+        }
+    """
+    _ = ctx  # reserved for future context usage
+    try:
+        return run_jmeter_log_analysis(test_run_id, log_source)
+    except Exception as e:
+        return {
+            "test_run_id": test_run_id,
+            "log_source": log_source,
+            "status": "ERROR",
+            "message": f"Unexpected error during log analysis: {e}",
+        }
 
 # -----------------------------
 # JMeter MCP entry point
