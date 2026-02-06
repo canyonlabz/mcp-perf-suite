@@ -207,14 +207,81 @@ def _parse_log_file(file_path: str) -> Tuple[List[dict], dict]:
           - File metadata dict with: filename, path, size_bytes,
             total_lines, error_lines
     """
-    pass
+    error_entries = []
+    total_lines = 0
+    error_block_count = 0
+
+    # Current block being accumulated
+    current_block_lines: List[str] = []
+    current_block_start_line = 0
+    current_block_is_error = False
+
+    def _finalize_block():
+        """Process the accumulated block if it's an error block."""
+        nonlocal error_block_count
+        if current_block_lines and current_block_is_error:
+            entry = _parse_error_block(
+                current_block_lines,
+                current_block_start_line,
+                file_path,
+            )
+            if entry:
+                error_entries.append(entry)
+                error_block_count += 1
+
+    file_size = os.path.getsize(file_path)
+
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        for line_num, raw_line in enumerate(f, start=1):
+            total_lines += 1
+            line = raw_line.rstrip("\n\r")
+
+            if is_new_log_entry(line):
+                # Finalize previous block before starting new one
+                _finalize_block()
+
+                # Start a new block
+                current_block_lines = [line]
+                current_block_start_line = line_num
+
+                # Determine if this block qualifies as an error:
+                # - JMeter log level is ERROR or FATAL, OR
+                # - Content contains [ERROR]: (JSR223 Post-Processor marker)
+                log_level = extract_log_level(line)
+                level_is_error = (
+                    log_level is not None
+                    and is_error_level(log_level, ERROR_LEVELS)
+                )
+                has_jsr223_error = "[ERROR]:" in line
+
+                current_block_is_error = level_is_error or has_jsr223_error
+            else:
+                # Continuation line — append to current block
+                if current_block_lines:
+                    current_block_lines.append(line)
+                    # A continuation line with [ERROR]: also marks block as error
+                    if not current_block_is_error and "[ERROR]:" in line:
+                        current_block_is_error = True
+
+    # Finalize the last block in the file
+    _finalize_block()
+
+    metadata = {
+        "filename": os.path.basename(file_path),
+        "path": file_path,
+        "size_bytes": file_size,
+        "total_lines": total_lines,
+        "error_lines": error_block_count,
+    }
+
+    return error_entries, metadata
 
 
 def _parse_error_block(
     lines: List[str],
     start_line_num: int,
     file_path: str,
-) -> dict:
+) -> Optional[dict]:
     """
     Parse a multi-line error block into a structured entry.
 
@@ -227,11 +294,63 @@ def _parse_error_block(
 
     Returns:
         dict with: timestamp, log_level, thread_name, sampler_name,
-        api_endpoint, response_code, error_category, severity,
-        error_message, request_details, response_details,
-        stack_trace, line_number, log_file, raw_block
+        api_endpoint, response_code, error_message, request_details,
+        response_details, stack_trace, line_number, log_file, raw_block.
+        Returns None if block cannot be parsed.
     """
-    pass
+    if not lines:
+        return None
+
+    raw_block = "\n".join(lines)
+    first_line = lines[0]
+
+    # Extract base fields from the first (timestamped) line
+    timestamp = extract_timestamp(first_line)
+    log_level = extract_log_level(first_line) or "ERROR"
+
+    # Check if this is a JSR223 Post-Processor error block
+    # These have [ERROR]:[ThreadName]: SamplerName: pattern
+    is_jsr223 = "[ERROR]:" in raw_block
+
+    if is_jsr223:
+        # Delegate to JSR223-specific parser
+        jsr223_data = _extract_jsr223_error_block(lines)
+        thread_name = jsr223_data.get("thread_name")
+        sampler_name = jsr223_data.get("sampler_name")
+        error_message = jsr223_data.get("error_message", "")
+        request_details = jsr223_data.get("request_details")
+        response_details = jsr223_data.get("response_details")
+    else:
+        # Standard error — extract from full block text
+        thread_name = extract_thread_name(raw_block)
+        sampler_name = extract_sampler_name(first_line)
+        error_message = extract_error_message(raw_block)
+        request_details = extract_request_details(raw_block)
+        response_details = extract_response_details(raw_block)
+
+    # Fields common to both JSR223 and standard errors
+    api_endpoint = extract_api_endpoint(raw_block)
+    response_code = extract_response_code(raw_block)
+    stack_trace = extract_stack_trace(lines, MAX_STACK_TRACE_LINES)
+
+    return {
+        "timestamp": timestamp,
+        "log_level": log_level,
+        "thread_name": thread_name,
+        "sampler_name": sampler_name,
+        "api_endpoint": api_endpoint or "N/A",
+        "response_code": response_code or "N/A",
+        "error_message": error_message,
+        "request_details": request_details,
+        "response_details": response_details,
+        "stack_trace": stack_trace,
+        "line_number": start_line_num,
+        "log_file": os.path.basename(file_path),
+        "raw_block": raw_block,
+        # Category and severity are populated later by _categorize_error()
+        "error_category": None,
+        "severity": None,
+    }
 
 
 def _extract_jsr223_error_block(lines: List[str]) -> dict:
@@ -249,7 +368,115 @@ def _extract_jsr223_error_block(lines: List[str]) -> dict:
         dict with: thread_name, sampler_name, error_message,
         request_details, response_details, context_lines
     """
-    pass
+    thread_name = None
+    sampler_name = None
+    error_message = ""
+    context_lines = []
+    request_lines = []
+    response_lines = []
+
+    # Parse state: "message" → "context" → "request" → "response"
+    state = "message"
+    in_request = False
+    in_response = False
+
+    for line in lines:
+        # Check for JSR223 error marker to extract thread/sampler from first match
+        match = RE_JSR223_ERROR.search(line)
+
+        if in_response:
+            # Accumulate response continuation lines
+            response_lines.append(line)
+            # Check if response block closes on this line
+            stripped = line.rstrip()
+            if stripped.endswith("]") and "Response=[" not in line:
+                in_response = False
+            continue
+
+        if in_request:
+            # Check if request block closes and response starts
+            stripped = line.rstrip()
+            if "Response=[" in line:
+                # Request block ended, response block starts
+                in_request = False
+                in_response = True
+                response_lines.append(line)
+                # Check for single-line response: Response=[...]
+                if stripped.endswith("]"):
+                    in_response = False
+            elif stripped.endswith("]") and "Request=[" not in line:
+                # Request block closes
+                in_request = False
+                request_lines.append(line)
+            else:
+                request_lines.append(line)
+            continue
+
+        # Check for Request=[...] boundary
+        if "Request=[" in line:
+            state = "request"
+            in_request = True
+            request_lines.append(line)
+            # Check for single-line request: Request=[...] on one line
+            stripped = line.rstrip()
+            if stripped.endswith("]") and stripped.count("[") == stripped.count("]"):
+                in_request = False
+            continue
+
+        # Check for Response=[...] boundary (may appear without Request=)
+        if "Response=[" in line:
+            state = "response"
+            in_response = True
+            response_lines.append(line)
+            stripped = line.rstrip()
+            if stripped.endswith("]") and "Response=[" in line:
+                # Single-line response like Response=[] or Response=[content]
+                # Count brackets to see if it closes
+                after_marker = line[line.index("Response=[") + len("Response=["):]
+                if "]" in after_marker:
+                    in_response = False
+            continue
+
+        # Extract thread_name and sampler_name from first [ERROR]: match
+        if match and thread_name is None:
+            thread_name = match.group(1).strip()
+            sampler_name = match.group(2).strip()
+            error_message = match.group(3).strip()
+            state = "context"
+            continue
+
+        if match and state == "context":
+            # Additional [ERROR]: lines before Request= are context
+            context_content = match.group(3).strip()
+            context_lines.append(context_content)
+            continue
+
+        # Non-[ERROR]: lines in context are also captured
+        if state == "context":
+            context_lines.append(line.strip())
+
+    # Build request_details from collected lines
+    request_details = None
+    if request_lines:
+        request_text = "\n".join(request_lines)
+        request_details = extract_request_details(request_text)
+
+    # Build response_details from collected lines
+    response_details = None
+    if response_lines:
+        response_text = "\n".join(response_lines)
+        response_details = extract_response_details(response_text)
+    else:
+        response_details = "[not available]"
+
+    return {
+        "thread_name": thread_name,
+        "sampler_name": sampler_name,
+        "error_message": error_message,
+        "request_details": request_details,
+        "response_details": response_details,
+        "context_lines": context_lines,
+    }
 
 
 # ============================================================
@@ -349,7 +576,27 @@ def _discover_jtl_file(test_run_id: str, log_source: str) -> Optional[str]:
     Returns:
         Absolute file path, or None if no JTL file found.
     """
-    pass
+    source_dir = get_source_artifacts_dir(test_run_id, log_source)
+
+    if not os.path.isdir(source_dir):
+        return None
+
+    # 1. Check for BlazeMeter convention: test-results.csv
+    csv_path = os.path.join(source_dir, "test-results.csv")
+    if os.path.isfile(csv_path):
+        return csv_path
+
+    # 2. Check for JMeter convention: <test_run_id>.jtl
+    jtl_path = os.path.join(source_dir, f"{test_run_id}.jtl")
+    if os.path.isfile(jtl_path):
+        return jtl_path
+
+    # 3. Fallback: any single .jtl file
+    jtl_files = discover_files_by_extension(source_dir, ".jtl")
+    if jtl_files:
+        return jtl_files[0]
+
+    return None
 
 
 def _parse_jtl_file(file_path: str) -> Tuple[List[dict], dict]:
