@@ -180,7 +180,171 @@ def analyze_logs(
           - output_files: Dict with paths to CSV, JSON, and Markdown outputs
           - message: Human-readable summary
     """
-    pass
+    # ------------------------------------------------------------------
+    # 1. Validate inputs
+    # ------------------------------------------------------------------
+    if not test_run_id:
+        return {
+            "test_run_id": test_run_id,
+            "log_source": log_source,
+            "status": "ERROR",
+            "message": "test_run_id is required.",
+        }
+
+    log_source = log_source.lower().strip()
+    if log_source not in ("jmeter", "blazemeter"):
+        return {
+            "test_run_id": test_run_id,
+            "log_source": log_source,
+            "status": "ERROR",
+            "message": (
+                f"Invalid log_source '{log_source}'. "
+                "Must be 'jmeter' or 'blazemeter'."
+            ),
+        }
+
+    # ------------------------------------------------------------------
+    # 2. Discover log files
+    # ------------------------------------------------------------------
+    source_dir = get_source_artifacts_dir(test_run_id, log_source)
+    if not os.path.isdir(source_dir):
+        return {
+            "test_run_id": test_run_id,
+            "log_source": log_source,
+            "status": "NO_LOGS",
+            "message": f"Source directory not found: {source_dir}",
+        }
+
+    log_files = discover_files_by_extension(source_dir, ".log")
+    if not log_files:
+        return {
+            "test_run_id": test_run_id,
+            "log_source": log_source,
+            "status": "NO_LOGS",
+            "message": f"No .log files found in {source_dir}",
+        }
+
+    # ------------------------------------------------------------------
+    # 3. Discover JTL file (optional, single file)
+    # ------------------------------------------------------------------
+    jtl_file_path = _discover_jtl_file(test_run_id, log_source)
+
+    # ------------------------------------------------------------------
+    # 4. Parse each log file → error entries + metadata
+    # ------------------------------------------------------------------
+    all_error_entries: List[dict] = []
+    log_file_metadata: List[dict] = []
+
+    for log_file in log_files:
+        entries, metadata = _parse_log_file(log_file)
+        all_error_entries.extend(entries)
+        log_file_metadata.append(metadata)
+
+    # ------------------------------------------------------------------
+    # 5. (Entries are already merged from step 4)
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # 6. Categorize each error entry
+    # ------------------------------------------------------------------
+    for entry in all_error_entries:
+        category, severity = _categorize_error(entry)
+        entry["error_category"] = category
+        entry["severity"] = severity
+
+    # ------------------------------------------------------------------
+    # 7. Group errors by signature
+    # ------------------------------------------------------------------
+    grouped_errors = _group_errors(all_error_entries)
+
+    # ------------------------------------------------------------------
+    # 8. JTL correlation (if JTL file found)
+    # ------------------------------------------------------------------
+    jtl_data: List[dict] = []
+    jtl_file_metadata: Optional[dict] = None
+    jtl_only_failures: List[dict] = []
+    jtl_correlation_stats: dict = {}
+
+    if jtl_file_path:
+        jtl_data, jtl_meta = _parse_jtl_file(jtl_file_path)
+        jtl_file_metadata = jtl_meta
+
+        if jtl_data:
+            grouped_errors, jtl_only_failures, jtl_correlation_stats = (
+                _correlate_with_jtl(grouped_errors, jtl_data)
+            )
+
+    # ------------------------------------------------------------------
+    # 9. Format and write CSV output
+    # ------------------------------------------------------------------
+    output_dir = get_analysis_output_dir(test_run_id)
+    prefix = f"{log_source}_log_analysis"
+
+    csv_path = os.path.join(output_dir, f"{prefix}.csv")
+    fieldnames, csv_rows = _format_csv_rows(grouped_errors)
+    save_csv_file(csv_path, fieldnames, csv_rows)
+
+    # ------------------------------------------------------------------
+    # 10. Format and write JSON output
+    # ------------------------------------------------------------------
+    json_path = os.path.join(output_dir, f"{prefix}.json")
+    json_data = _format_json_output(
+        test_run_id=test_run_id,
+        log_source=log_source,
+        grouped_errors=grouped_errors,
+        log_file_metadata=log_file_metadata,
+        jtl_file_metadata=jtl_file_metadata,
+        jtl_only_failures=jtl_only_failures,
+        jtl_correlation_stats=jtl_correlation_stats,
+    )
+    save_json_file(json_path, json_data)
+
+    # ------------------------------------------------------------------
+    # 11. Format and write Markdown output
+    # ------------------------------------------------------------------
+    md_path = os.path.join(output_dir, f"{prefix}.md")
+    md_content = _format_markdown_output(
+        test_run_id=test_run_id,
+        log_source=log_source,
+        grouped_errors=grouped_errors,
+        log_file_metadata=log_file_metadata,
+        jtl_file_metadata=jtl_file_metadata,
+        jtl_only_failures=jtl_only_failures,
+        jtl_correlation_stats=jtl_correlation_stats,
+    )
+    save_markdown_file(md_path, md_content)
+
+    # ------------------------------------------------------------------
+    # 12. Build and return result dict
+    # ------------------------------------------------------------------
+    total_occurrences = sum(g["error_count"] for g in grouped_errors)
+    issues_by_severity: Dict[str, int] = defaultdict(int)
+    for g in grouped_errors:
+        issues_by_severity[g["severity"]] += 1
+
+    return {
+        "test_run_id": test_run_id,
+        "log_source": log_source,
+        "status": "OK",
+        "log_files_analyzed": [m.get("filename", "") for m in log_file_metadata],
+        "jtl_file_analyzed": jtl_file_metadata.get("filename") if jtl_file_metadata else None,
+        "total_issues": len(grouped_errors),
+        "total_occurrences": total_occurrences,
+        "issues_by_severity": dict(issues_by_severity),
+        "output_files": {
+            "csv": csv_path,
+            "json": json_path,
+            "markdown": md_path,
+        },
+        "message": (
+            f"Analyzed {len(log_file_metadata)} log file(s) from '{log_source}'. "
+            f"Found {len(grouped_errors)} unique issue(s) "
+            f"({total_occurrences} total occurrence(s)). "
+            f"Critical: {issues_by_severity.get('Critical', 0)}, "
+            f"High: {issues_by_severity.get('High', 0)}, "
+            f"Medium: {issues_by_severity.get('Medium', 0)}."
+        ),
+    }
 
 
 # ============================================================
