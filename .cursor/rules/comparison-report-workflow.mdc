@@ -201,25 +201,80 @@ Verify:
 
 ---
 
-## 4. Generate Summary
+## 4. AI Revision Workflow (Optional)
+
+**Execute this section if you want to enhance the comparison report with AI-generated insights.**
+
+### 4.1 Discover Revision Data
+
+Use tool `discover_revision_data` with:
+- run_id: The **comparison_id** from step 2.1
+- report_type: **"comparison"**
+- additional_context: (Optional) Project name, purpose, or other context for AI
+
+This returns available data files, enabled sections, and revision guidelines.
+
+### 4.2 Prepare Revision Content
+
+For each enabled section (executive_summary, key_findings, issues_summary):
+
+1. Review the data sources returned by discover_revision_data
+2. Analyze trends across the test runs (throughput scaling, resource usage, etc.)
+3. Generate AI-enhanced content for each section
+4. Use tool `prepare_revision_context` with:
+   - run_id: The **comparison_id**
+   - section_id: The section being revised (e.g., "executive_summary", "key_findings", "issues_summary")
+   - revised_content: The AI-generated markdown content
+   - report_type: **"comparison"**
+
+### 4.3 Assemble Revised Report
+
+Use tool `revise_performance_test_report` with:
+- run_id: The **comparison_id**
+- report_type: **"comparison"**
+
+This creates:
+- `comparison_report_{run_ids}_revised.md` - The AI-revised comparison report
+- Backup of original report as `*_original.md`
+
+### 4.4 Publish Revised Comparison Report to Confluence
+
+If the comparison report was already published to Confluence:
+
+1. Convert revised markdown to XHTML:
+   ```
+   convert_markdown_to_xhtml(comparison_id, "comparison_report_{run_ids}_revised.md", report_type="comparison")
+   ```
+
+2. Update the existing Confluence page with revised content:
+   ```
+   update_page(page_ref, comparison_id, mode, use_revised=True, report_type="comparison")
+   ```
+
+**Note:** Images are already attached from the initial publish. The `update_page` call
+will substitute chart placeholders in the revised XHTML and update the page.
+
+---
+
+## 5. Generate Summary
 
 After the comparison workflow completes, provide a summary:
 
-### 4.1 Comparison Report Details
+### 5.1 Comparison Report Details
 
 - **Comparison ID:** {comparison_id}
 - **Test Runs Compared:** {run_id_list}
 - **Template Used:** {template_name}
 - **Report Path:** `artifacts/comparisons/{comparison_id}/comparison_report_{run_ids}.md`
 
-### 4.2 Charts Generated
+### 5.2 Charts Generated
 
 | Chart ID | Description | Output Path |
 |----------|-------------|-------------|
 | CPU_CORE_COMPARISON_BAR | CPU core usage across runs | `artifacts/comparisons/{comparison_id}/charts/CPU_CORE_COMPARISON_BAR-{resource}.png` |
 | MEMORY_USAGE_COMPARISON_BAR | Memory usage across runs | `artifacts/comparisons/{comparison_id}/charts/MEMORY_USAGE_COMPARISON_BAR-{resource}.png` |
 
-### 4.3 Confluence Publishing (if applicable)
+### 5.3 Confluence Publishing (if applicable)
 
 - **Page Title:** {page_title}
 - **Page URL:** {confluence_url}
@@ -252,4 +307,11 @@ After the comparison workflow completes, provide a summary:
 6. **Custom Templates:**
    - Available templates can be listed using `list_templates` tool
    - Custom templates should include comparison-specific placeholders (see `docs/report_template_guidelines.md`)
+
+7. **AI Revision:**
+   - AI revision for comparison reports follows the same pattern as single-run reports
+   - Revisions are stored in: `artifacts/comparisons/{comparison_id}/revisions/`
+   - The revised report is: `comparison_report_{run_ids}_revised.md`
+   - Use `report_type: "comparison"` for all revision tools
+   - Use `use_revised=True` with `update_page` to publish revised content to Confluence
 

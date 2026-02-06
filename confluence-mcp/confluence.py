@@ -463,7 +463,7 @@ async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context
 
 
 @mcp.tool
-async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, report_type: str = "single_run") -> dict:
+async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, use_revised: bool = False, report_type: str = "single_run") -> dict:
     """
     Updates a Confluence page by replacing chart placeholders with embedded images.
     
@@ -485,6 +485,9 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, 
         test_run_id (str): Test run ID or comparison_id whose XHTML and charts to use.
         mode (str): "cloud" or "onprem".
         ctx (Context): FastMCP context.
+        use_revised (bool): If True, use the AI-revised XHTML file (*_revised.xhtml).
+            If False (default), use the main report XHTML.
+            This allows publishing revised content to an existing page.
         report_type (str): Type of report - "single_run" (default) or "comparison".
             - "single_run": Paths are artifacts/{test_run_id}/reports/ and charts/
             - "comparison": Paths are artifacts/comparisons/{test_run_id}/ (root and charts/)
@@ -493,6 +496,8 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, 
         dict containing:
             - page_ref: Updated page ID
             - test_run_id: Test run ID or comparison_id
+            - xhtml_source: Which XHTML file was used (filename only)
+            - used_revised: Whether the revised XHTML was used
             - xhtml_path: Path to the *_with_images.xhtml file
             - placeholders_replaced: List of chart IDs that were replaced
             - placeholders_remaining: List of chart IDs that had no matching image
@@ -501,15 +506,23 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, 
             - status: "updated", "partial" (some placeholders not replaced), or "error"
     
     Example workflow:
-        # Single-run report
+        # Single-run report - Initial publish
         1. create_page(..., report_type="single_run") -> page_ref
         2. attach_images(page_ref, test_run_id, mode, ctx, report_type="single_run")
         3. update_page(page_ref, test_run_id, mode, ctx, report_type="single_run")
+        
+        # Single-run report - Publish AI-revised content
+        4. convert_markdown_to_xhtml(test_run_id, "performance_report_{id}_revised.md")
+        5. update_page(page_ref, test_run_id, mode, ctx, use_revised=True, report_type="single_run")
         
         # Comparison report (test_run_id is comparison_id)
         1. create_page(..., report_type="comparison") -> page_ref
         2. attach_images(page_ref, comparison_id, mode, ctx, report_type="comparison")
         3. update_page(page_ref, comparison_id, mode, ctx, report_type="comparison")
+        
+        # Comparison report - Publish AI-revised content
+        4. convert_markdown_to_xhtml(comparison_id, "comparison_report_{ids}_revised.md", report_type="comparison")
+        5. update_page(page_ref, comparison_id, mode, ctx, use_revised=True, report_type="comparison")
     """
     from pathlib import Path
     import re
@@ -530,16 +543,51 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, 
         reports_folder = artifacts_path / test_run_id / "reports"
         charts_folder = artifacts_path / test_run_id / "charts"
     
-    # Find the XHTML file (not *_with_images.xhtml)
-    xhtml_files = [f for f in reports_folder.glob("*.xhtml") if not f.name.endswith("_with_images.xhtml")]
-    
-    if not xhtml_files:
-        error_msg = f"No XHTML file found in: {reports_folder}"
-        await ctx.error(error_msg)
-        return {"error": error_msg, "status": "error", "page_ref": page_ref, "test_run_id": test_run_id}
-    
-    xhtml_file = xhtml_files[0]  # Use first XHTML file found
-    await ctx.info(f"Using XHTML file: {xhtml_file.name}")
+    # Find the appropriate XHTML file based on use_revised flag
+    if use_revised:
+        # Look for revised XHTML (*_revised.xhtml, excluding *_with_images.xhtml)
+        revised_files = [f for f in reports_folder.glob("*_revised.xhtml") 
+                         if not f.name.endswith("_with_images.xhtml")]
+        
+        if not revised_files:
+            error_msg = (
+                f"No revised XHTML found in {reports_folder}. "
+                "Run convert_markdown_to_xhtml on the revised report first."
+            )
+            await ctx.error(error_msg)
+            return {"error": error_msg, "status": "error", "page_ref": page_ref, "test_run_id": test_run_id}
+        
+        xhtml_file = revised_files[0]
+        await ctx.info(f"Using revised XHTML: {xhtml_file.name}")
+    else:
+        # Look for main (non-revised, non-backup) XHTML
+        exclude_patterns = ['_original.xhtml', '_revised.xhtml', '_with_images.xhtml']
+        main_files = [
+            f for f in reports_folder.glob("*.xhtml")
+            if not any(f.name.endswith(p) for p in exclude_patterns)
+        ]
+        
+        if not main_files:
+            # Fallback: check if revised exists
+            revised_files = [f for f in reports_folder.glob("*_revised.xhtml")
+                            if not f.name.endswith("_with_images.xhtml")]
+            
+            if revised_files:
+                xhtml_file = revised_files[0]
+                await ctx.warning(f"No main XHTML found, using revised: {xhtml_file.name}")
+            else:
+                error_msg = f"No XHTML file found in: {reports_folder}"
+                await ctx.error(error_msg)
+                return {"error": error_msg, "status": "error", "page_ref": page_ref, "test_run_id": test_run_id}
+        elif len(main_files) > 1:
+            # Multiple main files - this shouldn't happen but handle gracefully
+            file_list = ", ".join(f.name for f in main_files)
+            await ctx.warning(f"Multiple XHTML files found, using first: {file_list}")
+            xhtml_file = main_files[0]
+        else:
+            xhtml_file = main_files[0]
+        
+        await ctx.info(f"Using XHTML: {xhtml_file.name}")
     
     # Read the XHTML content
     try:
@@ -649,6 +697,8 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, 
     return {
         "page_ref": page_ref,
         "test_run_id": test_run_id,
+        "xhtml_source": xhtml_file.name,
+        "used_revised": use_revised,
         "xhtml_path": str(output_path),
         "placeholders_replaced": list(replaced_placeholders),
         "placeholders_remaining": list(remaining_placeholders),

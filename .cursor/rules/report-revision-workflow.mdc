@@ -426,6 +426,87 @@ Inform the user of available next steps:
 
 ---
 
+## 9. Publish Revised Report to Confluence (Optional)
+
+After completing the revision workflow, you can publish the revised report to Confluence.
+
+### 9.1 Prerequisites
+
+Before publishing the revised report:
+- [ ] The revised report has been generated (`performance_report_{id}_revised.md` or `comparison_report_*_revised.md`)
+- [ ] If this is an update to an existing page, you have the `page_ref` (page ID) from the initial publish
+- [ ] Images have already been attached during the initial publish (no need to re-attach)
+
+### 9.2 Convert Revised Markdown to XHTML
+
+Convert the revised markdown to Confluence XHTML format:
+
+**For Single-Run Reports:**
+```
+Tool: convert_markdown_to_xhtml
+Parameters:
+  - test_run_id: The test run ID
+  - filename: "performance_report_{id}_revised.md"
+  - report_type: "single_run"
+```
+
+**For Comparison Reports:**
+```
+Tool: convert_markdown_to_xhtml
+Parameters:
+  - test_run_id: The comparison_id
+  - filename: "comparison_report_{ids}_revised.md"
+  - report_type: "comparison"
+```
+
+This creates a `*_revised.xhtml` file in the reports folder.
+
+### 9.3 Update Confluence Page with Revised Content
+
+Use the `update_page` tool with `use_revised=True` to publish the revised content:
+
+**For Single-Run Reports:**
+```
+Tool: update_page
+Parameters:
+  - page_ref: The page ID from initial publish
+  - test_run_id: The test run ID
+  - mode: "cloud" or "onprem"
+  - use_revised: True  # IMPORTANT: This selects the *_revised.xhtml file
+  - report_type: "single_run"
+```
+
+**For Comparison Reports:**
+```
+Tool: update_page
+Parameters:
+  - page_ref: The page ID from initial publish
+  - test_run_id: The comparison_id
+  - mode: "cloud" or "onprem"
+  - use_revised: True  # IMPORTANT: This selects the *_revised.xhtml file
+  - report_type: "comparison"
+```
+
+### 9.4 How It Works
+
+The `update_page` tool with `use_revised=True`:
+1. Selects the `*_revised.xhtml` file (instead of the main XHTML)
+2. Substitutes chart placeholders with embedded `<ac:image>` markup
+3. Creates a `*_revised_with_images.xhtml` file for reference
+4. Updates the Confluence page with the revised content
+
+**Note:** Images are already attached from the initial publish. The `update_page` call only needs to substitute placeholders and update the page content.
+
+### 9.5 Verification
+
+After publishing, verify:
+- [ ] The response shows `"used_revised": true`
+- [ ] The `xhtml_source` field shows the `*_revised.xhtml` filename
+- [ ] Chart placeholders were replaced (check `placeholders_replaced`)
+- [ ] The page URL is accessible and shows the revised content
+
+---
+
 ## Error Handling
 
 ### Discovery Errors
@@ -467,4 +548,6 @@ If `revise_performance_test_report` fails:
 
 6. **HITL Best Practice:** When iterating, provide specific feedback to improve subsequent versions. Include what worked well and what needs adjustment.
 
-7. **Confluence Publishing:** After finalizing the revised report, it can be published to Confluence using the standard Confluence workflow with the revised report file.
+7. **Confluence Publishing:** After finalizing the revised report, use `convert_markdown_to_xhtml` to create the revised XHTML, then use `update_page` with `use_revised=True` to publish the revised content to an existing Confluence page.
+
+8. **use_revised Parameter:** When calling `update_page` with `use_revised=True`, the tool will select the `*_revised.xhtml` file instead of the main XHTML. This allows publishing AI-revised content without overwriting the original XHTML file.
