@@ -768,7 +768,39 @@ def _parse_jtl_file(file_path: str) -> Tuple[List[dict], dict]:
           - File metadata dict with: filename, path,
             total_samples, failed_samples
     """
-    pass
+    results = []
+    total_samples = 0
+    failed_samples = 0
+
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            total_samples += 1
+            # Normalize the success field
+            success_val = (row.get("success") or "").strip().lower()
+            is_success = success_val == "true"
+            if not is_success:
+                failed_samples += 1
+
+            results.append({
+                "timeStamp": row.get("timeStamp", ""),
+                "elapsed": row.get("elapsed", ""),
+                "label": row.get("label", ""),
+                "responseCode": row.get("responseCode", ""),
+                "responseMessage": row.get("responseMessage", ""),
+                "threadName": row.get("threadName", ""),
+                "success": is_success,
+                "bytes": row.get("bytes", ""),
+            })
+
+    metadata = {
+        "filename": os.path.basename(file_path),
+        "path": file_path,
+        "total_samples": total_samples,
+        "failed_samples": failed_samples,
+    }
+
+    return results, metadata
 
 
 def _correlate_with_jtl(
@@ -795,7 +827,88 @@ def _correlate_with_jtl(
           - Correlation stats dict with: log_errors_matched_to_jtl,
             jtl_only_failures, unmatched_log_errors
     """
-    pass
+    matched_count = 0
+    unmatched_count = 0
+    matched_jtl_indices = set()
+
+    # Build a lookup of failed JTL rows for quick access
+    # Key: (label_lower, threadName_lower) → list of (index, row)
+    jtl_failure_index: Dict[tuple, List[Tuple[int, dict]]] = defaultdict(list)
+    for idx, row in enumerate(jtl_data):
+        if not row["success"]:
+            key = (
+                row["label"].strip().lower(),
+                row["threadName"].strip().lower(),
+            )
+            jtl_failure_index[key].append((idx, row))
+
+    # For each error group, try to find a matching JTL failure
+    for group in error_groups:
+        # Initialize JTL fields with empty defaults
+        group["jtl_response_code"] = ""
+        group["jtl_response_message"] = ""
+        group["jtl_elapsed_ms"] = ""
+
+        # Try matching by sampler name (from log) against label (from JTL)
+        # and thread name overlap
+        sampler = (group.get("api_endpoint") or "").strip().lower()
+        group_threads = [t.lower() for t in group.get("affected_threads", [])]
+
+        best_match = None
+
+        # Strategy 1: Match by thread name from the group
+        for thread in group_threads:
+            for (label_lower, thread_lower), entries in jtl_failure_index.items():
+                # Check if any thread from the group matches the JTL thread
+                if thread in thread_lower or thread_lower in thread:
+                    # Check if the label relates to the API endpoint or sampler
+                    if (sampler and sampler != "n/a" and
+                            (sampler in label_lower or label_lower in sampler)):
+                        # Good match — take the first one
+                        if entries:
+                            best_match = entries[0]
+                            break
+            if best_match:
+                break
+
+        # Strategy 2: Fallback — match by API endpoint in label only
+        if not best_match and sampler and sampler != "n/a":
+            for (label_lower, thread_lower), entries in jtl_failure_index.items():
+                if sampler in label_lower or label_lower in sampler:
+                    if entries:
+                        best_match = entries[0]
+                        break
+
+        if best_match:
+            idx, row = best_match
+            group["jtl_response_code"] = row.get("responseCode", "")
+            group["jtl_response_message"] = row.get("responseMessage", "")
+            group["jtl_elapsed_ms"] = row.get("elapsed", "")
+            matched_jtl_indices.add(idx)
+            matched_count += 1
+        else:
+            unmatched_count += 1
+
+    # Identify JTL-only failures (failed rows not matched to any log error)
+    jtl_only_failures = []
+    for idx, row in enumerate(jtl_data):
+        if not row["success"] and idx not in matched_jtl_indices:
+            jtl_only_failures.append({
+                "label": row.get("label", ""),
+                "responseCode": row.get("responseCode", ""),
+                "responseMessage": row.get("responseMessage", ""),
+                "threadName": row.get("threadName", ""),
+                "timeStamp": row.get("timeStamp", ""),
+                "elapsed": row.get("elapsed", ""),
+            })
+
+    correlation_stats = {
+        "log_errors_matched_to_jtl": matched_count,
+        "jtl_only_failures": len(jtl_only_failures),
+        "unmatched_log_errors": unmatched_count,
+    }
+
+    return error_groups, jtl_only_failures, correlation_stats
 
 
 # ============================================================
@@ -819,7 +932,59 @@ def _format_csv_rows(
     Returns:
         Tuple of (fieldnames list, rows list of dicts).
     """
-    pass
+    fieldnames = [
+        "error_id",
+        "error_category",
+        "severity",
+        "response_code",
+        "api_endpoint",
+        "error_count",
+        "affected_threads",
+        "first_occurrence",
+        "last_occurrence",
+        "first_occurrence_description",
+        "first_occurrence_request",
+        "first_occurrence_response",
+        "jtl_response_code",
+        "jtl_response_message",
+        "jtl_elapsed_ms",
+        "log_file",
+        "sample_line_numbers",
+    ]
+
+    rows = []
+    for group in grouped_errors:
+        rows.append({
+            "error_id": group.get("error_id", ""),
+            "error_category": group.get("error_category", ""),
+            "severity": group.get("severity", ""),
+            "response_code": group.get("response_code", ""),
+            "api_endpoint": group.get("api_endpoint", ""),
+            "error_count": group.get("error_count", 0),
+            "affected_threads": sanitize_for_csv(
+                "; ".join(group.get("affected_threads", []))
+            ),
+            "first_occurrence": group.get("first_occurrence", ""),
+            "last_occurrence": group.get("last_occurrence", ""),
+            "first_occurrence_description": sanitize_for_csv(
+                group.get("first_occurrence_description", "")
+            ),
+            "first_occurrence_request": sanitize_for_csv(
+                group.get("first_occurrence_request", "")
+            ),
+            "first_occurrence_response": sanitize_for_csv(
+                group.get("first_occurrence_response", "")
+            ),
+            "jtl_response_code": group.get("jtl_response_code", ""),
+            "jtl_response_message": group.get("jtl_response_message", ""),
+            "jtl_elapsed_ms": group.get("jtl_elapsed_ms", ""),
+            "log_file": group.get("log_file", ""),
+            "sample_line_numbers": "; ".join(
+                str(ln) for ln in group.get("sample_line_numbers", [])
+            ),
+        })
+
+    return fieldnames, rows
 
 
 def _format_json_output(
@@ -848,7 +1013,99 @@ def _format_json_output(
     Returns:
         Complete JSON-serializable dict matching the output schema.
     """
-    pass
+    # Build severity breakdown
+    issues_by_severity: Dict[str, int] = defaultdict(int)
+    issues_by_category: Dict[str, int] = defaultdict(int)
+    total_occurrences = 0
+
+    for group in grouped_errors:
+        issues_by_severity[group["severity"]] += 1
+        issues_by_category[group["error_category"]] += group["error_count"]
+        total_occurrences += group["error_count"]
+
+    # Build top affected APIs
+    api_errors: Dict[str, Dict] = defaultdict(
+        lambda: {"total_errors": 0, "error_categories": set()}
+    )
+    for group in grouped_errors:
+        endpoint = group.get("api_endpoint", "N/A")
+        api_errors[endpoint]["total_errors"] += group["error_count"]
+        api_errors[endpoint]["error_categories"].add(group["error_category"])
+
+    top_apis = sorted(
+        [
+            {
+                "api_endpoint": ep,
+                "total_errors": data["total_errors"],
+                "error_categories": sorted(data["error_categories"]),
+            }
+            for ep, data in api_errors.items()
+        ],
+        key=lambda x: -x["total_errors"],
+    )[:10]
+
+    # Error timeline
+    timestamps = []
+    for group in grouped_errors:
+        if group.get("first_occurrence"):
+            timestamps.append(group["first_occurrence"])
+        if group.get("last_occurrence"):
+            timestamps.append(group["last_occurrence"])
+    timestamps.sort()
+
+    first_error = timestamps[0] if timestamps else None
+    last_error = timestamps[-1] if timestamps else None
+
+    # Build issues list for JSON
+    issues_list = []
+    for group in grouped_errors:
+        issues_list.append({
+            "error_id": group["error_id"],
+            "error_category": group["error_category"],
+            "severity": group["severity"],
+            "response_code": group["response_code"],
+            "api_endpoint": group["api_endpoint"],
+            "error_count": group["error_count"],
+            "affected_threads": group["affected_threads"],
+            "first_occurrence": group["first_occurrence"],
+            "last_occurrence": group["last_occurrence"],
+            "first_occurrence_description": group["first_occurrence_description"],
+            "first_occurrence_request": group["first_occurrence_request"],
+            "first_occurrence_response": group["first_occurrence_response"],
+            "jtl_response_code": group.get("jtl_response_code", ""),
+            "jtl_response_message": group.get("jtl_response_message", ""),
+            "jtl_elapsed_ms": group.get("jtl_elapsed_ms", ""),
+            "log_file": group["log_file"],
+            "sample_line_numbers": group["sample_line_numbers"],
+        })
+
+    return {
+        "test_run_id": test_run_id,
+        "log_source": log_source,
+        "analysis_timestamp": datetime.now().isoformat(),
+        "tool_version": TOOL_VERSION,
+        "configuration": {
+            "max_description_length": MAX_DESCRIPTION_LENGTH,
+            "max_request_length": MAX_REQUEST_LENGTH,
+            "max_response_length": MAX_RESPONSE_LENGTH,
+            "error_levels": ERROR_LEVELS,
+        },
+        "log_files_analyzed": log_file_metadata,
+        "jtl_files_analyzed": [jtl_file_metadata] if jtl_file_metadata else [],
+        "summary": {
+            "total_unique_issues": len(grouped_errors),
+            "total_occurrences": total_occurrences,
+            "issues_by_severity": dict(issues_by_severity),
+            "issues_by_category": dict(issues_by_category),
+            "top_affected_apis": top_apis,
+            "error_timeline": {
+                "first_error": first_error,
+                "last_error": last_error,
+            },
+            "jtl_correlation": jtl_correlation_stats,
+        },
+        "issues": issues_list,
+    }
 
 
 def _format_markdown_output(
@@ -887,4 +1144,262 @@ def _format_markdown_output(
     Returns:
         Complete Markdown report as a string.
     """
-    pass
+    lines = []
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # --- Compute summary stats ---
+    total_occurrences = sum(g["error_count"] for g in grouped_errors)
+    severity_counts: Dict[str, int] = defaultdict(int)
+    category_counts: Dict[str, Dict] = defaultdict(
+        lambda: {"occurrences": 0, "unique": 0}
+    )
+    for g in grouped_errors:
+        severity_counts[g["severity"]] += 1
+        category_counts[g["error_category"]]["occurrences"] += g["error_count"]
+        category_counts[g["error_category"]]["unique"] += 1
+
+    timestamps = []
+    for g in grouped_errors:
+        if g.get("first_occurrence"):
+            timestamps.append(g["first_occurrence"])
+        if g.get("last_occurrence"):
+            timestamps.append(g["last_occurrence"])
+    timestamps.sort()
+    first_error = timestamps[0] if timestamps else "N/A"
+    last_error = timestamps[-1] if timestamps else "N/A"
+
+    # === 1. Header ===
+    lines.append("# JMeter Log Analysis Report")
+    lines.append("")
+    lines.append(f"**Test Run ID:** {test_run_id}  ")
+    lines.append(f"**Log Source:** {log_source}  ")
+    lines.append(f"**Analysis Date:** {now}  ")
+    lines.append(f"**Log Files Analyzed:** {len(log_file_metadata)} file(s)")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # === 2. Executive Summary ===
+    lines.append("## Executive Summary")
+    lines.append("")
+    lines.append(f"- **Total Unique Issues:** {len(grouped_errors)}")
+    lines.append(f"- **Total Error Occurrences:** {total_occurrences}")
+    severity_str = " | ".join(
+        f"{sev}: {severity_counts.get(sev, 0)}"
+        for sev in ["Critical", "High", "Medium"]
+    )
+    lines.append(f"- **Severity Breakdown:** {severity_str}")
+    lines.append(f"- **Error Time Window:** {first_error} to {last_error}")
+    if jtl_correlation_stats:
+        matched = jtl_correlation_stats.get("log_errors_matched_to_jtl", 0)
+        total_groups = len(grouped_errors)
+        lines.append(
+            f"- **JTL Correlation:** {matched} of {total_groups} "
+            f"error groups matched to JTL entries"
+        )
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # === 3. Issues by Severity ===
+    lines.append("## Issues by Severity")
+    lines.append("")
+
+    for severity in ["Critical", "High", "Medium"]:
+        severity_errors = [
+            g for g in grouped_errors if g["severity"] == severity
+        ]
+        count = len(severity_errors)
+        lines.append(f"### {severity} Issues ({count})")
+        lines.append("")
+
+        if severity_errors:
+            lines.append(
+                "| # | Error Category | Code | Count | API Endpoint | Description |"
+            )
+            lines.append(
+                "|---|----------------|------|-------|--------------|-------------|"
+            )
+            for g in severity_errors:
+                desc = sanitize_for_csv(g.get("first_occurrence_description", ""))
+                # Truncate for table readability
+                desc = truncate(desc, 80)
+                endpoint = truncate(g.get("api_endpoint", "N/A"), 50)
+                lines.append(
+                    f"| {g['error_id']} "
+                    f"| {g['error_category']} "
+                    f"| {g['response_code']} "
+                    f"| {g['error_count']} "
+                    f"| {endpoint} "
+                    f"| {desc} |"
+                )
+            lines.append("")
+        else:
+            lines.append("No issues at this severity level.")
+            lines.append("")
+
+    lines.append("---")
+    lines.append("")
+
+    # === 4. Top Affected APIs ===
+    lines.append("## Top Affected APIs")
+    lines.append("")
+
+    api_errors: Dict[str, Dict] = defaultdict(
+        lambda: {"total": 0, "categories": set(), "codes": set()}
+    )
+    for g in grouped_errors:
+        ep = g.get("api_endpoint", "N/A")
+        api_errors[ep]["total"] += g["error_count"]
+        api_errors[ep]["categories"].add(g["error_category"])
+        if g["response_code"] != "N/A":
+            api_errors[ep]["codes"].add(g["response_code"])
+
+    sorted_apis = sorted(api_errors.items(), key=lambda x: -x[1]["total"])[:10]
+
+    if sorted_apis:
+        lines.append(
+            "| API Endpoint | Total Errors | Error Categories | Response Codes |"
+        )
+        lines.append("|---|---|---|---|")
+        for ep, data in sorted_apis:
+            cats = ", ".join(sorted(data["categories"]))
+            codes = ", ".join(sorted(data["codes"])) if data["codes"] else "N/A"
+            lines.append(f"| {truncate(ep, 50)} | {data['total']} | {cats} | {codes} |")
+        lines.append("")
+    else:
+        lines.append("No affected APIs identified.")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("")
+
+    # === 5. Error Category Breakdown ===
+    lines.append("## Error Category Breakdown")
+    lines.append("")
+    lines.append("| Category | Occurrences | Unique Issues | Severity |")
+    lines.append("|---|---|---|---|")
+
+    # Sort categories by occurrences descending
+    sorted_cats = sorted(
+        category_counts.items(), key=lambda x: -x[1]["occurrences"]
+    )
+    for cat_name, cat_data in sorted_cats:
+        # Find the severity for this category
+        cat_severity = "Medium"
+        for g in grouped_errors:
+            if g["error_category"] == cat_name:
+                cat_severity = g["severity"]
+                break
+        lines.append(
+            f"| {cat_name} | {cat_data['occurrences']} "
+            f"| {cat_data['unique']} | {cat_severity} |"
+        )
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # === 6. First Occurrence Details ===
+    lines.append("## First Occurrence Details")
+    lines.append("")
+
+    for g in grouped_errors:
+        lines.append(
+            f"### {g['error_id']}: {g['error_category']} "
+            f"— {truncate(g['api_endpoint'], 60)} ({g['response_code']})"
+        )
+        lines.append("")
+        lines.append(f"**First Seen:** {g.get('first_occurrence', 'N/A')}  ")
+        lines.append(
+            f"**Thread:** {g.get('first_occurrence_thread', 'N/A')}  "
+        )
+        lines.append(f"**Occurrences:** {g['error_count']}")
+        lines.append("")
+
+        lines.append("**Error Message:**")
+        desc = g.get("first_occurrence_description", "N/A")
+        lines.append(f"> {sanitize_for_csv(desc)}")
+        lines.append("")
+
+        req = g.get("first_occurrence_request", "[not available]")
+        lines.append("**Request:**")
+        lines.append(f"> {sanitize_for_csv(req)}")
+        lines.append("")
+
+        resp = g.get("first_occurrence_response", "[not available]")
+        lines.append("**Response:**")
+        lines.append(f"> {sanitize_for_csv(resp)}")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    # === 7. JTL Correlation Summary ===
+    lines.append("## JTL Correlation Summary")
+    lines.append("")
+
+    if jtl_correlation_stats:
+        lines.append("| Metric | Value |")
+        lines.append("|---|---|")
+        lines.append(
+            f"| Log errors matched to JTL "
+            f"| {jtl_correlation_stats.get('log_errors_matched_to_jtl', 0)} |"
+        )
+        lines.append(
+            f"| JTL-only failures (no log entry) "
+            f"| {jtl_correlation_stats.get('jtl_only_failures', 0)} |"
+        )
+        lines.append(
+            f"| Unmatched log errors "
+            f"| {jtl_correlation_stats.get('unmatched_log_errors', 0)} |"
+        )
+        lines.append("")
+
+        if jtl_only_failures:
+            lines.append("### JTL-Only Failures")
+            lines.append("")
+            lines.append("| Label | Response Code | Thread | Timestamp |")
+            lines.append("|---|---|---|---|")
+            for failure in jtl_only_failures[:20]:  # Limit to first 20
+                lines.append(
+                    f"| {truncate(failure.get('label', ''), 50)} "
+                    f"| {failure.get('responseCode', '')} "
+                    f"| {truncate(failure.get('threadName', ''), 40)} "
+                    f"| {failure.get('timeStamp', '')} |"
+                )
+            if len(jtl_only_failures) > 20:
+                lines.append(
+                    f"| ... | ... | ... | "
+                    f"({len(jtl_only_failures) - 20} more not shown) |"
+                )
+            lines.append("")
+    else:
+        lines.append("No JTL file found for correlation.")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("")
+
+    # === 8. Log Files Analyzed ===
+    lines.append("## Log Files Analyzed")
+    lines.append("")
+    lines.append("| File | Size | Total Lines | Error Blocks |")
+    lines.append("|---|---|---|---|")
+
+    for meta in log_file_metadata:
+        size_mb = meta.get("size_bytes", 0) / (1024 * 1024)
+        size_str = f"{size_mb:.1f} MB" if size_mb >= 1 else f"{meta.get('size_bytes', 0):,} bytes"
+        lines.append(
+            f"| {meta.get('filename', '')} "
+            f"| {size_str} "
+            f"| {meta.get('total_lines', 0):,} "
+            f"| {meta.get('error_lines', 0):,} |"
+        )
+
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append(f"*Generated by JMeter MCP — analyze_jmeter_log v{TOOL_VERSION}*")
+    lines.append("")
+
+    return "\n".join(lines)
