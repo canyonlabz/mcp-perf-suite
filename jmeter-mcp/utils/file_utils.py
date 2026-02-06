@@ -5,11 +5,13 @@ This module contains utility functions for file operations.
 End-users and developers can extend or modify these functions independently
 of the core JMeter component utilities.
 """
+import csv
 import xml.etree.ElementTree as ET
 import datetime
 import json
 import os
 import urllib.parse
+from typing import Any, Dict, List
 from xml.dom import minidom
 
 from utils.config import load_config
@@ -73,3 +75,139 @@ def save_correlation_spec(run_id: str, correlation_spec: dict) -> str:
         json.dump(correlation_spec, f, indent=2)
 
     return output_file
+
+
+# ============================================================
+# Analysis Output Helpers
+# ============================================================
+
+def get_analysis_output_dir(run_id: str) -> str:
+    """
+    Returns the absolute directory path for analysis output files.
+    Creates the directory if it does not exist.
+
+    Final layout:
+      artifacts/<run_id>/analysis/
+
+    Args:
+        run_id: Test run identifier.
+
+    Returns:
+        Absolute path to the analysis output directory.
+    """
+    output_dir = os.path.join(ARTIFACTS_PATH, str(run_id), "analysis")
+    os.makedirs(output_dir, exist_ok=True)
+    return output_dir
+
+
+def get_source_artifacts_dir(run_id: str, source: str) -> str:
+    """
+    Returns the absolute directory path for a given source's artifacts.
+    Does NOT create the directory (it should already exist from the test run).
+
+    Final layout:
+      artifacts/<run_id>/<source>/
+
+    Args:
+        run_id: Test run identifier.
+        source: Source folder name (e.g., "jmeter" or "blazemeter").
+
+    Returns:
+        Absolute path to the source artifacts directory.
+    """
+    return os.path.join(ARTIFACTS_PATH, str(run_id), source)
+
+
+def discover_files_by_extension(directory: str, extension: str) -> List[str]:
+    """
+    Find all files with the given extension in a directory.
+    Does NOT recurse into subdirectories.
+
+    Args:
+        directory: Absolute path to search.
+        extension: File extension including dot (e.g., ".log", ".jtl", ".csv").
+
+    Returns:
+        List of absolute file paths, sorted by modification time (oldest first).
+        Empty list if directory doesn't exist or no files match.
+    """
+    if not os.path.isdir(directory):
+        return []
+
+    ext_lower = extension.lower()
+    matched = []
+    for filename in os.listdir(directory):
+        if filename.lower().endswith(ext_lower):
+            full_path = os.path.join(directory, filename)
+            if os.path.isfile(full_path):
+                matched.append(full_path)
+
+    # Sort by modification time, oldest first
+    matched.sort(key=lambda p: os.path.getmtime(p))
+    return matched
+
+
+def save_csv_file(
+    file_path: str,
+    fieldnames: List[str],
+    rows: List[Dict[str, Any]]
+) -> str:
+    """
+    Write a list of dicts as CSV using DictWriter.
+    Uses standard encoding (utf-8) and newline="" per Python CSV best practices.
+
+    Args:
+        file_path: Absolute output path.
+        fieldnames: List of column header names.
+        rows: List of dicts, one per row.
+
+    Returns:
+        The file_path written to.
+    """
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+    with open(file_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+    return file_path
+
+
+def save_json_file(file_path: str, data: dict) -> str:
+    """
+    Write a dict as pretty-printed JSON (indent=2, utf-8).
+
+    Args:
+        file_path: Absolute output path.
+        data: Dict to serialize.
+
+    Returns:
+        The file_path written to.
+    """
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    return file_path
+
+
+def save_markdown_file(file_path: str, content: str) -> str:
+    """
+    Write a Markdown string to file (utf-8).
+
+    Args:
+        file_path: Absolute output path.
+        content: Markdown content string.
+
+    Returns:
+        The file_path written to.
+    """
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    return file_path

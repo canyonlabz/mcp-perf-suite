@@ -14,6 +14,15 @@ logging:
   verbose_mode: False   # Enable verbose logging for debugging
   log_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\tmp\\logs"  # Update with the actual path
 
+jmeter_log:
+  max_description_length: 200        # Max characters for error description/stack trace excerpt in log analysis output
+  max_request_length: 500            # Max characters for captured request details in log analysis output
+  max_response_length: 500           # Max characters for captured response details in log analysis output
+  max_stack_trace_lines: 50          # Max lines to capture from a stack trace
+  error_levels:                      # Log levels to treat as issues (WARN excluded by design)
+    - "ERROR"
+    - "FATAL"
+
 artifacts:
   artifacts_path: "C:\\<path_to_repo_root>\\mcp-perf-suite\\artifacts"  # Path for artifacts, output files (e.g. JMX files, JTL files, reports, logs, HAR files, etc.)
 
