@@ -1,42 +1,158 @@
-# MCP Performance Suite - January 2026 Updates
+# MCP Performance Suite - Changelog
 
-This document summarizes the enhancements and new features added to the MCP Performance Suite. These updates improve report readability, add new visualization capabilities, and provide more flexibility in how performance data is displayed.
+This document summarizes the enhancements and new features added to the MCP Performance Suite.
 
 ---
 
 ## Table of Contents
 
-- [1. AI-Assisted Report Revision (January 31, 2026)](#1-ai-assisted-report-revision-january-31-2026)
+- [1. JMeter Log Analysis Tool (February 2026)](#1-jmeter-log-analysis-tool-february-2026)
   - [1.1 Overview](#11-overview)
-  - [1.2 New MCP Tools](#12-new-mcp-tools)
+  - [1.2 New MCP Tool](#12-new-mcp-tool)
   - [1.3 Configuration](#13-configuration)
-  - [1.4 Workflow](#14-workflow)
-  - [1.5 Files Created/Modified](#15-files-createdmodified)
-- [2. Datadog MCP Dynamic Limits (January 23, 2026)](#2-datadog-mcp-dynamic-limits-january-23-2026)
-  - [2.1 Phase 1: Datadog MCP Changes](#21-phase-1-datadog-mcp-changes)
-  - [2.2 Phase 2: PerfAnalysis MCP Changes](#22-phase-2-perfanalysis-mcp-changes)
-  - [2.3 Phase 3: PerfReport MCP Changes](#23-phase-3-perfreport-mcp-changes)
-- [3. Report Enhancements (PerfReport MCP)](#3-report-enhancements-perfreport-mcp)
-  - [3.1 Human-Readable Test Duration](#31-human-readable-test-duration)
-  - [3.2 Cleaner Infrastructure Summaries](#32-cleaner-infrastructure-summaries)
-  - [3.3 Formatted Bottleneck Analysis](#33-formatted-bottleneck-analysis)
-  - [3.4 BlazeMeter Report Link](#34-blazemeter-report-link)
-  - [3.5 Cleaner Service/Host Names](#35-cleaner-servicehost-names)
-  - [3.6 Configurable Resource Allocation Display](#36-configurable-resource-allocation-display)
-- [4. New Charts Available](#4-new-charts-available)
-  - [4.1 CPU Utilization vs Virtual Users (Dual-Axis)](#41-cpu-utilization-vs-virtual-users-dual-axis)
-  - [4.2 Memory Utilization vs Virtual Users (Dual-Axis)](#42-memory-utilization-vs-virtual-users-dual-axis)
-  - [4.3 CPU Core Usage Over Time](#43-cpu-core-usage-over-time)
-  - [4.4 Memory Usage Over Time](#44-memory-usage-over-time)
-  - [4.5 CPU Core Comparison Bar Chart](#45-cpu-core-comparison-bar-chart)
-  - [4.6 Memory Usage Comparison Bar Chart](#46-memory-usage-comparison-bar-chart)
-- [5. Future Updates](#5-future-updates)
+  - [1.4 Output Files](#14-output-files)
+  - [1.5 Key Capabilities](#15-key-capabilities)
+  - [1.6 Files Created/Modified](#16-files-createdmodified)
+- [2. AI-Assisted Report Revision (January 31, 2026)](#2-ai-assisted-report-revision-january-31-2026)
+  - [2.1 Overview](#21-overview)
+  - [2.2 New MCP Tools](#22-new-mcp-tools)
+  - [2.3 Configuration](#23-configuration)
+  - [2.4 Workflow](#24-workflow)
+  - [2.5 Files Created/Modified](#25-files-createdmodified)
+- [3. Datadog MCP Dynamic Limits (January 23, 2026)](#3-datadog-mcp-dynamic-limits-january-23-2026)
+  - [3.1 Phase 1: Datadog MCP Changes](#31-phase-1-datadog-mcp-changes)
+  - [3.2 Phase 2: PerfAnalysis MCP Changes](#32-phase-2-perfanalysis-mcp-changes)
+  - [3.3 Phase 3: PerfReport MCP Changes](#33-phase-3-perfreport-mcp-changes)
+- [4. Report Enhancements (PerfReport MCP)](#4-report-enhancements-perfreport-mcp)
+  - [4.1 Human-Readable Test Duration](#41-human-readable-test-duration)
+  - [4.2 Cleaner Infrastructure Summaries](#42-cleaner-infrastructure-summaries)
+  - [4.3 Formatted Bottleneck Analysis](#43-formatted-bottleneck-analysis)
+  - [4.4 BlazeMeter Report Link](#44-blazemeter-report-link)
+  - [4.5 Cleaner Service/Host Names](#45-cleaner-servicehost-names)
+  - [4.6 Configurable Resource Allocation Display](#46-configurable-resource-allocation-display)
+- [5. New Charts Available](#5-new-charts-available)
+  - [5.1 CPU Utilization vs Virtual Users (Dual-Axis)](#51-cpu-utilization-vs-virtual-users-dual-axis)
+  - [5.2 Memory Utilization vs Virtual Users (Dual-Axis)](#52-memory-utilization-vs-virtual-users-dual-axis)
+  - [5.3 CPU Core Usage Over Time](#53-cpu-core-usage-over-time)
+  - [5.4 Memory Usage Over Time](#54-memory-usage-over-time)
+  - [5.5 CPU Core Comparison Bar Chart](#55-cpu-core-comparison-bar-chart)
+  - [5.6 Memory Usage Comparison Bar Chart](#56-memory-usage-comparison-bar-chart)
+- [6. Future Updates](#6-future-updates)
 
 ---
 
-## 1. AI-Assisted Report Revision (January 31, 2026)
+## 1. JMeter Log Analysis Tool (February 2026)
 
 ### 1.1 Overview
+
+A new `analyze_jmeter_log` tool has been added to the JMeter MCP server. This tool performs deep analysis of JMeter and BlazeMeter log files, providing granular error grouping, first-occurrence request/response details, and optional JTL correlation — designed to help performance test engineers quickly identify issues and perform root cause analysis.
+
+This is a more thorough, JMeter-specific alternative to the existing `analyze_logs` tool in PerfAnalysis MCP, which provides a higher-level, cross-tool summary.
+
+---
+
+### 1.2 New MCP Tool
+
+| Tool | Purpose |
+|------|---------|
+| `analyze_jmeter_log` | Deep analysis of JMeter/BlazeMeter log files with error grouping, first-occurrence details, and JTL correlation |
+
+```python
+analyze_jmeter_log(
+    test_run_id: str,          # Unique test run identifier
+    log_source: str = "blazemeter",  # "jmeter" or "blazemeter"
+    ctx: Context               # FastMCP context
+) -> dict
+```
+
+**Returns:**
+- `status`: `"OK"`, `"NO_LOGS"`, or `"ERROR"`
+- `log_files_analyzed`: List of log file names processed
+- `jtl_file_analyzed`: JTL file name (if found)
+- `total_issues`: Total unique error groups found
+- `total_occurrences`: Sum of all error occurrences
+- `issues_by_severity`: Breakdown by Critical / High / Medium
+- `output_files`: Paths to CSV, JSON, and Markdown outputs
+
+---
+
+### 1.3 Configuration
+
+A new `jmeter_log` section was added to `config.yaml` / `config.example.yaml`:
+
+```yaml
+jmeter_log:
+  max_description_length: 200        # Max characters for error description excerpt
+  max_request_length: 500            # Max characters for captured request details
+  max_response_length: 500           # Max characters for captured response details
+  max_stack_trace_lines: 50          # Max lines to capture from a stack trace
+  error_levels:                      # Log levels to treat as issues
+    - "ERROR"
+    - "FATAL"
+```
+
+> **Note:** WARN-level messages are excluded by design. The `logging` section in config.yaml is reserved for future MCP server debugging and is separate from `jmeter_log`.
+
+---
+
+### 1.4 Output Files
+
+All outputs are written to `artifacts/<test_run_id>/analysis/`:
+
+| File | Description |
+|------|-------------|
+| `<source>_log_analysis.csv` | All issues in tabular form (17 columns) |
+| `<source>_log_analysis.json` | Full metadata, summary statistics, and issue details |
+| `<source>_log_analysis.md` | Human-readable report with 8 sections |
+
+Where `<source>` is `jmeter` or `blazemeter` depending on the `log_source` parameter.
+
+**Markdown Report Sections:**
+1. Header (test run ID, log source, date, files analyzed)
+2. Executive Summary (totals, severity breakdown, time window)
+3. Issues by Severity (tables for Critical, High, Medium)
+4. Top Affected APIs
+5. Error Category Breakdown
+6. First Occurrence Details (per issue with request/response)
+7. JTL Correlation Summary
+8. Log Files Analyzed
+
+---
+
+### 1.5 Key Capabilities
+
+- **Multi-line block parsing**: Handles JSR223 Post-Processor verbose output, including `Request=[...]` and `Response=[...]` boundary detection
+- **Granular error grouping**: Groups by composite signature (error category + response code + API endpoint + normalized message hash), so different root causes on the same API are tracked separately
+- **Message normalization**: Replaces UUIDs, emails, IPs, timestamps, and numeric IDs with placeholders for consistent deduplication
+- **First-occurrence capture**: Preserves the first error message, request body, and response body for each unique error group (truncated per config)
+- **JTL correlation**: Enriches error groups with JTL response codes and elapsed times; identifies JTL-only failures (errors in JTL with no corresponding log entry)
+- **Multi-file discovery**: Automatically discovers and analyzes all `.log` files in the source directory (e.g., `jmeter.log`, `jmeter-1.log`, `jmeter-2.log`)
+- **BlazeMeter support**: Handles BlazeMeter's `test-results.csv` naming convention for JTL files
+
+---
+
+### 1.6 Files Created/Modified
+
+### Files Created
+| File | Purpose |
+|------|---------|
+| `jmeter-mcp/services/jmeter_log_analyzer.py` | Core service module — orchestration, parsing, categorization, grouping, JTL correlation, and output formatting |
+| `jmeter-mcp/utils/log_utils.py` | Low-level log parsing utilities — regex patterns, field extraction, normalization, hashing, and text helpers |
+
+### Files Modified
+| File | Changes |
+|------|---------|
+| `jmeter-mcp/jmeter.py` | Registered `analyze_jmeter_log` MCP tool |
+| `jmeter-mcp/utils/file_utils.py` | Added 6 new I/O helper functions (`get_analysis_output_dir`, `get_source_artifacts_dir`, `discover_files_by_extension`, `save_csv_file`, `save_json_file`, `save_markdown_file`) |
+| `jmeter-mcp/config.example.yaml` | Added `jmeter_log` configuration section |
+| `jmeter-mcp/config.windows.yaml` | Added `jmeter_log` configuration section |
+| `jmeter-mcp/README.md` | Updated tools, workflow, project structure, output structure, and future enhancements |
+
+---
+
+## 2. AI-Assisted Report Revision (January 31, 2026)
+
+### 2.1 Overview
 
 A new AI-assisted workflow enables intelligent revision of performance test reports using a Human-In-The-Loop (HITL) approach. This feature allows MCP clients like Cursor to analyze test data and generate improved content for specific report sections while preserving all original metrics, tables, and data.
 
@@ -49,7 +165,7 @@ A new AI-assisted workflow enables intelligent revision of performance test repo
 
 ---
 
-### 1.2 New MCP Tools
+### 2.2 New MCP Tools
 
 Three new tools were added to PerfReport MCP:
 
@@ -110,7 +226,7 @@ revise_performance_test_report(
 
 ---
 
-### 1.3 Configuration
+### 2.3 Configuration
 
 New `revisable_sections` block added to `report_config.yaml`:
 
@@ -143,7 +259,7 @@ revisable_sections:
 
 ---
 
-### 1.4 Workflow
+### 2.4 Workflow
 
 The AI-assisted revision follows this workflow:
 
@@ -187,7 +303,7 @@ artifacts/{run_id}/
 
 ---
 
-### 1.5 Files Created/Modified
+### 2.5 Files Created/Modified
 
 #### New Files
 
@@ -225,7 +341,7 @@ artifacts/{run_id}/
 
 ---
 
-## 2. Datadog MCP Dynamic Limits (January 23, 2026)
+## 3. Datadog MCP Dynamic Limits (January 23, 2026)
 
 **Summary:** CPU and Memory resource limits are now queried dynamically from Datadog rather than relying on static configurations in `environments.json`. This ensures accurate % utilization calculations that reflect actual Kubernetes resource configurations.
 
@@ -245,7 +361,7 @@ Previously, the Datadog MCP calculated % CPU/Memory utilization by:
 
 ---
 
-### 2.1 Phase 1: Datadog MCP Changes
+### 3.1 Phase 1: Datadog MCP Changes
 
 **File:** `datadog-mcp/services/datadog_api.py`
 
@@ -307,7 +423,7 @@ When limits not defined:
 
 ---
 
-### 2.2 Phase 2: PerfAnalysis MCP Changes
+### 3.2 Phase 2: PerfAnalysis MCP Changes
 
 **File:** `perfanalysis-mcp/services/apm_analyzer.py`
 
@@ -338,7 +454,7 @@ JSON output now includes status flags:
 
 ---
 
-### 2.3 Phase 3: PerfReport MCP Changes
+### 3.3 Phase 3: PerfReport MCP Changes
 
 **File:** `perfreport-mcp/services/report_generator.py`
 
@@ -388,9 +504,9 @@ JSON output now includes status flags:
 
 ---
 
-## 3. Report Enhancements (PerfReport MCP)
+## 4. Report Enhancements (PerfReport MCP)
 
-### 3.1 Human-Readable Test Duration
+### 4.1 Human-Readable Test Duration
 
 **What Changed:** Test duration is now displayed in a human-friendly format instead of raw seconds.
 
@@ -416,7 +532,7 @@ JSON output now includes status flags:
 
 ---
 
-### 3.2 Cleaner Infrastructure Summaries
+### 4.2 Cleaner Infrastructure Summaries
 
 **What Changed:** Removed auto-generated headers and footers from infrastructure and correlation analysis sections that were redundant in the final report.
 
@@ -441,7 +557,7 @@ The infrastructure analysis shows...
 
 ---
 
-### 3.3 Formatted Bottleneck Analysis
+### 4.3 Formatted Bottleneck Analysis
 
 **What Changed:** Bottleneck insights are now displayed as properly formatted markdown bullet points instead of raw list notation.
 
@@ -463,7 +579,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 3.4 BlazeMeter Report Link
+### 4.4 BlazeMeter Report Link
 
 **What Changed:** Performance reports now include a direct link to the BlazeMeter public report for the test run.
 
@@ -485,7 +601,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 3.5 Cleaner Service/Host Names
+### 4.5 Cleaner Service/Host Names
 
 **What Changed:** Service and host names in infrastructure tables are now displayed without environment prefixes and Datadog query wildcards.
 
@@ -512,7 +628,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 3.6 Configurable Resource Allocation Display
+### 4.6 Configurable Resource Allocation Display
 
 **What Changed:** A new `report_config.yaml` file allows you to show or hide resource allocation columns in infrastructure tables.
 
@@ -553,9 +669,9 @@ infrastructure_tables:
 
 ---
 
-## 4. New Charts Available
+## 5. New Charts Available
 
-### 4.1 CPU Utilization vs Virtual Users (Dual-Axis)
+### 5.1 CPU Utilization vs Virtual Users (Dual-Axis)
 
 **Chart ID:** `CPU_UTILIZATION_VUSERS_DUALAXIS`
 
@@ -588,7 +704,7 @@ infrastructure_tables:
 
 ---
 
-### 4.2 Memory Utilization vs Virtual Users (Dual-Axis)
+### 5.2 Memory Utilization vs Virtual Users (Dual-Axis)
 
 **Chart ID:** `MEMORY_UTILIZATION_VUSERS_DUALAXIS`
 
@@ -603,7 +719,7 @@ infrastructure_tables:
 
 ---
 
-### 4.3 CPU Core Usage Over Time
+### 5.3 CPU Core Usage Over Time
 
 **Chart ID:** `CPU_CORES_LINE`
 
@@ -628,7 +744,7 @@ unit:
 
 ---
 
-### 4.4 Memory Usage Over Time
+### 5.4 Memory Usage Over Time
 
 **Chart ID:** `MEMORY_USAGE_LINE`
 
@@ -653,7 +769,7 @@ unit:
 
 ---
 
-### 4.5 CPU Core Comparison Bar Chart
+### 5.5 CPU Core Comparison Bar Chart
 
 **Chart ID:** `CPU_CORE_COMPARISON_BAR`
 
@@ -690,7 +806,7 @@ unit:
 
 ---
 
-### 4.6 Memory Usage Comparison Bar Chart
+### 5.6 Memory Usage Comparison Bar Chart
 
 **Chart ID:** `MEMORY_USAGE_COMPARISON_BAR`
 
@@ -727,7 +843,7 @@ unit:
 
 ---
 
-## 5. Future Updates
+## 6. Future Updates
 
 *This section will be updated as new enhancements are released.*
 
@@ -771,4 +887,4 @@ unit:
 
 ---
 
-*Last Updated: February 1, 2026*
+*Last Updated: February 7, 2026*
