@@ -1,11 +1,11 @@
 # JMeter MCP Server
 
-Welcome to the JMeter MCP Server!
+Welcome to the JMeter MCP Server! 🎉
 This is a Python-based MCP server built with **FastMCP** to automate JMeter-based performance testing workflows — including Playwright trace capture, network analysis, correlation detection, JMX script generation, test execution, results aggregation, and log analysis.
 
 ---
 
-## Features
+## ✨ Features
 
 * **Playwright Integration**: Parse network traces captured by Cursor's Playwright MCP agent for seamless browser-to-JMeter script conversion.
 * **Run JMeter tests directly**: Execute JMeter test plans (`.jmx` files) locally.
@@ -19,7 +19,7 @@ This is a Python-based MCP server built with **FastMCP** to automate JMeter-base
 * **Configurable domain exclusions**: Filter out APM, analytics, and middleware traffic from capture and analysis.
 * **Configurable and extensible**: Manage all paths and parameters through `config.yaml` and `jmeter_config.yaml` files.
 
-Future tools under consideration:
+🧩 Future tools under consideration:
 
 * `validate_jmx` — Validate JMX script structure and variable references (currently disabled)
 * **OAuth 2.0 / PKCE correlation support** — Authentication flow correlation (Phase 2)
@@ -28,7 +28,7 @@ Future tools under consideration:
 
 ---
 
-## Prerequisites
+## 🏁 Prerequisites
 
 * Python 3.12 or higher
 * JMeter installed and added to your system `PATH`
@@ -45,7 +45,7 @@ Planned support for additional MCP hosts:
 
 ---
 
-## Getting Started
+## 🚀 Getting Started
 
 ### 1. Clone the Repository
 
@@ -100,7 +100,7 @@ pip install -e .
 
 ---
 
-## Configuration Files
+## 📝 Configuration Files
 
 ### `config.yaml` (Main Configuration)
 
@@ -223,7 +223,7 @@ results_collector_config:
 
 ---
 
-## Running the MCP Server
+## ▶️ Running the MCP Server
 
 ### Option 1: Run with `uv` (Recommended)
 
@@ -241,7 +241,7 @@ Runs with default `stdio` transport — ideal for local runs or Cursor integrati
 
 ---
 
-## MCP Server Configuration (`mcp.json`)
+## ⚙️ MCP Server Configuration (`mcp.json`)
 
 Example setup for Cursor or compatible MCP hosts:
 
@@ -263,7 +263,7 @@ Example setup for Cursor or compatible MCP hosts:
 
 ---
 
-## Tools
+## 🛠️ Tools
 
 The JMeter MCP server exposes the following tools for agents, Cursor, or automation pipelines:
 
@@ -296,7 +296,7 @@ The JMeter MCP server exposes the following tools for agents, Cursor, or automat
 
 ---
 
-## Typical Workflow
+## 🔁 Typical Workflow
 
 ### 1. **Prepare Test Specs**
 
@@ -363,7 +363,7 @@ Use Cursor's Playwright MCP agent to execute the browser automation:
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 jmeter-mcp/
@@ -414,7 +414,7 @@ jmeter-mcp/
 
 ---
 
-## Artifacts Output Structure
+## 🎯 Artifacts Output Structure
 
 When you run tests and analyses, artifacts are organized under `artifacts/<test_run_id>/`:
 
@@ -443,7 +443,7 @@ artifacts/
 
 ---
 
-## Correlation Analysis Details
+## 🔍 Correlation Analysis Details
 
 The correlation analyzer (v0.2.0) performs the following:
 
@@ -492,7 +492,7 @@ The correlation analyzer (v0.2.0) performs the following:
 
 ---
 
-## Future Enhancements
+## 🚧 Future Enhancements
 
 ### Input Adapters
 * **HAR file adapter** — Convert browser-recorded or proxy-captured HAR files into network capture JSON for JMX generation (Phase 1)
@@ -517,10 +517,10 @@ The correlation analyzer (v0.2.0) performs the following:
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
 Feel free to open issues or submit pull requests to enhance functionality, add new tools, or improve documentation!
 
 ---
 
-Created with FastMCP, JMeter, and the MCP Perf Suite architecture.
+Created with ❤️ using FastMCP, JMeter, and the MCP Perf Suite architecture.
