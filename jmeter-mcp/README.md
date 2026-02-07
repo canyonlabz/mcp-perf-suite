@@ -316,10 +316,10 @@ END
 
 ### 2. **Capture Network Traffic**
 
-Use Cursor's Playwright MCP agent to execute the browser automation:
+Use Playwright MCP agent to execute the browser automation:
 
 1. **Archive previous traces**: `archive_playwright_traces` clears old trace data
-2. **Run browser automation**: Cursor's Playwright agent executes the spec
+2. **Run browser automation**: Playwright agent executes the spec
 3. **Capture traffic**: `capture_network_traffic` parses the Playwright traces and maps requests to steps
 
 ### 3. **Analyze Correlations**
@@ -350,7 +350,7 @@ Use Cursor's Playwright MCP agent to execute the browser automation:
 
 ### 7. **Generate Reports**
 
-* `generate_aggregate_report` produces a BlazeMeter-style aggregate report CSV from JTL results
+* `generate_aggregate_report` produces a JMeter/BlazeMeter-style aggregate report CSV from JTL results
 * Output results available for downstream analysis
 
 ### 8. **Analyze Logs**
@@ -402,14 +402,7 @@ jmeter-mcp/
 ├── jmeter_config.example.yaml    # Example JMeter script generation settings
 ├── pyproject.toml                # Project metadata and dependencies
 ├── uv.lock                       # uv dependency lock file
-├── README.md                     # This file
-└── test-specs/
-    ├── web-flows/
-    │   └── blazedemo_product_purchase.md
-    ├── api-flows/
-    │   └── (API flow specs)
-    └── examples/
-        └── (Example templates)
+└── README.md                     # This file
 ```
 
 ---
