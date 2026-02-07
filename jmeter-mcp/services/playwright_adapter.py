@@ -311,19 +311,27 @@ def _should_capture_snapshot(url: str, mime_type: str, capture_config: Dict[str,
     """
     Decide whether a given resource snapshot should be captured for JMeter
     based on:
+      - URL-based config filters (static assets, fonts, video, domains, etc.)
       - MIME type (HTML and relevant data types)
-      - network_capture config filters via network_capture.should_capture_url
+
+    URL-based exclusions always take priority over MIME type heuristics.
+    For example, a .js file returning text/html (e.g. a 404 error page)
+    is still excluded when capture_static_assets is False.
     """
-    # Always prefer HTML pages for JMeter HTTP Samplers
+    # Apply URL-based config filters first (static assets, fonts, domains, etc.)
+    try:
+        if not network_capture.should_capture_url(url, capture_config):
+            return False
+    except Exception:
+        # Be conservative: fall through to MIME-based logic if config is malformed
+        pass
+
+    # Allow HTML pages through for JMeter HTTP Samplers
     if mime_type.lower().startswith("text/html"):
         return True
 
-    # Defer to existing URL-based filtering logic for everything else
-    try:
-        return network_capture.should_capture_url(url, capture_config)
-    except Exception:
-        # Be conservative: default to capturing if config is missing/malformed
-        return True
+    # URL filter already approved this request
+    return True
 
 
 def _assign_requests_to_steps(
