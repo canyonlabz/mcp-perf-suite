@@ -1,7 +1,7 @@
 # 🚀📶 JMeter MCP Server
 
 Welcome to the JMeter MCP Server! 🎉
-This is a Python-based MCP server built with **FastMCP 2.0** that partners with the **Playwright MCP** to convert human-readable workflows into JMeter performance test scripts by analyzing & capturing Playwright traces, transforming them into structured JSON, generating JMeter **JMX** scripts, and running correlation analysis, results aggregation, and log analysis.
+This is a Python-based MCP server built with **FastMCP 2.0** that partners with the **Playwright MCP** to turn human-readable workflows into JMeter performance test scripts—by using Playwright to run browser automation and capture trace files, then analyzing those traces to produce structured JSON, generate JMeter **JMX** scripts, and provide correlation analysis, results aggregation, and log analysis.
 
 ---
 
