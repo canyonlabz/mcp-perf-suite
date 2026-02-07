@@ -1,23 +1,24 @@
 # 🚀📶 JMeter MCP Server
 
 Welcome to the JMeter MCP Server! 🎉
-This is a Python-based MCP server built with **FastMCP** to automate JMeter-based performance testing workflows — including Playwright trace capture, network analysis, correlation detection, JMX script generation, test execution, results aggregation, and log analysis.
+This is a Python-based MCP server built with **FastMCP 2.0** that partners with the **Playwright MCP** to convert human-readable workflows into JMeter performance test scripts by analyzing & capturing Playwright traces, transforming them into structured JSON, generating JMeter **JMX** scripts, and running correlation analysis, results aggregation, and log analysis.
 
 ---
 
 ## ✨ Features
 
 * **🎭 Playwright Integration**: Parse network traces captured by Cursor's Playwright MCP agent for seamless browser-to-JMeter script conversion.
-* **▶️ Run JMeter tests directly**: Execute JMeter test plans (`.jmx` files) locally.
-* **⏹️ Stop active JMeter tests**: Gracefully terminate test executions in progress.
 * **🌐 Capture network traffic**: Parse Playwright network traces and map them to test steps from spec files.
+* **🚫 Configurable domain exclusions**: Filter out APM, analytics, and middleware traffic from capture and analysis.
+* **⚙️ Configurable and extensible**: Manage all paths and parameters through `config.yaml` and `jmeter_config.yaml` files.
 * **🔍 Analyze correlations**: Identify dynamic values (IDs, tokens, correlation IDs) that flow between requests for parameterization.
 * **🏷️ Orphan ID detection**: Flag request-only IDs without prior response sources for manual parameterization.
 * **📝 Generate JMeter scripts**: Convert captured network traffic into executable JMX test scripts with proper structure.
+* **▶️ Run JMeter tests directly**: Execute JMeter test plans (`.jmx` files) locally.
+* **⏹️ Stop active JMeter tests**: Gracefully terminate test executions in progress.
 * **📊 Aggregate post-test results**: Parse JMeter JTL output to generate BlazeMeter-style summary reports and KPIs.
 * **🔬 Deep log analysis**: Analyze JMeter/BlazeMeter log files — group errors by type, API, and root cause with first-occurrence request/response details and JTL correlation.
-* **🚫 Configurable domain exclusions**: Filter out APM, analytics, and middleware traffic from capture and analysis.
-* **⚙️ Configurable and extensible**: Manage all paths and parameters through `config.yaml` and `jmeter_config.yaml` files.
+
 
 🧩 Future tools under consideration:
 
