@@ -7,7 +7,7 @@ This is a Python-based MCP server built with **FastMCP 2.0** that partners with 
 
 ## ✨ Features
 
-* **🎭 Playwright Integration**: Parse network traces captured by Cursor's Playwright MCP agent for seamless browser-to-JMeter script conversion.
+* **🎭 Playwright Integration**: Parse network traces captured by Playwright MCP agent for seamless browser-to-JMeter script conversion.
 * **🌐 Capture network traffic**: Parse Playwright network traces and map them to test steps from spec files.
 * **🚫 Configurable domain exclusions**: Filter out APM, analytics, and middleware traffic from capture and analysis.
 * **⚙️ Configurable and extensible**: Manage all paths and parameters through `config.yaml` and `jmeter_config.yaml` files.
@@ -16,13 +16,12 @@ This is a Python-based MCP server built with **FastMCP 2.0** that partners with 
 * **📝 Generate JMeter scripts**: Convert captured network traffic into executable JMX test scripts with proper structure.
 * **▶️ Run JMeter tests directly**: Execute JMeter test plans (`.jmx` files) locally.
 * **⏹️ Stop active JMeter tests**: Gracefully terminate test executions in progress.
-* **📊 Aggregate post-test results**: Parse JMeter JTL output to generate BlazeMeter-style summary reports and KPIs.
+* **📊 Aggregate post-test results**: Parse JMeter JTL output to generate JMeter/BlazeMeter-style summary reports and KPIs.
 * **🔬 Deep log analysis**: Analyze JMeter/BlazeMeter log files — group errors by type, API, and root cause with first-occurrence request/response details and JTL correlation.
 
 
 🧩 Future tools under consideration:
 
-* `validate_jmx` — Validate JMX script structure and variable references (currently disabled)
 * **OAuth 2.0 / PKCE correlation support** — Authentication flow correlation (Phase 2)
 * **HITL tools** — Human-in-the-loop tools to add/edit JMeter elements (e.g., samplers, extractors, assertions) as needed
 * **Input adapters** — HAR file adapter and Swagger/OpenAPI adapter to convert those files into the well-structured network capture JSON for JMX generation
@@ -507,8 +506,6 @@ The correlation analyzer (v0.2.0) performs the following:
 
 ### Integration & Infrastructure
 * **Integration with BlazeMeter and Datadog MCPs** for unified execution and monitoring
-* **Real-time metric streaming** to Datadog or Prometheus
-* **Auto-scaling JMeter clusters** (K8s-based execution)
 * **LLM-based test analysis** using PerfAnalysis MCP
 * **Report generation via PerfReport MCP**
 
