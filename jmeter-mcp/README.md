@@ -1,11 +1,11 @@
 # JMeter MCP Server
 
-Welcome to the JMeter MCP Server! 🎉
-This is a Python-based MCP server built with **FastMCP** to automate JMeter-based performance testing workflows — including Playwright trace capture, network analysis, correlation detection, JMX script generation, test execution, and results aggregation.
+Welcome to the JMeter MCP Server!
+This is a Python-based MCP server built with **FastMCP** to automate JMeter-based performance testing workflows — including Playwright trace capture, network analysis, correlation detection, JMX script generation, test execution, results aggregation, and log analysis.
 
 ---
 
-## ✨ Features
+## Features
 
 * **Playwright Integration**: Parse network traces captured by Cursor's Playwright MCP agent for seamless browser-to-JMeter script conversion.
 * **Run JMeter tests directly**: Execute JMeter test plans (`.jmx` files) locally.
@@ -15,31 +15,37 @@ This is a Python-based MCP server built with **FastMCP** to automate JMeter-base
 * **Orphan ID detection**: Flag request-only IDs without prior response sources for manual parameterization.
 * **Generate JMeter scripts**: Convert captured network traffic into executable JMX test scripts with proper structure.
 * **Aggregate post-test results**: Parse JMeter JTL output to generate BlazeMeter-style summary reports and KPIs.
+* **Deep log analysis**: Analyze JMeter/BlazeMeter log files — group errors by type, API, and root cause with first-occurrence request/response details and JTL correlation.
 * **Configurable domain exclusions**: Filter out APM, analytics, and middleware traffic from capture and analysis.
 * **Configurable and extensible**: Manage all paths and parameters through `config.yaml` and `jmeter_config.yaml` files.
 
-🧩 Future tools under consideration:
+Future tools under consideration:
 
-* `get_jmeter_logs` – Retrieve logs and errors after execution
-* `validate_jmx` – Validate JMX script structure and variable references (currently disabled)
-* `get_jmeter_run_summary` – Produce a summarized report for quick insights (currently disabled)
-* `compare_runs` – Compare two or more JMeter test results (for regression or trend analysis)
-* **OAuth 2.0 / PKCE correlation support** – Authentication flow correlation (Phase 2)
+* `validate_jmx` — Validate JMX script structure and variable references (currently disabled)
+* **OAuth 2.0 / PKCE correlation support** — Authentication flow correlation (Phase 2)
+* **HITL tools** — Human-in-the-loop tools to add/edit JMeter elements (e.g., samplers, extractors, assertions) as needed
+* **Input adapters** — HAR file adapter and Swagger/OpenAPI adapter to convert those files into the well-structured network capture JSON for JMX generation
 
 ---
 
-## 🏁 Prerequisites
+## Prerequisites
 
 * Python 3.12 or higher
 * JMeter installed and added to your system `PATH`
 * Configured `config.yaml` (copy from `config.example.yaml`)
-* Configured `jmeter_config.yaml` for JMeter-specific settings
-* Optional `.env` for credentials and local paths
+* Configured `jmeter_config.yaml` for JMeter-specific settings (copy from `jmeter_config.example.yaml`)
 * **Cursor IDE** with Playwright MCP enabled (for browser automation workflows)
+
+All configuration is managed through YAML files — no `.env` file is required.
+
+Planned support for additional MCP hosts:
+
+* **Claude Desktop**
+* **VS Code** (via MCP extension)
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Clone the Repository
 
@@ -64,7 +70,7 @@ cp config.example.yaml config.yaml
 
 ### 3. Set Up Python Environment
 
-#### Option A: Using `uv` (Recommended) ⚡️
+#### Option A: Using `uv` (Recommended)
 
 ```bash
 # Install uv if not already installed
@@ -94,11 +100,11 @@ pip install -e .
 
 ---
 
-## 📝 Configuration Files
+## Configuration Files
 
 ### `config.yaml` (Main Configuration)
 
-Copy from `config.example.yaml` and customize:
+Copy from `config.example.yaml` and customize. For detailed guidance on all available options, see the [JMeter MCP Configuration Guide](../docs/jmeter_mcp_configuration_guide.md).
 
 ```yaml
 general:
@@ -118,6 +124,15 @@ jmeter:
   jmeter_bin_path: "C:\\path\\to\\apache-jmeter\\bin"
   jmeter_start_exe: "jmeter.bat"      # Use "jmeter" for Linux/Mac
   jmeter_stop_exe: "stoptest.cmd"     # Use "stoptest.sh" for Linux/Mac
+
+jmeter_log:
+  max_description_length: 200        # Max characters for error description in log analysis output
+  max_request_length: 500            # Max characters for captured request details
+  max_response_length: 500           # Max characters for captured response details
+  max_stack_trace_lines: 50          # Max lines to capture from a stack trace
+  error_levels:                      # Log levels to treat as issues (WARN excluded by design)
+    - "ERROR"
+    - "FATAL"
 
 test_specs:
   web_flows_path: "test-specs\\web-flows"
@@ -158,9 +173,11 @@ network_capture:
     - "logrocket.com"
 ```
 
+> **Note:** The `logging` section is reserved for future MCP server debugging and is not currently implemented. It is separate from the `jmeter_log` section, which controls how the `analyze_jmeter_log` tool processes JMeter/BlazeMeter log files.
+
 ### `jmeter_config.yaml` (JMeter Script Settings)
 
-Controls how JMX scripts are generated:
+Controls how JMX scripts are generated. For detailed guidance, see the [JMeter MCP Configuration Guide](../docs/jmeter_mcp_configuration_guide.md).
 
 ```yaml
 thread_group:
@@ -206,7 +223,7 @@ results_collector_config:
 
 ---
 
-## ▶️ Running the MCP Server
+## Running the MCP Server
 
 ### Option 1: Run with `uv` (Recommended)
 
@@ -224,7 +241,7 @@ Runs with default `stdio` transport — ideal for local runs or Cursor integrati
 
 ---
 
-## ⚙️ MCP Server Configuration (`mcp.json`)
+## MCP Server Configuration (`mcp.json`)
 
 Example setup for Cursor or compatible MCP hosts:
 
@@ -246,7 +263,7 @@ Example setup for Cursor or compatible MCP hosts:
 
 ---
 
-## 🛠️ Tools
+## Tools
 
 The JMeter MCP server exposes the following tools for agents, Cursor, or automation pipelines:
 
@@ -271,9 +288,15 @@ The JMeter MCP server exposes the following tools for agents, Cursor, or automat
 | `stop_jmeter_test`          | Gracefully stops an ongoing JMeter test run                                |
 | `generate_aggregate_report` | Parses JMeter JTL results to produce BlazeMeter-style aggregate CSV report |
 
+### Log Analysis
+
+| Tool                        | Description                                                                |
+| :-------------------------- | :------------------------------------------------------------------------- |
+| `analyze_jmeter_log`        | Deep analysis of JMeter/BlazeMeter log files — groups errors by type, API, and root cause with first-occurrence request/response details and optional JTL correlation |
+
 ---
 
-## 🔁 Typical Workflow
+## Typical Workflow
 
 ### 1. **Prepare Test Specs**
 
@@ -304,7 +327,7 @@ Use Cursor's Playwright MCP agent to execute the browser automation:
 * `analyze_network_traffic` identifies dynamic values (IDs, tokens, correlation IDs) that flow between requests
 * Detects **orphan IDs** — values in request URLs without identifiable source responses
 * Outputs `correlation_spec.json` with:
-  - High-confidence correlations (source → usage patterns)
+  - High-confidence correlations (source -> usage patterns)
   - Low-confidence orphan IDs (recommend CSV or User Defined Variable parameterization)
   - Parameterization hints (extractor type, strategy)
 
@@ -330,9 +353,17 @@ Use Cursor's Playwright MCP agent to execute the browser automation:
 * `generate_aggregate_report` produces a BlazeMeter-style aggregate report CSV from JTL results
 * Output results available for downstream analysis
 
+### 8. **Analyze Logs**
+
+* `analyze_jmeter_log` performs deep analysis of JMeter or BlazeMeter log files
+* Identifies and groups errors by type, API endpoint, and root cause
+* Captures first-occurrence request/response details for each unique error
+* Correlates log errors with JTL result data when available
+* Outputs CSV, JSON, and Markdown reports to `artifacts/<test_run_id>/analysis/`
+
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 jmeter-mcp/
@@ -347,6 +378,7 @@ jmeter-mcp/
 │   │   ├── extractors.py         # Source extraction from responses (JSON, headers, redirects)
 │   │   ├── matchers.py           # Usage detection in requests, orphan ID detection
 │   │   └── utils.py              # URL normalization, JSON traversal, file loading
+│   ├── jmeter_log_analyzer.py    # Deep JMeter/BlazeMeter log analysis service
 │   ├── jmeter_runner.py          # Handles JMeter execution, control, and reporting
 │   ├── network_capture.py        # URL filtering and capture configuration logic
 │   ├── playwright_adapter.py     # Parses Playwright traces into step-aware network capture
@@ -356,15 +388,16 @@ jmeter-mcp/
 │       ├── config_elements.py    # User Defined Variables, CSV Data Sets, etc.
 │       ├── controllers.py        # JMeter Controllers (Simple, Transaction, etc.)
 │       ├── listeners.py          # JMeter Listeners (View Results Tree, Aggregate Report)
-│       ├── oauth2.py             # OAuth 2.0 components for token capture and generation (e.g. code_challenge, code_verifier, etc.)
-│       ├── post_processor.py     # Post-Processor elements (e.g. JSON Extractors, RegEx Extractors, etc.)
-│       ├── pre_processor.py      # Pre-Processor elements (e.g. JSR223 PreProcessor, etc.)
+│       ├── oauth2.py             # OAuth 2.0 components (code_challenge, code_verifier, etc.)
+│       ├── post_processor.py     # Post-Processor elements (JSON Extractors, RegEx Extractors, etc.)
+│       ├── pre_processor.py      # Pre-Processor elements (JSR223 PreProcessor, etc.)
 │       ├── plan.py               # JMeter Test Plan and Thread Groups
 │       └── samplers.py           # JMeter Samplers (HTTP Request GET/POST/PUT/DELETE)
 ├── utils/
 │   ├── browser_utils.py          # Domain extraction, logging setup, async utilities
 │   ├── config.py                 # Loads configuration YAML files
-│   └── file_utils.py             # File handling utilities
+│   ├── file_utils.py             # File handling, discovery, and output utilities
+│   └── log_utils.py              # Log parsing utilities (regex, extraction, normalization)
 ├── config.example.yaml           # Example configuration template
 ├── jmeter_config.example.yaml    # Example JMeter script generation settings
 ├── pyproject.toml                # Project metadata and dependencies
@@ -381,9 +414,9 @@ jmeter-mcp/
 
 ---
 
-## 🎯 Artifacts Output Structure
+## Artifacts Output Structure
 
-When you run tests, artifacts are organized under `artifacts/<test_run_id>/`:
+When you run tests and analyses, artifacts are organized under `artifacts/<test_run_id>/`:
 
 ```
 artifacts/
@@ -395,14 +428,22 @@ artifacts/
     │   ├── correlation_naming.json      # Variable naming (via Cursor Rules)
     │   ├── <test_run_id>.jmx            # Generated JMeter script
     │   ├── <test_run_id>.jtl            # JMeter results log
-    │   └── <test_run_id>_aggregate_report.csv
+    │   ├── <test_run_id>_aggregate_report.csv
+    │   └── jmeter.log                   # JMeter execution log
+    ├── blazemeter/
+    │   ├── jmeter.log                   # BlazeMeter JMeter log(s)
+    │   └── test-results.csv             # BlazeMeter JTL (renamed)
+    ├── analysis/
+    │   ├── <source>_log_analysis.csv    # Log analysis issues (tabular)
+    │   ├── <source>_log_analysis.json   # Log analysis metadata + full issues
+    │   └── <source>_log_analysis.md     # Log analysis report (human-readable)
     └── test-specs/
         └── (run-specific spec overrides)
 ```
 
 ---
 
-## 🔍 Correlation Analysis Details
+## Correlation Analysis Details
 
 The correlation analyzer (v0.2.0) performs the following:
 
@@ -451,22 +492,35 @@ The correlation analyzer (v0.2.0) performs the following:
 
 ---
 
-## 🚧 Future Enhancements
+## Future Enhancements
 
+### Input Adapters
+* **HAR file adapter** — Convert browser-recorded or proxy-captured HAR files into network capture JSON for JMX generation (Phase 1)
+* **Swagger/OpenAPI adapter** — Convert API specifications into synthetic network capture JSON for JMX generation (Phase 2)
+* Both adapters reuse the existing correlation analysis and JMX generation pipeline
+
+### Script Generation & Editing
+* **OAuth 2.0 / PKCE correlation support** for authentication flows
+* **Automatic JMX correlation insertion** based on `correlation_naming.json`
+* **HITL tools** — Human-in-the-loop tools for adding/editing JMeter elements (samplers, extractors, assertions, pre/post-processors) directly through the MCP
+
+### Integration & Infrastructure
 * **Integration with BlazeMeter and Datadog MCPs** for unified execution and monitoring
 * **Real-time metric streaming** to Datadog or Prometheus
 * **Auto-scaling JMeter clusters** (K8s-based execution)
 * **LLM-based test analysis** using PerfAnalysis MCP
 * **Report generation via PerfReport MCP**
-* **OAuth 2.0 / PKCE correlation support** for authentication flows (Phase 2)
-* **Automatic JMX correlation insertion** based on `correlation_naming.json`
+
+### MCP Host Support
+* **Claude Desktop** support
+* **VS Code** support (via MCP extension)
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Feel free to open issues or submit pull requests to enhance functionality, add new tools, or improve documentation!
 
 ---
 
-Created with ❤️ using FastMCP, JMeter, and the MCP Perf Suite architecture.
+Created with FastMCP, JMeter, and the MCP Perf Suite architecture.

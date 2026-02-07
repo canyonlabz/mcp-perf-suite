@@ -180,9 +180,9 @@ The MCP Perf Suite is evolving toward a **schema-driven architecture** that enab
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              DATA SOURCES                                    │
+│                              DATA SOURCES                                   │
 ├─────────────────────────────────┬───────────────────────────────────────────┤
-│          APM MCP                │           Load Test MCP                    │
+│          APM MCP                │           Load Test MCP                   │
 │   (replaces Datadog MCP)        │      (replaces BlazeMeter MCP)            │
 │                                 │                                           │
 │  ┌─────────────────────────┐    │    ┌─────────────────────────┐            │
@@ -200,33 +200,33 @@ The MCP Perf Suite is evolving toward a **schema-driven architecture** that enab
 │  │  (metrics, logs, traces)│    │    │  (results, aggregates)  │            │
 │  └──────────┬──────────────┘    │    └──────────┬──────────────┘            │
 ├─────────────┴───────────────────┴───────────────┴───────────────────────────┤
-│                                                                              │
-│                    STANDARDIZED SCHEMA LAYER                                 │
-│           (Source-agnostic data contracts / JSON & CSV schemas)              │
-│                                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│                         ┌─────────────────────────┐                          │
-│                         │  Performance Analysis   │                          │
-│                         │        MCP              │                          │
-│                         │ (source-agnostic)       │                          │
-│                         └───────────┬─────────────┘                          │
-│                                     │                                        │
-│                                     ▼                                        │
-│                         ┌─────────────────────────┐                          │
-│                         │  Performance Report     │                          │
-│                         │        MCP              │                          │
-│                         │ (source-agnostic)       │                          │
-│                         └───────────┬─────────────┘                          │
-│                                     │                                        │
-│                    ┌────────────────┼────────────────┐                       │
-│                    ▼                ▼                ▼                       │
-│              ┌──────────┐    ┌──────────┐    ┌──────────────┐                │
-│              │Confluence│    │ MS Graph │    │ Other Output │                │
-│              │   MCP    │    │   MCP    │    │   Adapters   │                │
-│              └──────────┘    └──────────┘    └──────────────┘                │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+│                                                                             │
+│                    STANDARDIZED SCHEMA LAYER                                │
+│           (Source-agnostic data contracts / JSON & CSV schemas)             │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│                         ┌─────────────────────────┐                         │
+│                         │  Performance Analysis   │                         │
+│                         │        MCP              │                         │
+│                         │ (source-agnostic)       │                         │
+│                         └───────────┬─────────────┘                         │
+│                                     │                                       │
+│                                     ▼                                       │
+│                         ┌─────────────────────────┐                         │
+│                         │  Performance Report     │                         │
+│                         │        MCP              │                         │
+│                         │ (source-agnostic)       │                         │
+│                         └───────────┬─────────────┘                         │
+│                                     │                                       │
+│                    ┌────────────────┼────────────────┐                      │
+│                    ▼                ▼                ▼                      │
+│              ┌──────────┐    ┌──────────┐    ┌──────────────┐               │
+│              │Confluence│    │ MS Graph │    │ Other Output │               │
+│              │   MCP    │    │   MCP    │    │   Adapters   │               │
+│              └──────────┘    └──────────┘    └──────────────┘               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 #### Key Benefits
@@ -277,5 +277,5 @@ This project is licensed under the MIT License. See the LICENSE file for details
 
 ---
 
-Created with ❤️ to enable next-gen performance testing, analysis, and reporting powered by MCP and AI.
+Created with ❤️ to enable next-gen performance testing, analysis, and reporting powered by FastMCP and AI.
 
