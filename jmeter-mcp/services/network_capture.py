@@ -36,7 +36,7 @@ def should_capture_url(url, config):
     exclude_domains = config.get("exclude_domains", [])
     for excluded in exclude_domains:
         excluded_lower = excluded.lower()
-        # Match exact domain, subdomain, or partial match (e.g., "datadoghq.com" in "browser-intake-us3-datadoghq.com")
+        # Match exact domain, subdomain, or partial match (e.g. "google" matches "google.com", "maps.google.com", etc.)
         if domain == excluded_lower or domain.endswith("." + excluded_lower) or excluded_lower in domain:
             return False
 
