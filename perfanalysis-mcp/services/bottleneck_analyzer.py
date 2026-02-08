@@ -56,6 +56,7 @@ BN_DEFAULTS = {
     "sla_p90_ms": None,           # falls back to perf_analysis.response_time_sla
     "cpu_high_pct": None,         # falls back to resource_thresholds.cpu.high
     "memory_high_pct": None,      # falls back to resource_thresholds.memory.high
+    "raw_metric_degrade_pct": 50.0,  # relative increase from baseline to flag when utilization % unavailable (no K8s limits)
 }
 
 
@@ -180,11 +181,18 @@ async def analyze_bottlenecks(
         # ------------------------------------------------------------------
         # 3. Optionally load infrastructure metrics
         # ------------------------------------------------------------------
-        infra_df = _load_infrastructure_metrics(test_run_id, cfg)
+        infra_df, infra_meta = _load_infrastructure_metrics(test_run_id, cfg)
         has_infra = infra_df is not None and not infra_df.empty
         if has_infra:
             buckets_df = _align_infra_to_buckets(buckets_df, infra_df, cfg)
-            await ctx.info("Infrastructure", "Datadog metrics aligned to time buckets")
+            if infra_meta["metric_mode"] == "raw":
+                await ctx.info(
+                    "Infrastructure",
+                    "Datadog metrics aligned to time buckets (RAW mode: K8s limits not defined, "
+                    f"using {infra_meta['cpu_unit']}/{infra_meta['memory_unit']} with relative-from-baseline thresholds)"
+                )
+            else:
+                await ctx.info("Infrastructure", "Datadog metrics aligned to time buckets")
         else:
             await ctx.warning("Infrastructure", "No Datadog metrics found - infra analysis will be skipped")
 
@@ -218,7 +226,7 @@ async def analyze_bottlenecks(
 
         if has_infra and degradation_windows:
             findings = _cross_reference_infrastructure(
-                findings, buckets_df, baseline, cfg, degradation_windows
+                findings, buckets_df, baseline, cfg, degradation_windows, infra_meta,
             )
             correlated_count = sum(
                 1 for f in findings
@@ -238,10 +246,29 @@ async def analyze_bottlenecks(
         else:
             await ctx.info("Phase 2a", "No infrastructure data available -- skipping cross-reference")
 
+        # ------------------------------------------------------------------
+        # 5c. Phase 2b -- Capacity Risk Detection
+        # ------------------------------------------------------------------
+        if has_infra:
+            capacity_risks = _detect_capacity_risks(
+                buckets_df, baseline, cfg, test_run_id,
+                degradation_windows, test_start_time, infra_meta,
+            )
+            if capacity_risks:
+                findings.extend(capacity_risks)
+                await ctx.info(
+                    "Phase 2b",
+                    f"Capacity risk detection: {len(capacity_risks)} risk(s) identified"
+                )
+            else:
+                await ctx.info("Phase 2b", "No capacity risks detected")
+        else:
+            await ctx.info("Phase 2b", "No infrastructure data -- skipping capacity risk detection")
+
         await ctx.info("Detection", f"Identified {len(findings)} finding(s) total")
 
         # ------------------------------------------------------------------
-        # 5b. Comparison mode (if baseline_run_id supplied)
+        # 5d. Comparison mode (if baseline_run_id supplied)
         # ------------------------------------------------------------------
         comparison = None
         if baseline_run_id:
@@ -269,6 +296,7 @@ async def analyze_bottlenecks(
             "findings": findings,
             "comparison": comparison,
             "infrastructure_available": has_infra,
+            "infrastructure_meta": infra_meta if has_infra else None,
         }
 
         # ------------------------------------------------------------------
@@ -325,62 +353,167 @@ def _load_jtl(path: Path) -> Optional[pd.DataFrame]:
         return None
 
 
-def _load_infrastructure_metrics(test_run_id: str, cfg: Dict) -> Optional[pd.DataFrame]:
-    """Load Datadog host/k8s metrics CSVs and return unified DataFrame."""
+def _load_infrastructure_metrics(
+    test_run_id: str, cfg: Dict,
+) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
+    """Load Datadog host/k8s metrics CSVs and return unified DataFrame + metadata.
+
+    Returns a tuple ``(infra_df, infra_meta)`` where *infra_meta* describes
+    the metric mode:
+
+    * **percentage mode** (``limits_available=True``): ``avg_cpu`` / ``avg_memory``
+      values are utilization percentages (0-100).  Absolute thresholds
+      (``cpu_high_pct``, ``memory_high_pct``) apply.
+    * **raw mode** (``limits_available=False``): K8s resource limits are not
+      defined so utilization % cannot be computed.  Values are in raw units
+      (CPU cores, Memory GB).  Only relative-from-baseline thresholds apply.
+
+    Both modes produce identical column names (``cpu_util_pct``,
+    ``mem_util_pct``) so that ``_align_infra_to_buckets`` and downstream code
+    work unchanged -- the *infra_meta* dict tells callers how to interpret
+    the numbers.
+    """
+    _DEFAULT_META: Dict[str, Any] = {
+        "metric_mode": "percentage",
+        "limits_available": True,
+        "cpu_unit": "%",
+        "memory_unit": "%",
+    }
+
     apm_tool = PA_CONFIG.get("apm_tool", "datadog").lower()
     metrics_dir = ARTIFACTS_PATH / test_run_id / apm_tool
 
     if not metrics_dir.exists():
-        return None
+        return None, _DEFAULT_META
 
     csv_files = sorted(
         list(metrics_dir.glob("host_metrics_*.csv"))
         + list(metrics_dir.glob("k8s_metrics_*.csv"))
     )
     if not csv_files:
-        return None
+        return None, _DEFAULT_META
 
-    frames = []
+    pct_frames: List[pd.DataFrame] = []
+    raw_cpu_frames: List[pd.DataFrame] = []
+    raw_mem_frames: List[pd.DataFrame] = []
+
     for csv_file in csv_files:
         try:
             df = pd.read_csv(csv_file)
-            cpu = df[df["metric"] == "cpu_util_pct"].copy()
-            mem = df[df["metric"] == "mem_util_pct"].copy()
+            scope = df["scope"].iloc[0] if not df.empty else "unknown"
 
-            for part, col in [(cpu, "cpu_util_pct"), (mem, "mem_util_pct")]:
+            # --- Percentage metrics (always try first) ---
+            cpu_pct = df[df["metric"] == "cpu_util_pct"].copy()
+            mem_pct = df[df["metric"] == "mem_util_pct"].copy()
+
+            for part, col in [(cpu_pct, "cpu_util_pct"), (mem_pct, "mem_util_pct")]:
                 if part.empty:
                     continue
                 processed = part[["timestamp_utc", "value"]].copy()
                 processed.columns = ["timestamp", col]
                 processed["timestamp"] = pd.to_datetime(processed["timestamp"], utc=True)
-
-                # Identify resource by filter (k8s) or hostname (host)
-                scope = df["scope"].iloc[0] if not df.empty else "unknown"
                 if scope == "k8s":
                     processed["resource"] = part["filter"].values
                 else:
                     processed["resource"] = part["hostname"].values
+                pct_frames.append(processed)
 
-                frames.append(processed)
+            # --- Raw K8s metrics (for fallback when limits missing) ---
+            if scope == "k8s":
+                cpu_raw = df[df["metric"] == "kubernetes.cpu.usage.total"].copy()
+                if not cpu_raw.empty:
+                    proc = cpu_raw[["timestamp_utc", "value"]].copy()
+                    proc.columns = ["timestamp", "cpu_util_pct"]
+                    proc["timestamp"] = pd.to_datetime(proc["timestamp"], utc=True)
+                    proc["cpu_util_pct"] = proc["cpu_util_pct"] / 1e9  # nanocores -> cores
+                    proc["resource"] = cpu_raw["filter"].values
+                    raw_cpu_frames.append(proc)
+
+                mem_raw = df[df["metric"] == "kubernetes.memory.usage"].copy()
+                if not mem_raw.empty:
+                    proc = mem_raw[["timestamp_utc", "value"]].copy()
+                    proc.columns = ["timestamp", "mem_util_pct"]
+                    proc["timestamp"] = pd.to_datetime(proc["timestamp"], utc=True)
+                    proc["mem_util_pct"] = proc["mem_util_pct"] / (1024 ** 3)  # bytes -> GB
+                    proc["resource"] = mem_raw["filter"].values
+                    raw_mem_frames.append(proc)
+
         except Exception as e:
             print(f"[bottleneck_analyzer] Skipping {csv_file}: {e}")
             continue
 
-    if not frames:
-        return None
+    # ------------------------------------------------------------------
+    # Decide: are percentage metrics meaningful?
+    # If all values are zero/near-zero (limits=0 produces 0% utilization)
+    # then fall back to raw metrics.
+    # ------------------------------------------------------------------
+    def _merge_cpu_mem(frames: List[pd.DataFrame]) -> Optional[pd.DataFrame]:
+        """Concat frames and merge CPU + Memory on timestamp + resource."""
+        if not frames:
+            return None
+        combined = pd.concat(frames, ignore_index=True)
 
-    combined = pd.concat(frames, ignore_index=True)
+        cpu_col = "cpu_util_pct" if "cpu_util_pct" in combined.columns else None
+        mem_col = "mem_util_pct" if "mem_util_pct" in combined.columns else None
 
-    # Merge CPU and memory on timestamp + resource
-    cpu_data = combined[combined["cpu_util_pct"].notna()][["timestamp", "resource", "cpu_util_pct"]]
-    mem_data = combined[combined["mem_util_pct"].notna()][["timestamp", "resource", "mem_util_pct"]]
+        cpu_data = (
+            combined[combined[cpu_col].notna()][["timestamp", "resource", cpu_col]]
+            if cpu_col and cpu_col in combined.columns
+            else pd.DataFrame()
+        )
+        mem_data = (
+            combined[combined[mem_col].notna()][["timestamp", "resource", mem_col]]
+            if mem_col and mem_col in combined.columns
+            else pd.DataFrame()
+        )
 
-    merged = pd.merge(cpu_data, mem_data, on=["timestamp", "resource"], how="outer")
-    # Datadog returns -1 for "no data available" -- treat as NaN
-    for col in ["cpu_util_pct", "mem_util_pct"]:
-        if col in merged.columns:
-            merged.loc[merged[col] < 0, col] = np.nan
-    return merged.sort_values("timestamp").reset_index(drop=True)
+        if cpu_data.empty and mem_data.empty:
+            return None
+
+        if not cpu_data.empty and not mem_data.empty:
+            merged = pd.merge(cpu_data, mem_data, on=["timestamp", "resource"], how="outer")
+        elif not cpu_data.empty:
+            merged = cpu_data.copy()
+        else:
+            merged = mem_data.copy()
+
+        for col in ["cpu_util_pct", "mem_util_pct"]:
+            if col in merged.columns:
+                merged.loc[merged[col] < 0, col] = np.nan
+
+        return merged.sort_values("timestamp").reset_index(drop=True)
+
+    # -- Check percentage path --
+    pct_usable = False
+    if pct_frames:
+        pct_merged = _merge_cpu_mem(pct_frames)
+        if pct_merged is not None:
+            has_real_cpu = (
+                "cpu_util_pct" in pct_merged.columns
+                and (pct_merged["cpu_util_pct"].abs() > 0.01).any()
+            )
+            has_real_mem = (
+                "mem_util_pct" in pct_merged.columns
+                and (pct_merged["mem_util_pct"].abs() > 0.01).any()
+            )
+            pct_usable = has_real_cpu or has_real_mem
+
+    if pct_usable:
+        return pct_merged, _DEFAULT_META
+
+    # -- Fallback: raw metrics --
+    raw_frames = raw_cpu_frames + raw_mem_frames
+    raw_merged = _merge_cpu_mem(raw_frames)
+    if raw_merged is not None:
+        raw_meta: Dict[str, Any] = {
+            "metric_mode": "raw",
+            "limits_available": False,
+            "cpu_unit": "cores",
+            "memory_unit": "GB",
+        }
+        return raw_merged, raw_meta
+
+    return None, _DEFAULT_META
 
 
 # ============================================================================
@@ -1407,6 +1540,7 @@ def _cross_reference_infrastructure(
     baseline: Dict,
     cfg: Dict,
     degradation_windows: List[Dict],
+    infra_meta: Optional[Dict[str, Any]] = None,
 ) -> List[Dict]:
     """Phase 2a: cross-reference infrastructure metrics with degradation windows.
 
@@ -1418,8 +1552,17 @@ def _cross_reference_infrastructure(
        or infrastructure-inconclusive.
     5. Attach the ``infrastructure_context`` dict to the corresponding finding.
 
+    When ``infra_meta["metric_mode"] == "raw"`` (K8s limits missing), absolute
+    threshold comparisons are skipped and only relative delta from baseline is
+    used for correlation classification.
+
     Returns the modified findings list with infrastructure_context populated.
     """
+    if infra_meta is None:
+        infra_meta = {"metric_mode": "percentage", "limits_available": True, "cpu_unit": "%", "memory_unit": "%"}
+    is_raw = infra_meta["metric_mode"] == "raw"
+    cpu_unit = infra_meta["cpu_unit"]
+    mem_unit = infra_meta["memory_unit"]
     has_infra = "avg_cpu" in buckets_df.columns
     if not has_infra:
         # Mark all findings as inconclusive
@@ -1498,21 +1641,27 @@ def _cross_reference_infrastructure(
         d_cpu = infra_during["avg_cpu"]
         if b_cpu is not None and d_cpu is not None and b_cpu > 0:
             cpu_delta_pct = round((d_cpu - b_cpu) / b_cpu * 100, 1)
-            # Consider CPU correlated if it increased by >= 25% from baseline
-            # or if it exceeds the threshold during degradation
-            cpu_correlated = (
-                cpu_delta_pct >= 25.0
-                or (d_cpu >= cfg["cpu_high_pct"])
-            )
+            if is_raw:
+                # Raw mode: only relative delta matters (no absolute threshold)
+                cpu_correlated = cpu_delta_pct >= 25.0
+            else:
+                # Percentage mode: correlated if delta >= 25% OR exceeds threshold
+                cpu_correlated = (
+                    cpu_delta_pct >= 25.0
+                    or (d_cpu >= cfg["cpu_high_pct"])
+                )
 
         b_mem = infra_baseline["avg_memory"]
         d_mem = infra_during["avg_memory"]
         if b_mem is not None and d_mem is not None and b_mem > 0:
             mem_delta_pct = round((d_mem - b_mem) / b_mem * 100, 1)
-            mem_correlated = (
-                mem_delta_pct >= 25.0
-                or (d_mem >= cfg["memory_high_pct"])
-            )
+            if is_raw:
+                mem_correlated = mem_delta_pct >= 25.0
+            else:
+                mem_correlated = (
+                    mem_delta_pct >= 25.0
+                    or (d_mem >= cfg["memory_high_pct"])
+                )
 
         # Window-scoped correlation (P90 vs CPU/Memory within degradation window)
         window_correlations = {}
@@ -1530,20 +1679,35 @@ def _cross_reference_infrastructure(
 
         if not has_any_data:
             status = "inconclusive"
-            infra_correlated = None
+            infra_correlated_flag = None
             root_cause = "No infrastructure data available for this time window."
         elif any_correlated:
             status = "infrastructure_correlated"
-            infra_correlated = True
+            infra_correlated_flag = True
             factors = []
             if cpu_correlated:
-                factors.append(f"CPU (baseline {b_cpu}% -> {d_cpu}%, +{cpu_delta_pct}%)")
+                if is_raw:
+                    factors.append(
+                        f"CPU (baseline {b_cpu:.3f} {cpu_unit} -> {d_cpu:.3f} {cpu_unit}, +{cpu_delta_pct}%)"
+                    )
+                else:
+                    factors.append(f"CPU (baseline {b_cpu}% -> {d_cpu}%, +{cpu_delta_pct}%)")
             if mem_correlated:
-                factors.append(f"Memory (baseline {b_mem}% -> {d_mem}%, +{mem_delta_pct}%)")
+                if is_raw:
+                    factors.append(
+                        f"Memory (baseline {b_mem:.2f} {mem_unit} -> {d_mem:.2f} {mem_unit}, +{mem_delta_pct}%)"
+                    )
+                else:
+                    factors.append(f"Memory (baseline {b_mem}% -> {d_mem}%, +{mem_delta_pct}%)")
             root_cause = f"Infrastructure stress likely contributing: {', '.join(factors)}."
+            if is_raw:
+                root_cause += (
+                    " Note: K8s resource limits not defined; reporting raw usage. "
+                    "Unable to determine utilization % or remaining capacity."
+                )
         else:
             status = "infrastructure_independent"
-            infra_correlated = False
+            infra_correlated_flag = False
             root_cause = (
                 "Infrastructure metrics remained stable during degradation. "
                 "Bottleneck is likely application-level (code, database, or external dependency)."
@@ -1551,7 +1715,11 @@ def _cross_reference_infrastructure(
 
         findings[idx]["infrastructure_context"] = {
             "status": status,
-            "infra_correlated": infra_correlated,
+            "infra_correlated": infra_correlated_flag,
+            "limits_available": infra_meta["limits_available"],
+            "metric_mode": infra_meta["metric_mode"],
+            "cpu_unit": cpu_unit,
+            "memory_unit": mem_unit,
             "baseline_window": infra_baseline,
             "degradation_window": infra_during,
             "cpu_delta_pct": cpu_delta_pct,
@@ -1570,7 +1738,344 @@ def _cross_reference_infrastructure(
 
 
 # ---------------------------------------------------------------------------
-# 6. Multi-Tier Bottlenecks (per-label analysis)
+# Phase 2b: Capacity Risk Detection (infra stress without latency degradation)
+# ---------------------------------------------------------------------------
+
+def _detect_capacity_risks(
+    buckets_df: pd.DataFrame,
+    baseline: Dict,
+    cfg: Dict,
+    test_run_id: str,
+    degradation_windows: List[Dict],
+    test_start_time=None,
+    infra_meta: Optional[Dict[str, Any]] = None,
+) -> List[Dict]:
+    """Phase 2b: detect sustained infrastructure stress when performance is healthy.
+
+    Scans CPU and Memory across the full test for sustained periods above
+    threshold.  If the high-infra window does **not** overlap any Phase 1
+    degradation window, the finding is classified as ``capacity_risk`` --
+    the system is coping but has limited headroom.
+
+    **Raw mode** (``infra_meta["metric_mode"] == "raw"``):
+    When K8s limits are not defined, absolute percentage thresholds cannot
+    be applied.  Instead, sustained periods where raw usage exceeds
+    ``baseline * (1 + raw_metric_degrade_pct / 100)`` are flagged.
+    ``headroom_pct`` is not reported (ceiling unknown).
+
+    Also detects:
+    - **Climbing trends**: Memory or CPU steadily increasing over the test
+      (potential leak or unbounded growth) even if the threshold was never
+      breached.
+    """
+    if infra_meta is None:
+        infra_meta = {"metric_mode": "percentage", "limits_available": True, "cpu_unit": "%", "memory_unit": "%"}
+    is_raw = infra_meta["metric_mode"] == "raw"
+    cpu_unit = infra_meta["cpu_unit"]
+    mem_unit = infra_meta["memory_unit"]
+
+    findings: List[Dict] = []
+
+    if "avg_cpu" not in buckets_df.columns:
+        return findings
+
+    warmup = cfg["warmup_buckets"]
+    sustained = cfg["sustained_buckets"]
+    required_persistence = cfg["persistence_ratio"]
+    cpu_threshold = cfg["cpu_high_pct"]
+    mem_threshold = cfg["memory_high_pct"]
+    raw_degrade_pct = cfg.get("raw_metric_degrade_pct", 50.0)
+    sla = _get_sla_threshold(cfg)
+
+    active = buckets_df.iloc[warmup:].copy().reset_index(drop=True)
+    if active.empty:
+        return findings
+
+    # In raw mode, compute dynamic thresholds from baseline
+    if is_raw:
+        baseline_cpu = baseline.get("avg_cpu", 0)
+        baseline_mem = baseline.get("avg_memory", 0)
+        # Dynamic threshold = baseline * (1 + raw_degrade_pct / 100)
+        cpu_dynamic_threshold = baseline_cpu * (1 + raw_degrade_pct / 100) if baseline_cpu > 0 else None
+        mem_dynamic_threshold = baseline_mem * (1 + raw_degrade_pct / 100) if baseline_mem > 0 else None
+    else:
+        cpu_dynamic_threshold = None
+        mem_dynamic_threshold = None
+
+    # Build set of bucket indices covered by degradation windows (absolute index)
+    degraded_buckets: set = set()
+    for w in degradation_windows:
+        for b in range(w["onset_bucket_index"], w["end_bucket_index"] + 1):
+            degraded_buckets.add(b)
+
+    # --- Sustained High Utilization Scan ---
+    resource_configs = []
+    if is_raw:
+        # Raw mode: use dynamic thresholds from baseline
+        if cpu_dynamic_threshold is not None:
+            resource_configs.append(("CPU", "avg_cpu", cpu_dynamic_threshold))
+        if mem_dynamic_threshold is not None:
+            resource_configs.append(("Memory", "avg_memory", mem_dynamic_threshold))
+    else:
+        # Percentage mode: use absolute thresholds
+        resource_configs.append(("CPU", "avg_cpu", cpu_threshold))
+        resource_configs.append(("Memory", "avg_memory", mem_threshold))
+
+    for resource, col, threshold in resource_configs:
+        if col not in active.columns or active[col].isna().all():
+            continue
+
+        # Find contiguous runs above threshold (post-warmup)
+        above = active[col] >= threshold
+        onset_pos = None
+        run_length = 0
+
+        for pos in range(len(active)):
+            if pd.isna(active[col].iloc[pos]):
+                run_length = 0
+                onset_pos = None
+                continue
+
+            if above.iloc[pos]:
+                if run_length == 0:
+                    onset_pos = pos
+                run_length += 1
+            else:
+                run_length = 0
+                onset_pos = None
+
+            if run_length >= sustained and onset_pos is not None:
+                # Found sustained high utilization -- check persistence
+                is_persistent, actual_persistence = _check_persistence(
+                    active[col], onset_pos, threshold, required_persistence, comparator="gte"
+                )
+
+                if not is_persistent:
+                    # Not sustained enough -- skip
+                    break
+
+                # Check overlap with degradation windows
+                abs_onset = warmup + onset_pos
+                abs_end = warmup + len(active) - 1  # persistent = through end
+                overlaps_degradation = any(
+                    b in degraded_buckets for b in range(abs_onset, abs_end + 1)
+                )
+
+                if overlaps_degradation:
+                    # Already captured by Phase 2a
+                    break
+
+                # This is a capacity risk -- infra stressed but performance held
+                window_slice = active.iloc[onset_pos:]
+                avg_util = float(window_slice[col].mean())
+                # Use max_cpu / max_memory columns if available
+                max_col = "max_cpu" if resource == "CPU" else "max_memory"
+                if max_col in active.columns and active[max_col].iloc[onset_pos:].notna().any():
+                    max_util = float(active[max_col].iloc[onset_pos:].max())
+                else:
+                    max_util = float(window_slice[col].max())
+
+                # Performance during this window
+                p90_during = float(window_slice["p90"].mean()) if "p90" in window_slice.columns else None
+                within_sla = p90_during < sla if p90_during is not None and sla else None
+
+                # Duration in minutes
+                duration_buckets = len(window_slice)
+                duration_minutes = duration_buckets * cfg["bucket_seconds"] / 60
+
+                r_unit = cpu_unit if resource == "CPU" else mem_unit
+                baseline_val = baseline.get(f"avg_{resource.lower()}", 0)
+
+                if is_raw:
+                    # Raw mode: report in raw units, no headroom
+                    delta_from_baseline = (
+                        round((avg_util - baseline_val) / baseline_val * 100, 1)
+                        if baseline_val > 0 else None
+                    )
+                    evidence = (
+                        f"{resource} usage averaged {avg_util:.3f} {r_unit} "
+                        f"(peak {max_util:.3f} {r_unit}) for "
+                        f"{duration_minutes:.0f} minutes while response times remained "
+                        f"{'within SLA' if within_sla else 'healthy'} "
+                        f"(avg P90={p90_during:.0f}ms). "
+                        f"Baseline {resource} was {baseline_val:.3f} {r_unit}"
+                    )
+                    if delta_from_baseline is not None:
+                        evidence += f" (+{delta_from_baseline}% from baseline)."
+                    else:
+                        evidence += "."
+                    evidence += (
+                        f" Resource limits are not defined for this K8s service. "
+                        f"Unable to determine utilization % or remaining capacity. "
+                        f"Consider setting K8s resource limits for more accurate analysis."
+                    )
+                    infra_ctx = {
+                        "status": "capacity_risk",
+                        "resource": resource,
+                        "limits_available": False,
+                        "metric_mode": "raw",
+                        "avg_value": round(avg_util, 4),
+                        "max_value": round(max_util, 4),
+                        "unit": r_unit,
+                        "baseline_value": round(baseline_val, 4),
+                        "delta_from_baseline_pct": delta_from_baseline,
+                        "threshold_applied": f"relative (raw_metric_degrade_pct: {raw_degrade_pct}%)",
+                        "headroom_pct": None,
+                        "performance_during_window": {
+                            "avg_p90": round(p90_during, 1) if p90_during is not None else None,
+                            "sla_threshold": sla,
+                            "within_sla": within_sla,
+                        },
+                        "duration_minutes": round(duration_minutes, 1),
+                        "persistence_ratio": actual_persistence,
+                    }
+                    metric_name = f"avg_{resource.lower()}_{r_unit}"
+                else:
+                    # Percentage mode: report with headroom
+                    headroom = round(100.0 - avg_util, 1)
+                    evidence = (
+                        f"{resource} averaged {avg_util:.1f}% (peak {max_util:.1f}%) for "
+                        f"{duration_minutes:.0f} minutes while response times remained "
+                        f"{'within SLA' if within_sla else 'healthy'} "
+                        f"(avg P90={p90_during:.0f}ms). "
+                        f"System has approximately {headroom}% {resource} headroom "
+                        f"before saturation. "
+                        f"Consider scaling {resource} allocation before increasing load further."
+                    )
+                    infra_ctx = {
+                        "status": "capacity_risk",
+                        "resource": resource,
+                        "limits_available": True,
+                        "metric_mode": "percentage",
+                        "avg_utilization": round(avg_util, 1),
+                        "max_utilization": round(max_util, 1),
+                        "threshold": threshold,
+                        "headroom_pct": headroom,
+                        "performance_during_window": {
+                            "avg_p90": round(p90_during, 1) if p90_during is not None else None,
+                            "sla_threshold": sla,
+                            "within_sla": within_sla,
+                        },
+                        "duration_minutes": round(duration_minutes, 1),
+                        "persistence_ratio": actual_persistence,
+                    }
+                    metric_name = f"avg_{resource.lower()}_util_pct"
+
+                findings.append(_make_finding(
+                    bottleneck_type="capacity_risk",
+                    scope="infrastructure",
+                    scope_name=resource,
+                    concurrency=float(active["concurrency"].iloc[onset_pos]),
+                    metric_name=metric_name,
+                    metric_value=round(avg_util, 4 if is_raw else 1),
+                    baseline_value=round(baseline_val, 4 if is_raw else 1) if baseline_val else 0,
+                    severity="medium",
+                    confidence="high" if not is_raw else "medium",
+                    classification="capacity_risk",
+                    persistence_ratio=actual_persistence,
+                    **_onset_fields(
+                        buckets_df["bucket_start"].iloc[warmup + onset_pos],
+                        warmup + onset_pos,
+                        test_start_time,
+                    ),
+                    evidence=evidence,
+                    infrastructure_context=infra_ctx,
+                    test_run_id=test_run_id,
+                ))
+                break  # Only report first sustained window per resource
+
+    # --- Climbing Trend Detection ---
+    # Detect if CPU or Memory is trending upward over the test (potential leak)
+    if len(active) >= 6:
+        for resource, col in [("CPU", "avg_cpu"), ("Memory", "avg_memory")]:
+            if col not in active.columns or active[col].isna().all():
+                continue
+
+            series = active[col].dropna()
+            if len(series) < 6:
+                continue
+
+            # Split into first and second half
+            mid = len(series) // 2
+            first_half_mean = float(series.iloc[:mid].mean())
+            second_half_mean = float(series.iloc[mid:].mean())
+
+            if first_half_mean <= 0:
+                continue
+
+            climb_pct = (second_half_mean - first_half_mean) / first_half_mean * 100
+
+            # Only flag significant, sustained climbs (>= 30% increase from first to second half)
+            if is_raw:
+                # Raw mode: only check relative climb (no absolute min_level check)
+                min_level_met = True
+            else:
+                # Percentage mode: second half should be non-trivially high (>= 50% of threshold)
+                min_level = cpu_threshold * 0.5 if resource == "CPU" else mem_threshold * 0.5
+                min_level_met = second_half_mean >= min_level
+
+            if climb_pct >= 30.0 and min_level_met:
+                # Check this wasn't already captured by the sustained scan above
+                already_flagged = any(
+                    f["scope_name"] == resource and f["bottleneck_type"] == "capacity_risk"
+                    for f in findings
+                )
+                if already_flagged:
+                    continue
+
+                r_unit = cpu_unit if resource == "CPU" else mem_unit
+                if is_raw:
+                    climb_evidence = (
+                        f"{resource} usage climbed from avg {first_half_mean:.3f} {r_unit} (first half) to "
+                        f"{second_half_mean:.3f} {r_unit} (second half), a {climb_pct:.0f}% increase. "
+                        f"This rising trend may indicate resource pressure building over time. "
+                        f"K8s resource limits not defined; unable to determine utilization %. "
+                        f"Monitor for potential {resource.lower()} saturation at higher concurrency or longer test duration."
+                    )
+                else:
+                    climb_evidence = (
+                        f"{resource} usage climbed from avg {first_half_mean:.1f}% (first half) to "
+                        f"{second_half_mean:.1f}% (second half), a {climb_pct:.0f}% increase. "
+                        f"This rising trend may indicate resource pressure building over time. "
+                        f"Monitor for potential {resource.lower()} saturation at higher concurrency or longer test duration."
+                    )
+
+                findings.append(_make_finding(
+                    bottleneck_type="capacity_risk",
+                    scope="infrastructure",
+                    scope_name=f"{resource} (Climbing Trend)",
+                    concurrency=float(active["concurrency"].iloc[-1]),
+                    metric_name=f"avg_{resource.lower()}_trend",
+                    metric_value=round(second_half_mean, 4 if is_raw else 1),
+                    baseline_value=round(first_half_mean, 4 if is_raw else 1),
+                    severity="low",
+                    confidence="medium",
+                    classification="capacity_risk",
+                    persistence_ratio=None,
+                    **_onset_fields(
+                        buckets_df["bucket_start"].iloc[warmup + mid],
+                        warmup + mid,
+                        test_start_time,
+                    ),
+                    evidence=climb_evidence,
+                    infrastructure_context={
+                        "status": "climbing_trend",
+                        "resource": resource,
+                        "limits_available": infra_meta["limits_available"],
+                        "metric_mode": infra_meta["metric_mode"],
+                        "unit": r_unit,
+                        "first_half_avg": round(first_half_mean, 4 if is_raw else 1),
+                        "second_half_avg": round(second_half_mean, 4 if is_raw else 1),
+                        "climb_pct": round(climb_pct, 1),
+                    },
+                    test_run_id=test_run_id,
+                ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 7. Multi-Tier Bottlenecks (per-label analysis)
 # ---------------------------------------------------------------------------
 
 def _detect_multi_tier_bottlenecks(
@@ -1972,19 +2477,22 @@ def _generate_headline(
     # Check if we only have informational / non-bottleneck findings
     real_bottlenecks = [
         f for f in findings
-        if f.get("classification") not in ("transient_spike", "known_slow_endpoint")
+        if f.get("classification") not in ("transient_spike", "known_slow_endpoint", "capacity_risk")
         and f.get("severity") != "info"
     ]
 
     if not real_bottlenecks and threshold_conc is None:
-        # Only transient spikes or known-slow endpoints, no real degradation
+        # Only transient spikes, known-slow endpoints, or capacity risks
         info_count = sum(1 for f in findings if f.get("classification") == "known_slow_endpoint")
         transient_count = sum(1 for f in findings if f.get("classification") == "transient_spike")
+        capacity_risk_count = sum(1 for f in findings if f.get("classification") == "capacity_risk")
         notes = []
         if transient_count:
             notes.append(f"{transient_count} transient spike(s)")
         if info_count:
             notes.append(f"{info_count} known slow endpoint(s)")
+        if capacity_risk_count:
+            notes.append(f"{capacity_risk_count} capacity risk(s)")
         note_str = " (" + ", ".join(notes) + " noted)" if notes else ""
         return (
             f"The system handled up to {max_conc:.0f} concurrent users with no "
@@ -2015,6 +2523,7 @@ def _bottleneck_type_label(bt: str) -> str:
         "infrastructure_saturation": "infrastructure saturation (CPU/Memory)",
         "resource_performance_coupling": "resource-performance coupling",
         "multi_tier_bottleneck": "endpoint-specific degradation",
+        "capacity_risk": "capacity risk",
     }
     return labels.get(bt, bt)
 
@@ -2027,9 +2536,10 @@ def _flatten_findings_for_csv(findings: List[Dict]) -> List[Dict]:
     """Flatten the nested ``infrastructure_context`` dict into top-level CSV columns.
 
     The original ``infrastructure_context`` dict is removed and replaced with
-    flat columns: ``infra_correlated``, ``infra_status``,
-    ``infra_cpu_baseline``, ``infra_cpu_during``, ``infra_cpu_delta_pct``,
-    ``infra_memory_baseline``, ``infra_memory_during``, ``infra_memory_delta_pct``.
+    flat columns: ``infra_correlated``, ``infra_status``, ``infra_metric_mode``,
+    ``infra_limits_available``, ``infra_cpu_baseline``, ``infra_cpu_during``,
+    ``infra_cpu_delta_pct``, ``infra_memory_baseline``, ``infra_memory_during``,
+    ``infra_memory_delta_pct``.
     """
     flattened = []
     for f in findings:
@@ -2037,6 +2547,8 @@ def _flatten_findings_for_csv(findings: List[Dict]) -> List[Dict]:
         ic = f.get("infrastructure_context") or {}
         row["infra_correlated"] = ic.get("infra_correlated")
         row["infra_status"] = ic.get("status")
+        row["infra_metric_mode"] = ic.get("metric_mode")
+        row["infra_limits_available"] = ic.get("limits_available")
         bl = ic.get("baseline_window") or {}
         dw = ic.get("degradation_window") or {}
         row["infra_cpu_baseline"] = bl.get("avg_cpu")
@@ -2073,7 +2585,7 @@ async def _write_outputs(
             "delta_abs", "delta_pct", "severity", "confidence",
             "classification", "persistence_ratio", "outlier_filtered",
             "onset_timestamp", "onset_bucket_index", "test_elapsed_seconds",
-            "infra_correlated", "infra_status",
+            "infra_correlated", "infra_status", "infra_metric_mode", "infra_limits_available",
             "infra_cpu_baseline", "infra_cpu_during", "infra_cpu_delta_pct",
             "infra_memory_baseline", "infra_memory_during", "infra_memory_delta_pct",
             "evidence",
@@ -2102,6 +2614,12 @@ def format_bottleneck_markdown(result: Dict) -> str:
     cfg = result.get("configuration", {})
     comparison = result.get("comparison")
     has_infra = result.get("infrastructure_available", False)
+    infra_meta = result.get("infrastructure_meta") or {
+        "metric_mode": "percentage", "limits_available": True, "cpu_unit": "%", "memory_unit": "%",
+    }
+    is_raw = infra_meta.get("metric_mode") == "raw"
+    cpu_unit = infra_meta.get("cpu_unit", "%")
+    mem_unit = infra_meta.get("memory_unit", "%")
 
     md = []
     md.append(f"# Bottleneck Analysis Report - Run {test_run_id}\n")
@@ -2155,14 +2673,23 @@ def format_bottleneck_markdown(result: Dict) -> str:
     md.append(f"| Error Rate | {baseline.get('error_rate', 'N/A'):.2f}% |")
     md.append(f"| Throughput | {baseline.get('throughput_rps', 'N/A'):.1f} RPS |")
     if "avg_cpu" in baseline:
-        md.append(f"| Avg CPU | {baseline.get('avg_cpu', 'N/A'):.1f}% |")
-        md.append(f"| Avg Memory | {baseline.get('avg_memory', 'N/A'):.1f}% |")
+        if is_raw:
+            md.append(f"| Avg CPU | {baseline.get('avg_cpu', 'N/A'):.3f} {cpu_unit} |")
+            md.append(f"| Avg Memory | {baseline.get('avg_memory', 'N/A'):.2f} {mem_unit} |")
+            md.append(f"| Infra Metric Mode | **Raw** (K8s limits not defined) |")
+        else:
+            md.append(f"| Avg CPU | {baseline.get('avg_cpu', 'N/A'):.1f}% |")
+            md.append(f"| Avg Memory | {baseline.get('avg_memory', 'N/A'):.1f}% |")
     md.append("")
 
+    # --- Split findings into bottleneck findings and capacity observations ---
+    bottleneck_findings = [f for f in findings if f.get("classification") != "capacity_risk"]
+    capacity_findings = [f for f in findings if f.get("classification") == "capacity_risk"]
+
     # --- Detailed Findings ---
-    if findings:
+    if bottleneck_findings:
         md.append("## Detailed Findings\n")
-        for i, f in enumerate(findings, 1):
+        for i, f in enumerate(bottleneck_findings, 1):
             severity_icon = {
                 "critical": "🔴", "high": "🟠", "medium": "🟡",
                 "low": "🟢", "info": "ℹ️",
@@ -2209,6 +2736,9 @@ def format_bottleneck_markdown(result: Dict) -> str:
 
                 bl = ic.get("baseline_window") or {}
                 dw = ic.get("degradation_window") or {}
+                ic_raw = ic.get("metric_mode") == "raw"
+                ic_cpu_unit = ic.get("cpu_unit", cpu_unit)
+                ic_mem_unit = ic.get("memory_unit", mem_unit)
                 if bl.get("avg_cpu") is not None or dw.get("avg_cpu") is not None:
                     md.append("")
                     md.append("  | Metric | Baseline | During Degradation | Delta |")
@@ -2217,20 +2747,38 @@ def format_bottleneck_markdown(result: Dict) -> str:
                         cpu_d = ic.get("cpu_delta_pct")
                         cpu_d_str = f"{cpu_d:+.1f}%" if cpu_d is not None else "N/A"
                         corr_tag = " *" if ic.get("cpu_correlated") else ""
-                        md.append(
-                            f"  | Avg CPU | {bl.get('avg_cpu', 'N/A')}% | "
-                            f"{dw.get('avg_cpu', 'N/A')}% | {cpu_d_str}{corr_tag} |"
-                        )
+                        if ic_raw:
+                            md.append(
+                                f"  | Avg CPU | {bl.get('avg_cpu', 'N/A'):.3f} {ic_cpu_unit} | "
+                                f"{dw.get('avg_cpu', 'N/A'):.3f} {ic_cpu_unit} | {cpu_d_str}{corr_tag} |"
+                            )
+                        else:
+                            md.append(
+                                f"  | Avg CPU | {bl.get('avg_cpu', 'N/A')}% | "
+                                f"{dw.get('avg_cpu', 'N/A')}% | {cpu_d_str}{corr_tag} |"
+                            )
                     if bl.get("avg_memory") is not None:
                         mem_d = ic.get("memory_delta_pct")
                         mem_d_str = f"{mem_d:+.1f}%" if mem_d is not None else "N/A"
                         corr_tag = " *" if ic.get("memory_correlated") else ""
-                        md.append(
-                            f"  | Avg Memory | {bl.get('avg_memory', 'N/A')}% | "
-                            f"{dw.get('avg_memory', 'N/A')}% | {mem_d_str}{corr_tag} |"
-                        )
+                        if ic_raw:
+                            md.append(
+                                f"  | Avg Memory | {bl.get('avg_memory', 'N/A'):.2f} {ic_mem_unit} | "
+                                f"{dw.get('avg_memory', 'N/A'):.2f} {ic_mem_unit} | {mem_d_str}{corr_tag} |"
+                            )
+                        else:
+                            md.append(
+                                f"  | Avg Memory | {bl.get('avg_memory', 'N/A')}% | "
+                                f"{dw.get('avg_memory', 'N/A')}% | {mem_d_str}{corr_tag} |"
+                            )
                     md.append("")
                     md.append("  \\* = correlated with degradation")
+                    if ic_raw:
+                        md.append("")
+                        md.append(
+                            "  > **Note:** K8s resource limits not defined. Values shown in raw units. "
+                            "Utilization % and headroom cannot be calculated."
+                        )
 
                 root_cause = ic.get("root_cause_indicator")
                 if root_cause:
@@ -2239,6 +2787,59 @@ def format_bottleneck_markdown(result: Dict) -> str:
     else:
         md.append("## Findings\n")
         md.append("No bottlenecks were detected during this test run.\n")
+
+    # --- Capacity Observations (Phase 2b) ---
+    if capacity_findings:
+        md.append("## Capacity Observations\n")
+        if is_raw:
+            md.append(
+                "> The following observations are **not bottlenecks**. Performance remained healthy. "
+                "Infrastructure metrics are reported in **raw units** because K8s resource limits "
+                "are not defined. Utilization percentage and headroom cannot be calculated.\n"
+            )
+        else:
+            md.append(
+                "> The following observations are **not bottlenecks**. Performance remained healthy. "
+                "However, infrastructure resources are under stress, which limits headroom for "
+                "additional load.\n"
+            )
+        for j, cf in enumerate(capacity_findings, 1):
+            md.append(f"### Capacity Risk {j}: {cf['scope_name']}\n")
+            md.append(f"- **Concurrency**: {cf['concurrency']:.0f} users")
+
+            onset_ts = cf.get('onset_timestamp')
+            bucket_idx = cf.get('onset_bucket_index')
+            elapsed_s = cf.get('test_elapsed_seconds')
+            if onset_ts:
+                elapsed_str = ""
+                if elapsed_s is not None:
+                    mins = int(elapsed_s // 60)
+                    secs = int(elapsed_s % 60)
+                    elapsed_str = f", {mins}m {secs}s into test" if mins else f", {secs}s into test"
+                bucket_str = f", bucket #{bucket_idx}" if bucket_idx is not None else ""
+                md.append(f"- **Onset**: {onset_ts}{bucket_str}{elapsed_str}")
+
+            md.append(f"- **Metric**: {cf['metric_name']} = {cf['metric_value']}")
+            md.append(f"- **Baseline**: {cf['baseline_value']}")
+            delta = cf.get('delta_pct', 0)
+            md.append(f"- **Delta**: {cf.get('delta_abs', 0):+.2f} ({delta:+.1f}%)")
+
+            ic = cf.get("infrastructure_context", {})
+            if ic.get("headroom_pct") is not None:
+                md.append(f"- **Headroom**: {ic['headroom_pct']}%")
+            elif ic.get("limits_available") is False:
+                md.append("- **Headroom**: N/A (K8s limits not defined)")
+            if ic.get("duration_minutes") is not None:
+                md.append(f"- **Duration**: {ic['duration_minutes']:.0f} minutes")
+            if ic.get("threshold_applied"):
+                md.append(f"- **Threshold**: {ic['threshold_applied']}")
+            perf = ic.get("performance_during_window", {})
+            if perf.get("avg_p90") is not None:
+                sla_note = " (within SLA)" if perf.get("within_sla") else ""
+                md.append(f"- **Avg P90 during window**: {perf['avg_p90']:.0f}ms{sla_note}")
+
+            md.append(f"- **Evidence**: {cf['evidence']}")
+            md.append("")
 
     # --- Comparison ---
     if comparison and "error" not in comparison:
@@ -2271,8 +2872,14 @@ def format_bottleneck_markdown(result: Dict) -> str:
     md.append(f"| Latency Degradation Threshold | {cfg.get('latency_degrade_pct', 'N/A')}% |")
     md.append(f"| Error Rate Threshold | {cfg.get('error_rate_degrade_abs', 'N/A')}% |")
     md.append(f"| SLA P90 Threshold | {cfg.get('sla_p90_ms', 'N/A')} ms |")
-    md.append(f"| CPU High Threshold | {cfg.get('cpu_high_pct', 'N/A')}% |")
-    md.append(f"| Memory High Threshold | {cfg.get('memory_high_pct', 'N/A')}% |")
+    if is_raw:
+        md.append(f"| Infra Metric Mode | **Raw** (K8s limits not defined) |")
+        md.append(f"| CPU Unit | {cpu_unit} |")
+        md.append(f"| Memory Unit | {mem_unit} |")
+        md.append(f"| Raw Metric Degrade Threshold | {cfg.get('raw_metric_degrade_pct', 'N/A')}% from baseline |")
+    else:
+        md.append(f"| CPU High Threshold | {cfg.get('cpu_high_pct', 'N/A')}% |")
+        md.append(f"| Memory High Threshold | {cfg.get('memory_high_pct', 'N/A')}% |")
     md.append("")
 
     md.append(f"---\n*Generated: {result.get('analysis_timestamp', 'N/A')}*")

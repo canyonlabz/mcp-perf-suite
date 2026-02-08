@@ -54,6 +54,7 @@ perf_analysis:
     sla_p90_ms: null            # P90 SLA threshold (ms). null = use response_time_sla above
     cpu_high_pct: null          # CPU saturation threshold. null = use resource_thresholds.cpu.high
     memory_high_pct: null       # Memory saturation threshold. null = use resource_thresholds.memory.high
+    raw_metric_degrade_pct: 50.0 # Relative increase from baseline to flag when utilization % unavailable (no K8s limits)
 
 # OpenAI Integration
 openai:
