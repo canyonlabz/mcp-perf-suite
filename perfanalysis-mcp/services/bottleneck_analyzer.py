@@ -1204,21 +1204,35 @@ def _detect_multi_tier_bottlenecks(
     test_start_time=None,
 ) -> List[Dict]:
     """
-    Detect which endpoints degrade first as concurrency increases.
+    Detect which endpoints degrade under load, distinguishing true
+    load-induced bottlenecks from inherently slow endpoints.
 
-    Groups JTL by label, buckets each independently, and finds the
-    first label to breach the SLA threshold.
+    v0.2 (Improvement 4): Per-endpoint analysis with:
+
+    1. Per-label bucketing with rolling median smoothing.
+    2. **Per-label baseline** computed from early buckets.
+    3. An endpoint is a **load-induced bottleneck** only if its P90
+       *degrades significantly from its own baseline* AND breaches the SLA.
+       An endpoint that is *always* above SLA (i.e. already above SLA at
+       baseline) is classified as ``known_slow_endpoint`` -- an informational
+       observation, not a bottleneck.
+    4. Sustained consecutive degraded buckets required.
+    5. Persistence check classifies findings.
     """
     findings = []
     bucket_seconds = cfg["bucket_seconds"]
     warmup = cfg["warmup_buckets"]
+    sustained_required = cfg["sustained_buckets"]
+    required_persistence = cfg["persistence_ratio"]
+    rolling_window = int(cfg.get("rolling_window_buckets", 3))
+    degrade_pct = cfg["latency_degrade_pct"]
 
     labels = jtl_df["label"].unique()
     if len(labels) <= 1:
         return findings  # Nothing to compare
 
-    # label -> (concurrency, p90, label_sla, bucket_timestamp, bucket_index)
-    first_breach_per_label: Dict[str, Tuple[float, float, float, Any, int]] = {}
+    # Per-label analysis results
+    label_results: Dict[str, Dict[str, Any]] = {}
 
     for label in labels:
         label_sla = _get_sla_threshold(cfg, label=label)
@@ -1227,6 +1241,7 @@ def _detect_multi_tier_bottlenecks(
         if len(label_df) < 10:
             continue
 
+        # --- Per-label bucketing ---
         label_indexed = label_df.set_index("timestamp").sort_index()
         resampled = label_indexed.resample(f"{bucket_seconds}s").agg(
             concurrency=("allThreads", "max"),
@@ -1235,60 +1250,196 @@ def _detect_multi_tier_bottlenecks(
         )
         resampled = resampled[resampled["total_requests"] > 0]
 
-        for idx in range(warmup, len(resampled)):
-            row = resampled.iloc[idx]
-            if pd.notna(row["p90"]) and row["p90"] >= label_sla:
-                bucket_ts = resampled.index[idx]  # timestamp from resample index
-                first_breach_per_label[label] = (
-                    row["concurrency"], row["p90"], label_sla, bucket_ts, idx,
-                )
-                break
+        if len(resampled) <= warmup:
+            continue
 
-    if not first_breach_per_label:
+        # --- Per-label rolling median smoothing ---
+        p90_raw = resampled["p90"].copy()
+        resampled["p90"] = p90_raw.rolling(
+            window=rolling_window, center=True, min_periods=1
+        ).median()
+
+        # --- Per-label outlier detection (MAD-based) ---
+        smoothed_p90 = resampled["p90"]
+        rolling_mad = (
+            (p90_raw - smoothed_p90)
+            .abs()
+            .rolling(window=rolling_window, center=True, min_periods=1)
+            .median()
+        )
+        mad_floor = smoothed_p90.median() * 0.05 if smoothed_p90.median() > 0 else 1.0
+        rolling_mad = rolling_mad.clip(lower=mad_floor)
+        is_outlier = (p90_raw - smoothed_p90).abs() > (2.0 * rolling_mad)
+
+        # --- Per-label baseline (from early post-warmup buckets) ---
+        baseline_end = min(warmup + sustained_required, len(resampled))
+        baseline_slice = resampled.iloc[warmup:baseline_end]
+        if baseline_slice.empty:
+            baseline_slice = resampled.head(1)
+        label_baseline_p90 = float(baseline_slice["p90"].mean())
+
+        # --- Classification: inherently slow vs load-induced ---
+        # If the endpoint is already above SLA at baseline, it's inherently
+        # slow -- not a load-induced bottleneck.
+        already_above_sla = label_baseline_p90 >= label_sla
+
+        if already_above_sla:
+            # Record as known slow endpoint (informational only)
+            label_results[label] = {
+                "concurrency": float(baseline_slice["concurrency"].iloc[0]) if not baseline_slice.empty else 0.0,
+                "p90": label_baseline_p90,
+                "baseline_p90": label_baseline_p90,
+                "sla": label_sla,
+                "onset_ts": resampled.index[warmup] if warmup < len(resampled) else resampled.index[0],
+                "onset_idx": warmup,
+                "is_persistent": False,
+                "persistence_ratio": None,
+                "classification": "known_slow_endpoint",
+            }
+            continue
+
+        # --- Degradation threshold: endpoint must degrade from ITS OWN baseline ---
+        # Use the same degrade_pct as overall latency detection
+        label_threshold = label_baseline_p90 * (1 + degrade_pct / 100)
+        # Also require the degraded value to exceed the SLA
+        # (we don't flag sub-SLA degradation as a multi-tier bottleneck)
+        effective_threshold = max(label_threshold, label_sla)
+
+        # --- Sustained degradation scan (post-warmup, skip outliers) ---
+        active_start = warmup
+        sustained_count = 0
+        onset_idx = None
+
+        for idx in range(active_start, len(resampled)):
+            p90_val = resampled["p90"].iloc[idx]
+            if pd.isna(p90_val):
+                sustained_count = 0
+                onset_idx = None
+                continue
+
+            if is_outlier.iloc[idx]:
+                continue
+
+            if p90_val >= effective_threshold:
+                if sustained_count == 0:
+                    onset_idx = idx
+                sustained_count += 1
+            else:
+                sustained_count = 0
+                onset_idx = None
+
+            if sustained_count >= sustained_required and onset_idx is not None:
+                break
+        else:
+            onset_idx = None
+
+        if onset_idx is None:
+            continue
+
+        # --- Persistence check ---
+        is_persistent, actual_persistence = _check_persistence(
+            resampled["p90"], onset_idx, effective_threshold, required_persistence, comparator="gte"
+        )
+
+        onset_row = resampled.iloc[onset_idx]
+        onset_ts = resampled.index[onset_idx]
+        p90_at_onset = resampled["p90"].iloc[onset_idx]
+
+        label_results[label] = {
+            "concurrency": onset_row["concurrency"],
+            "p90": p90_at_onset,
+            "baseline_p90": label_baseline_p90,
+            "sla": label_sla,
+            "onset_ts": onset_ts,
+            "onset_idx": onset_idx,
+            "is_persistent": is_persistent,
+            "persistence_ratio": actual_persistence,
+            "classification": "bottleneck" if is_persistent else "transient_spike",
+        }
+
+    if not label_results:
         return findings
 
-    # Sort by concurrency to find the earliest degrader
-    sorted_labels = sorted(first_breach_per_label.items(), key=lambda x: x[1][0])
-    earliest_label, (earliest_conc, earliest_p90, earliest_sla, earliest_ts, earliest_idx) = sorted_labels[0]
+    # --- Separate true bottlenecks from known-slow endpoints ---
+    degraded_labels = {
+        k: v for k, v in label_results.items()
+        if v["classification"] in ("bottleneck", "transient_spike")
+    }
+    known_slow_labels = {
+        k: v for k, v in label_results.items()
+        if v["classification"] == "known_slow_endpoint"
+    }
 
-    findings.append(_make_finding(
-        bottleneck_type="multi_tier_bottleneck",
-        scope="label",
-        scope_name=earliest_label,
-        concurrency=earliest_conc,
-        metric_name="p90_response_time_ms",
-        metric_value=earliest_p90,
-        baseline_value=earliest_sla,
-        severity="high",
-        confidence="high",
-        **_onset_fields(earliest_ts, earliest_idx, test_start_time),
-        evidence=(
-            f"Endpoint '{earliest_label}' was the first to breach the SLA threshold "
-            f"({earliest_sla}ms) with P90={earliest_p90:.0f}ms at {earliest_conc:.0f} concurrent users. "
-            f"{len(first_breach_per_label)}/{len(labels)} endpoints eventually breached SLA."
-        ),
-        test_run_id=test_run_id,
-    ))
+    total_labels = len(labels)
 
-    # Report up to 4 more early degraders
-    for label, (conc, p90, label_sla, breach_ts, breach_idx) in sorted_labels[1:5]:
-        findings.append(_make_finding(
-            bottleneck_type="multi_tier_bottleneck",
-            scope="label",
-            scope_name=label,
-            concurrency=conc,
-            metric_name="p90_response_time_ms",
-            metric_value=p90,
-            baseline_value=label_sla,
-            severity="medium",
-            confidence="high",
-            **_onset_fields(breach_ts, breach_idx, test_start_time),
-            evidence=(
-                f"Endpoint '{label}' breached SLA ({label_sla}ms) "
-                f"with P90={p90:.0f}ms at {conc:.0f} concurrent users"
+    # --- Report load-induced bottlenecks ---
+    if degraded_labels:
+        sorted_degraded = sorted(
+            degraded_labels.items(),
+            key=lambda x: (
+                0 if x[1]["is_persistent"] else 1,
+                x[1]["concurrency"],
             ),
-            test_run_id=test_run_id,
-        ))
+        )
+        bottleneck_count = sum(1 for _, r in sorted_degraded if r["is_persistent"])
+
+        for rank, (label, r) in enumerate(sorted_degraded[:5]):
+            severity = ("high" if r["is_persistent"] else "low") if rank == 0 else (
+                "medium" if r["is_persistent"] else "low"
+            )
+            degrade_from_baseline = (
+                (r["p90"] - r["baseline_p90"]) / r["baseline_p90"] * 100
+                if r["baseline_p90"] > 0 else 0
+            )
+
+            findings.append(_make_finding(
+                bottleneck_type="multi_tier_bottleneck",
+                scope="label",
+                scope_name=label,
+                concurrency=r["concurrency"],
+                metric_name="p90_response_time_ms",
+                metric_value=r["p90"],
+                baseline_value=r["baseline_p90"],
+                severity=severity,
+                confidence="high" if r["is_persistent"] else "low",
+                classification=r["classification"],
+                persistence_ratio=r["persistence_ratio"],
+                **_onset_fields(r["onset_ts"], r["onset_idx"], test_start_time),
+                evidence=(
+                    f"Endpoint '{label}' P90 degraded from baseline {r['baseline_p90']:.0f}ms to "
+                    f"{r['p90']:.0f}ms (+{degrade_from_baseline:.1f}%) at "
+                    f"{r['concurrency']:.0f} concurrent users, breaching SLA ({r['sla']}ms). "
+                    f"Persistence: {r['persistence_ratio']:.0%}"
+                    f"{' (confirmed bottleneck)' if r['is_persistent'] else ' (transient, recovered)'}. "
+                    f"{len(degraded_labels)}/{total_labels} endpoints degraded under load"
+                    + (f", {len(known_slow_labels)} known slow." if known_slow_labels else ".")
+                ),
+                test_run_id=test_run_id,
+            ))
+
+    # --- Report known-slow endpoints as informational observations ---
+    if known_slow_labels:
+        for label, r in list(known_slow_labels.items())[:3]:
+            findings.append(_make_finding(
+                bottleneck_type="multi_tier_bottleneck",
+                scope="label",
+                scope_name=label,
+                concurrency=r["concurrency"],
+                metric_name="p90_response_time_ms",
+                metric_value=r["p90"],
+                baseline_value=r["sla"],
+                severity="info",
+                confidence="high",
+                classification="known_slow_endpoint",
+                persistence_ratio=None,
+                **_onset_fields(r["onset_ts"], r["onset_idx"], test_start_time),
+                evidence=(
+                    f"Endpoint '{label}' has P90={r['p90']:.0f}ms at baseline, "
+                    f"already above SLA ({r['sla']}ms). This is an inherently slow endpoint, "
+                    f"not a load-induced bottleneck. Consider a per-API SLA override."
+                ),
+                test_run_id=test_run_id,
+            ))
 
     return findings
 
@@ -1362,8 +1513,11 @@ async def _run_comparison(
 # ============================================================================
 
 def _get_threshold_concurrency(findings: List[Dict]) -> Optional[float]:
-    """Extract the lowest concurrency at which any bottleneck was first detected."""
-    # All bottleneck types contribute to the threshold concurrency
+    """Extract the lowest concurrency at which any real bottleneck was first detected.
+
+    Excludes transient spikes, known-slow endpoints, and info-level findings
+    since these do not represent genuine load-induced degradation.
+    """
     concurrency_values = [
         f["concurrency"]
         for f in findings
@@ -1373,6 +1527,8 @@ def _get_threshold_concurrency(findings: List[Dict]) -> Optional[float]:
             "throughput_plateau", "infrastructure_saturation",
             "multi_tier_bottleneck",
         )
+        and f.get("classification") not in ("transient_spike", "known_slow_endpoint")
+        and f.get("severity") != "info"
     ]
     return min(concurrency_values) if concurrency_values else None
 
@@ -1436,8 +1592,29 @@ def _generate_headline(
             f"detected bottlenecks during this test."
         )
 
+    # Check if we only have informational / non-bottleneck findings
+    real_bottlenecks = [
+        f for f in findings
+        if f.get("classification") not in ("transient_spike", "known_slow_endpoint")
+        and f.get("severity") != "info"
+    ]
+
+    if not real_bottlenecks and threshold_conc is None:
+        # Only transient spikes or known-slow endpoints, no real degradation
+        info_count = sum(1 for f in findings if f.get("classification") == "known_slow_endpoint")
+        transient_count = sum(1 for f in findings if f.get("classification") == "transient_spike")
+        notes = []
+        if transient_count:
+            notes.append(f"{transient_count} transient spike(s)")
+        if info_count:
+            notes.append(f"{info_count} known slow endpoint(s)")
+        note_str = " (" + ", ".join(notes) + " noted)" if notes else ""
+        return (
+            f"The system handled up to {max_conc:.0f} concurrent users with no "
+            f"sustained performance degradation{note_str}."
+        )
+
     if threshold_conc is not None:
-        # Determine the primary limiting factor
         first_finding = min(
             [f for f in findings if f["concurrency"] == threshold_conc],
             key=lambda f: f["concurrency"],
@@ -1555,7 +1732,7 @@ def format_bottleneck_markdown(result: Dict) -> str:
         md.append("### Bottlenecks by Severity\n")
         md.append("| Severity | Count |")
         md.append("|----------|-------|")
-        for sev in ["critical", "high", "medium", "low"]:
+        for sev in ["critical", "high", "medium", "low", "info"]:
             if sev in by_severity:
                 md.append(f"| {sev.title()} | {by_severity[sev]} |")
         md.append("")
@@ -1580,9 +1757,10 @@ def format_bottleneck_markdown(result: Dict) -> str:
     if findings:
         md.append("## Detailed Findings\n")
         for i, f in enumerate(findings, 1):
-            severity_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(
-                f["severity"], "⚪"
-            )
+            severity_icon = {
+                "critical": "🔴", "high": "🟠", "medium": "🟡",
+                "low": "🟢", "info": "ℹ️",
+            }.get(f["severity"], "⚪")
             md.append(
                 f"### {i}. {severity_icon} {_bottleneck_type_label(f['bottleneck_type']).title()} "
                 f"({f['severity'].title()})\n"
