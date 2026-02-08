@@ -8,11 +8,11 @@ from services.performance_analyzer import (
     analyze_apm_metrics,
     correlate_performance_data,
     detect_performance_anomalies,
-    identify_system_bottlenecks,
     compare_multiple_runs,
     generate_executive_summary,
     get_current_analysis_status
 )
+from services.bottleneck_analyzer import analyze_bottlenecks
 from services.log_analyzer import analyze_logs as analyze_logs_impl
 
 mcp = FastMCP(name="perfanalysis")
@@ -79,19 +79,39 @@ async def detect_anomalies(test_run_id: str, sensitivity: str = "medium", ctx: C
     """
     return await detect_performance_anomalies(test_run_id, sensitivity, ctx)
 
-@mcp.tool(enabled=False)
-async def identify_bottlenecks(test_run_id: str, ctx: Context) -> Dict[str, Any]:
+@mcp.tool()
+async def identify_bottlenecks(test_run_id: str, ctx: Context, baseline_run_id: Optional[str] = None) -> Dict[str, Any]:
     """
-    Identify performance bottlenecks and constraint points
+    Identify performance bottlenecks and the concurrency threshold where degradation begins.
+    
+    Analyzes JTL test results (and optionally Datadog infrastructure metrics) to answer:
+    "At what concurrency level does performance begin to degrade, and what is the limiting factor?"
+    
+    Detects: latency degradation, error rate increases, throughput plateaus,
+    infrastructure saturation, resource-performance coupling, and per-endpoint bottlenecks.
     
     Args:
         test_run_id: The unique test run identifier
         ctx: FastMCP workflow context for chaining
+        baseline_run_id: Optional previous run ID for comparison analysis
         
     Returns:
-        Dictionary containing identified bottlenecks and recommendations
+        Dictionary containing:
+            - status: success or failed
+            - summary: headline answer, threshold concurrency, bottleneck counts
+            - findings_count: total bottlenecks detected
+            - output_files: paths to JSON, CSV, and Markdown reports
+    
+    Note:
+        Required files: artifacts/{test_run_id}/blazemeter/test-results.csv
+        Optional files: artifacts/{test_run_id}/datadog/k8s_metrics_*.csv or host_metrics_*.csv
+        
+        Outputs:
+        - artifacts/{test_run_id}/analysis/bottleneck_analysis.json
+        - artifacts/{test_run_id}/analysis/bottleneck_analysis.csv
+        - artifacts/{test_run_id}/analysis/bottleneck_analysis.md
     """
-    return await identify_system_bottlenecks(test_run_id, ctx)
+    return await analyze_bottlenecks(test_run_id, ctx, baseline_run_id)
 
 @mcp.tool(enabled=False)
 async def compare_test_runs(test_run_ids: List[str], comparison_type: str = "performance", ctx: Context = None) -> Dict[str, Any]:

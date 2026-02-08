@@ -338,48 +338,12 @@ async def detect_performance_anomalies(test_run_id: str, sensitivity: str, ctx: 
 
 async def identify_system_bottlenecks(test_run_id: str, ctx: Context) -> Dict[str, Any]:
     """
-    Identify performance bottlenecks and constraint points
+    Legacy stub — bottleneck analysis has moved to services.bottleneck_analyzer.
+    This function is kept for backward compatibility only.
+    The MCP tool now calls services.bottleneck_analyzer.analyze_bottlenecks directly.
     """
-    try:
-        artifacts_path = Path(artifacts_base) / test_run_id
-        
-        # Load correlation and anomaly data
-        correlation_file = artifacts_path / 'correlation_analysis.json'
-        anomaly_file = artifacts_path / 'anomaly_detection.json'
-        
-        if not correlation_file.exists():
-            error_msg = "Correlation analysis required for bottleneck identification. Run correlate_test_results first."
-            await ctx.error("Missing Correlation Analysis", error_msg)
-            return {"error": error_msg, "status": "failed"}
-        
-        bottlenecks = identify_resource_bottlenecks(correlation_file, anomaly_file, test_run_id)
-        
-        # Save bottleneck analysis
-        output_file = artifacts_path / 'bottleneck_analysis.json'
-        write_json_output(bottlenecks, output_file)
-        
-        # Save markdown summary
-        md_file = artifacts_path / 'bottleneck_analysis.md'
-        write_markdown_output(format_bottlenecks_markdown(bottlenecks), md_file)
-        
-        await ctx.info(f"Bottleneck analysis completed", f"Identified {len(bottlenecks.get('bottlenecks', []))} bottlenecks")
-        ctx.set_state("bottleneck_analysis", json.dumps(bottlenecks))
-        ctx.set_state("bottleneck_analysis_file", str(output_file))
-        
-        return {
-            "status": "success",
-            "test_run_id": test_run_id,
-            "bottlenecks": bottlenecks,
-            "output_files": {
-                "json": str(output_file),
-                "markdown": str(md_file)
-            }
-        }
-        
-    except Exception as e:
-        error_msg = f"Bottleneck identification failed: {str(e)}"
-        await ctx.error("Bottleneck Analysis Error", error_msg)
-        return {"error": error_msg, "status": "failed"}
+    from services.bottleneck_analyzer import analyze_bottlenecks
+    return await analyze_bottlenecks(test_run_id, ctx)
 
 async def compare_multiple_runs(test_run_ids: List[str], comparison_type: str, ctx: Context) -> Dict[str, Any]:
     """
@@ -434,6 +398,7 @@ async def generate_executive_summary(test_run_id: str, include_recommendations: 
             ('infrastructure_analysis', 'infrastructure_analysis.json'),
             ('correlation_analysis', 'correlation_analysis.json'),
             ('log_analysis', 'log_analysis.json'),
+            ('bottleneck_analysis', 'bottleneck_analysis.json'),
             #('anomaly_detection', 'anomaly_detection.json'),           # TODO: Enable when implemented
             #('bottleneck_analysis', 'bottleneck_analysis.json')        # TODO: Enable when implemented
         ]
@@ -512,8 +477,8 @@ async def get_current_analysis_status(test_run_id: str, ctx: Context) -> Dict[st
             "infrastructure_analysis": "infrastructure_analysis.json", 
             "correlation_analysis": "correlation_analysis.json",
             "log_analysis": "log_analysis.json",
+            "bottleneck_analysis": "bottleneck_analysis.json",
             #"anomaly_detection": "anomaly_detection.json",         # TODO: Enable when implemented
-            #"bottleneck_analysis": "bottleneck_analysis.json",     # TODO: Enable when implemented
             #"executive_summary": "executive_summary.json"          # TODO: Enable when implemented
         }
         

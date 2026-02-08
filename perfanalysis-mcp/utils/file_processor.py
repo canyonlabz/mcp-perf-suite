@@ -698,9 +698,22 @@ def format_anomalies_markdown(anomalies: Dict) -> str:
     return "# Anomaly Detection\n\n"
 
 def format_bottlenecks_markdown(bottlenecks: Dict) -> str:
-    """Format bottleneck analysis as markdown"""
-    # Implementation for markdown formatting
-    return "# Bottleneck Analysis\n\n"
+    """Format bottleneck analysis as markdown.
+    
+    Delegates to the full implementation in services.bottleneck_analyzer
+    when called with the complete result dict.  Falls back to a simple
+    stub for legacy callers that pass minimal data.
+    """
+    # If the dict looks like a full bottleneck_analysis result, delegate
+    if "summary" in bottlenecks and "findings" in bottlenecks:
+        from services.bottleneck_analyzer import format_bottleneck_markdown
+        return format_bottleneck_markdown(bottlenecks)
+
+    # Minimal fallback for legacy / simple dicts
+    md = "# Bottleneck Analysis\n\n"
+    for bn in bottlenecks.get("bottlenecks", []):
+        md += f"- **{bn.get('bottleneck_type', 'unknown')}**: {bn.get('evidence', 'N/A')}\n"
+    return md
 
 def format_comparison_markdown(comparison_results: Dict) -> str:
     """Format test run comparison as markdown"""

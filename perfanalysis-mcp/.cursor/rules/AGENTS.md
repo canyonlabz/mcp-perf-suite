@@ -24,3 +24,11 @@ This workflow performs comprehensive analysis of performance test results and in
 4. **Analyze logs** using `analyze_logs` with the test_run_id.
    - This analyzes JMeter/BlazeMeter logs and Datadog APM logs for errors and performance issues.
    - Requires: `artifacts/{test_run_id}/blazemeter/jmeter.log` and `artifacts/{test_run_id}/datadog/logs_*.csv`
+
+5. **Identify bottlenecks** using `identify_bottlenecks` with the test_run_id.
+   - This identifies the concurrency threshold where performance begins to degrade and the limiting factor.
+   - Detects: latency degradation, error rate increases, throughput plateaus, infrastructure saturation, resource-performance coupling, and per-endpoint bottlenecks.
+   - Requires: `artifacts/{test_run_id}/blazemeter/test-results.csv` (JTL data with allThreads column)
+   - Optional: `artifacts/{test_run_id}/datadog/k8s_metrics_*.csv` or `host_metrics_*.csv` for infrastructure saturation analysis
+   - Optional: Pass `baseline_run_id` for comparison against a previous test run
+   - Outputs: `artifacts/{test_run_id}/analysis/bottleneck_analysis.json`, `bottleneck_analysis.csv`, `bottleneck_analysis.md`

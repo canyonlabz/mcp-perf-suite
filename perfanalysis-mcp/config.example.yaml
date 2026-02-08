@@ -40,6 +40,20 @@ perf_analysis:
       high: 85          # Memory usage % - high utilization warning  
       low: 15           # Memory usage % - under-utilization warning
 
+  # Bottleneck analysis settings
+  # Answers: "At what concurrency does performance degrade, and what is the limiting factor?"
+  bottleneck_analysis:
+    bucket_seconds: 60          # Time bucket width in seconds
+    warmup_buckets: 2           # Buckets to skip at test start (JMeter ramp-up)
+    sustained_buckets: 2        # Consecutive buckets required to confirm a finding
+    persistence_ratio: 0.6      # Min fraction of remaining test that must stay degraded
+    latency_degrade_pct: 25.0   # P90 latency increase % over baseline to flag degradation
+    error_rate_degrade_abs: 5.0 # Absolute error rate % to flag as degraded
+    throughput_plateau_pct: 5.0 # Throughput growth % below which is considered a plateau
+    sla_p90_ms: null            # P90 SLA threshold (ms). null = use response_time_sla above
+    cpu_high_pct: null          # CPU saturation threshold. null = use resource_thresholds.cpu.high
+    memory_high_pct: null       # Memory saturation threshold. null = use resource_thresholds.memory.high
+
 # OpenAI Integration
 openai:
   model: "gpt-4o-mini"  # Cost-effective option
