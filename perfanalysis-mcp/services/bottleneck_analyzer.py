@@ -49,6 +49,7 @@ BN_DEFAULTS = {
     "warmup_buckets": 2,
     "sustained_buckets": 2,
     "persistence_ratio": 0.6,     # min fraction of remaining test that must stay degraded
+    "rolling_window_buckets": 3,  # window size for rolling median smoothing
     "latency_degrade_pct": 25.0,
     "error_rate_degrade_abs": 5.0,
     "throughput_plateau_pct": 5.0,
@@ -72,6 +73,47 @@ def _get_bn_config() -> Dict[str, Any]:
         cfg["memory_high_pct"] = PA_CONFIG.get("resource_thresholds", {}).get("memory", {}).get("high", 85)
 
     return cfg
+
+
+# ============================================================================
+# SLA THRESHOLD HELPER
+# ============================================================================
+
+def _get_sla_threshold(cfg: Dict, label: Optional[str] = None) -> float:
+    """
+    Return the P90 SLA threshold (in ms) for a given endpoint label.
+
+    **Current behaviour (v0.2):**
+        Returns the global ``sla_p90_ms`` from the bottleneck config, ignoring
+        the ``label`` parameter.  All endpoints are evaluated against the same
+        SLA.
+
+    **Future behaviour (project-specific SLAs):**
+        When ``project_slas.yaml`` is implemented (see
+        ``docs/todo/TODO-project-specific-slas.md``), this function will be
+        updated to:
+
+        1. Look up per-API overrides by matching ``label`` against patterns
+           defined in ``project_slas.yaml > projects > <project> > api_overrides``.
+        2. Fall back to the project-level default SLA.
+        3. Fall back to the file-level default SLA.
+        4. Fall back to ``cfg["sla_p90_ms"]`` (the legacy global setting).
+
+        This is the **single place** where SLA resolution logic lives, so
+        downstream detection functions (latency SLA breach, multi-tier per-
+        endpoint analysis) will automatically pick up per-API SLAs without
+        code changes.
+
+    Args:
+        cfg:   Bottleneck analysis config dict (must contain ``sla_p90_ms``).
+        label: Optional JMeter sampler label / API endpoint name.  Unused
+               today but reserved for per-API SLA resolution.
+
+    Returns:
+        SLA threshold in milliseconds (float).
+    """
+    # -- v0.2: global SLA for all labels --
+    return float(cfg["sla_p90_ms"])
 
 
 # ============================================================================
@@ -117,6 +159,23 @@ async def analyze_bottlenecks(
         # ------------------------------------------------------------------
         buckets_df = _build_time_buckets(jtl_df, cfg)
         await ctx.info("Time Buckets", f"Created {len(buckets_df)} buckets ({cfg['bucket_seconds']}s each)")
+
+        # ------------------------------------------------------------------
+        # 2b. Outlier filtering (rolling median smoothing)
+        # ------------------------------------------------------------------
+        buckets_df = _apply_outlier_filtering(buckets_df, cfg)
+        outlier_count = int(buckets_df["is_outlier"].sum())
+        if outlier_count > 0:
+            await ctx.info(
+                "Outlier Filtering",
+                f"Smoothed metrics with rolling median (window={cfg['rolling_window_buckets']}). "
+                f"{outlier_count}/{len(buckets_df)} buckets flagged as outliers."
+            )
+        else:
+            await ctx.info(
+                "Outlier Filtering",
+                f"Rolling median applied (window={cfg['rolling_window_buckets']}). No outlier buckets detected."
+            )
 
         # ------------------------------------------------------------------
         # 3. Optionally load infrastructure metrics
@@ -334,6 +393,77 @@ def _build_time_buckets(jtl_df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
     return resampled
 
 
+# ============================================================================
+# OUTLIER FILTERING (Improvement 2)
+# ============================================================================
+
+def _apply_outlier_filtering(buckets_df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
+    """
+    Apply rolling median smoothing to key performance metrics and flag outlier
+    buckets.
+
+    For each metric (p50, p90, p95, avg_rt, error_rate, throughput_rps):
+      - Compute a rolling median with window = cfg['rolling_window_buckets'].
+      - The smoothed value replaces individual spikes while preserving sustained
+        trends.
+
+    A bucket is flagged as ``is_outlier = True`` when its raw p90 deviates from
+    the rolling median by more than 2x the rolling MAD (median absolute
+    deviation).  This identifies isolated spikes that should NOT drive
+    bottleneck findings.
+
+    The original raw values are preserved in ``<metric>_raw`` columns so that
+    reports can reference them for transparency.
+
+    Args:
+        buckets_df: Output of ``_build_time_buckets()``.
+        cfg:        Bottleneck config dict (needs ``rolling_window_buckets``).
+
+    Returns:
+        DataFrame with added columns:
+            p50_raw, p90_raw, p95_raw, avg_rt_raw, error_rate_raw,
+            throughput_rps_raw, is_outlier
+        and the main metric columns replaced with their smoothed versions.
+    """
+    window = int(cfg.get("rolling_window_buckets", 3))
+    df = buckets_df.copy()
+
+    # Metrics to smooth -- (column_name, higher_is_worse)
+    metrics_to_smooth = [
+        "p50", "p90", "p95", "avg_rt", "error_rate", "throughput_rps",
+    ]
+
+    # Preserve raw values
+    for col in metrics_to_smooth:
+        df[f"{col}_raw"] = df[col].copy()
+
+    # Rolling median smoothing
+    for col in metrics_to_smooth:
+        df[col] = df[col].rolling(window=window, center=True, min_periods=1).median()
+
+    # Outlier detection based on rolling MAD of raw p90
+    raw_p90 = df["p90_raw"]
+    smoothed_p90 = df["p90"]
+
+    # MAD = median absolute deviation of the raw p90
+    rolling_mad = (
+        (raw_p90 - smoothed_p90)
+        .abs()
+        .rolling(window=window, center=True, min_periods=1)
+        .median()
+    )
+    # Avoid zero MAD (constant series) -- use a small floor so we don't flag everything
+    mad_floor = smoothed_p90.median() * 0.05 if smoothed_p90.median() > 0 else 1.0
+    rolling_mad = rolling_mad.clip(lower=mad_floor)
+
+    # A bucket is an outlier if its raw p90 deviates from the smoothed value
+    # by more than 2x the rolling MAD
+    deviation = (raw_p90 - smoothed_p90).abs()
+    df["is_outlier"] = deviation > (2.0 * rolling_mad)
+
+    return df
+
+
 def _align_infra_to_buckets(
     buckets_df: pd.DataFrame, infra_df: pd.DataFrame, cfg: Dict
 ) -> pd.DataFrame:
@@ -368,6 +498,9 @@ def _compute_baseline(buckets_df: pd.DataFrame, cfg: Dict) -> Dict[str, Any]:
     Compute baseline metrics from the first stable buckets after warmup.
 
     The baseline is the average of buckets [warmup .. warmup + sustained].
+    Outlier buckets (if the ``is_outlier`` column exists) are excluded from
+    the baseline calculation to prevent a single spike in the early test
+    from skewing the reference values.
     """
     warmup = cfg["warmup_buckets"]
     sustained = cfg["sustained_buckets"]
@@ -381,6 +514,12 @@ def _compute_baseline(buckets_df: pd.DataFrame, cfg: Dict) -> Dict[str, Any]:
         start_idx = min(warmup, len(buckets_df) - 1)
 
     baseline_slice = buckets_df.iloc[start_idx:end_idx]
+
+    # Exclude outlier buckets from baseline if the column exists
+    if "is_outlier" in baseline_slice.columns:
+        non_outlier = baseline_slice[~baseline_slice["is_outlier"]]
+        if not non_outlier.empty:
+            baseline_slice = non_outlier
 
     if baseline_slice.empty:
         baseline_slice = buckets_df.head(1)
@@ -426,6 +565,7 @@ def _make_finding(
     test_run_id: str,
     classification: str = "bottleneck",
     persistence_ratio: Optional[float] = None,
+    outlier_filtered: bool = False,
     bucket_start: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Construct a standardised finding dict."""
@@ -447,6 +587,7 @@ def _make_finding(
         "confidence": confidence,
         "classification": classification,
         "persistence_ratio": persistence_ratio,
+        "outlier_filtered": outlier_filtered,
         "evidence": evidence,
         "bucket_start": bucket_start,
     }
@@ -531,16 +672,23 @@ def _detect_latency_degradation(
 
     # Work with the active (post-warmup) slice
     active = buckets_df.iloc[warmup:].reset_index(drop=True)
-    p90_series = active["p90"]
+    p90_series = active["p90"]  # already smoothed by _apply_outlier_filtering
+    has_outlier_col = "is_outlier" in active.columns
 
     sustained_count = 0
     onset_pos = None  # position within 'active' where consecutive degradation started
+    outliers_skipped = 0
 
     for pos in range(len(active)):
         p90 = p90_series.iloc[pos]
         if pd.isna(p90):
             sustained_count = 0
             onset_pos = None
+            continue
+
+        # Skip outlier buckets -- do not let them anchor an onset or count as sustained
+        if has_outlier_col and active["is_outlier"].iloc[pos]:
+            outliers_skipped += 1
             continue
 
         if p90 >= threshold_ms:
@@ -580,11 +728,13 @@ def _detect_latency_degradation(
                 confidence=confidence,
                 classification=classification,
                 persistence_ratio=actual_persistence,
+                outlier_filtered=outliers_skipped > 0,
                 evidence=(
                     f"P90 latency reached {p90_at_onset:.0f}ms (baseline {baseline_p90:.0f}ms, "
                     f"+{delta_pct_val:.1f}%) at {row['concurrency']:.0f} concurrent users. "
                     f"Persistence: {actual_persistence:.0%} of remaining buckets stayed degraded"
                     f"{' (confirmed bottleneck)' if is_persistent else ' (transient spike, recovered)'}"
+                    + (f". {outliers_skipped} outlier bucket(s) filtered." if outliers_skipped else "")
                 ),
                 test_run_id=test_run_id,
                 bucket_start=str(row["bucket_start"]),
@@ -592,15 +742,20 @@ def _detect_latency_degradation(
             break  # only report the first onset
 
     # --- SLA breach check (also with persistence) ---
-    sla = cfg["sla_p90_ms"]
+    sla = _get_sla_threshold(cfg)  # overall check uses global SLA
     sustained_count = 0
     onset_pos = None
+    sla_outliers_skipped = 0
 
     for pos in range(len(active)):
         p90 = p90_series.iloc[pos]
         if pd.isna(p90):
             sustained_count = 0
             onset_pos = None
+            continue
+
+        if has_outlier_col and active["is_outlier"].iloc[pos]:
+            sla_outliers_skipped += 1
             continue
 
         if p90 >= sla:
@@ -638,11 +793,13 @@ def _detect_latency_degradation(
                 confidence=confidence,
                 classification=classification,
                 persistence_ratio=actual_persistence,
+                outlier_filtered=sla_outliers_skipped > 0,
                 evidence=(
                     f"P90 latency {p90_at_onset:.0f}ms exceeded SLA threshold {sla}ms "
                     f"at {row['concurrency']:.0f} concurrent users. "
                     f"Persistence: {actual_persistence:.0%} of remaining buckets stayed above SLA"
                     f"{' (confirmed)' if is_persistent else ' (transient, recovered)'}"
+                    + (f". {sla_outliers_skipped} outlier bucket(s) filtered." if sla_outliers_skipped else "")
                 ),
                 test_run_id=test_run_id,
                 bucket_start=str(row["bucket_start"]),
@@ -676,16 +833,22 @@ def _detect_error_rate_increase(
         effective_threshold = min(abs_threshold, baseline_error * 2)
 
     active = buckets_df.iloc[warmup:].reset_index(drop=True)
-    err_series = active["error_rate"]
+    err_series = active["error_rate"]  # already smoothed
+    has_outlier_col = "is_outlier" in active.columns
 
     sustained_count = 0
     onset_pos = None
+    outliers_skipped = 0
 
     for pos in range(len(active)):
         err = err_series.iloc[pos]
         if pd.isna(err):
             sustained_count = 0
             onset_pos = None
+            continue
+
+        if has_outlier_col and active["is_outlier"].iloc[pos]:
+            outliers_skipped += 1
             continue
 
         if err >= effective_threshold:
@@ -723,11 +886,13 @@ def _detect_error_rate_increase(
                 confidence=confidence,
                 classification=classification,
                 persistence_ratio=actual_persistence,
+                outlier_filtered=outliers_skipped > 0,
                 evidence=(
                     f"Error rate reached {err_at_onset:.2f}% (baseline {baseline_error:.2f}%) "
                     f"at {row['concurrency']:.0f} concurrent users. "
                     f"Persistence: {actual_persistence:.0%} of remaining buckets stayed elevated"
                     f"{' (confirmed bottleneck)' if is_persistent else ' (transient spike, recovered)'}"
+                    + (f". {outliers_skipped} outlier bucket(s) filtered." if outliers_skipped else "")
                 ),
                 test_run_id=test_run_id,
                 bucket_start=str(row["bucket_start"]),
@@ -757,15 +922,17 @@ def _detect_throughput_plateau(
     plateau_pct = cfg["throughput_plateau_pct"]
 
     active = buckets_df.iloc[warmup:].copy().reset_index(drop=True)
+    has_outlier_col = "is_outlier" in active.columns
     if len(active) < 4:
         return findings
 
-    # Compute rolling throughput change (3-bucket window)
+    # Compute rolling throughput change (3-bucket window) -- uses smoothed throughput_rps
     active["tps_pct_change"] = active["throughput_rps"].pct_change(periods=3) * 100
     active["conc_pct_change"] = active["concurrency"].pct_change(periods=3) * 100
 
     plateau_count = 0
     onset_pos = None
+    outliers_skipped = 0
 
     for pos in range(len(active)):
         tps_change = active["tps_pct_change"].iloc[pos]
@@ -774,6 +941,10 @@ def _detect_throughput_plateau(
         if pd.isna(tps_change) or pd.isna(conc_change):
             plateau_count = 0
             onset_pos = None
+            continue
+
+        if has_outlier_col and active["is_outlier"].iloc[pos]:
+            outliers_skipped += 1
             continue
 
         # Concurrency is rising but throughput is flat or declining
@@ -815,11 +986,13 @@ def _detect_throughput_plateau(
                 confidence=confidence,
                 classification=classification,
                 persistence_ratio=actual_persistence,
+                outlier_filtered=outliers_skipped > 0,
                 evidence=(
                     f"Throughput plateaued at {onset_tps:.1f} RPS "
                     f"while concurrency rose to {row['concurrency']:.0f} users. "
                     f"Persistence: {actual_persistence:.0%} of remaining buckets stayed flat"
                     f"{' (confirmed bottleneck)' if is_persistent else ' (transient, recovered)'}"
+                    + (f". {outliers_skipped} outlier bucket(s) filtered." if outliers_skipped else "")
                 ),
                 test_run_id=test_run_id,
                 bucket_start=str(row["bucket_start"]),
@@ -986,7 +1159,6 @@ def _detect_multi_tier_bottlenecks(
     first label to breach the SLA threshold.
     """
     findings = []
-    sla = cfg["sla_p90_ms"]
     bucket_seconds = cfg["bucket_seconds"]
     warmup = cfg["warmup_buckets"]
 
@@ -994,9 +1166,12 @@ def _detect_multi_tier_bottlenecks(
     if len(labels) <= 1:
         return findings  # Nothing to compare
 
-    first_breach_per_label: Dict[str, Tuple[float, float]] = {}  # label -> (concurrency, p90)
+    # label -> (concurrency, p90, label_sla)
+    first_breach_per_label: Dict[str, Tuple[float, float, float]] = {}
 
     for label in labels:
+        label_sla = _get_sla_threshold(cfg, label=label)
+
         label_df = jtl_df[jtl_df["label"] == label].copy()
         if len(label_df) < 10:
             continue
@@ -1011,8 +1186,8 @@ def _detect_multi_tier_bottlenecks(
 
         for idx in range(warmup, len(resampled)):
             row = resampled.iloc[idx]
-            if pd.notna(row["p90"]) and row["p90"] >= sla:
-                first_breach_per_label[label] = (row["concurrency"], row["p90"])
+            if pd.notna(row["p90"]) and row["p90"] >= label_sla:
+                first_breach_per_label[label] = (row["concurrency"], row["p90"], label_sla)
                 break
 
     if not first_breach_per_label:
@@ -1020,7 +1195,7 @@ def _detect_multi_tier_bottlenecks(
 
     # Sort by concurrency to find the earliest degrader
     sorted_labels = sorted(first_breach_per_label.items(), key=lambda x: x[1][0])
-    earliest_label, (earliest_conc, earliest_p90) = sorted_labels[0]
+    earliest_label, (earliest_conc, earliest_p90, earliest_sla) = sorted_labels[0]
 
     findings.append(_make_finding(
         bottleneck_type="multi_tier_bottleneck",
@@ -1029,19 +1204,19 @@ def _detect_multi_tier_bottlenecks(
         concurrency=earliest_conc,
         metric_name="p90_response_time_ms",
         metric_value=earliest_p90,
-        baseline_value=sla,
+        baseline_value=earliest_sla,
         severity="high",
         confidence="high",
         evidence=(
             f"Endpoint '{earliest_label}' was the first to breach the SLA threshold "
-            f"({sla}ms) with P90={earliest_p90:.0f}ms at {earliest_conc:.0f} concurrent users. "
+            f"({earliest_sla}ms) with P90={earliest_p90:.0f}ms at {earliest_conc:.0f} concurrent users. "
             f"{len(first_breach_per_label)}/{len(labels)} endpoints eventually breached SLA."
         ),
         test_run_id=test_run_id,
     ))
 
     # Report up to 4 more early degraders
-    for label, (conc, p90) in sorted_labels[1:5]:
+    for label, (conc, p90, label_sla) in sorted_labels[1:5]:
         findings.append(_make_finding(
             bottleneck_type="multi_tier_bottleneck",
             scope="label",
@@ -1049,11 +1224,11 @@ def _detect_multi_tier_bottlenecks(
             concurrency=conc,
             metric_name="p90_response_time_ms",
             metric_value=p90,
-            baseline_value=sla,
+            baseline_value=label_sla,
             severity="medium",
             confidence="high",
             evidence=(
-                f"Endpoint '{label}' breached SLA ({sla}ms) "
+                f"Endpoint '{label}' breached SLA ({label_sla}ms) "
                 f"with P90={p90:.0f}ms at {conc:.0f} concurrent users"
             ),
             test_run_id=test_run_id,
@@ -1259,7 +1434,9 @@ async def _write_outputs(
         pd.DataFrame(columns=[
             "test_run_id", "analysis_mode", "bottleneck_type", "scope", "scope_name",
             "concurrency", "metric_name", "metric_value", "baseline_value",
-            "delta_abs", "delta_pct", "severity", "confidence", "evidence", "bucket_start",
+            "delta_abs", "delta_pct", "severity", "confidence",
+            "classification", "persistence_ratio", "outlier_filtered",
+            "evidence", "bucket_start",
         ]).to_csv(csv_file, index=False)
     output_files["csv"] = str(csv_file)
 
@@ -1353,12 +1530,20 @@ def format_bottleneck_markdown(result: Dict) -> str:
                 f"### {i}. {severity_icon} {_bottleneck_type_label(f['bottleneck_type']).title()} "
                 f"({f['severity'].title()})\n"
             )
+            classification = f.get('classification', 'bottleneck')
+            classification_label = classification.replace('_', ' ').title()
+            md.append(f"- **Classification**: {classification_label}")
             md.append(f"- **Scope**: {f['scope']} > {f['scope_name']}")
             md.append(f"- **Concurrency**: {f['concurrency']:.0f} users")
             md.append(f"- **Metric**: {f['metric_name']} = {f['metric_value']}")
             md.append(f"- **Baseline**: {f['baseline_value']}")
             md.append(f"- **Delta**: {f['delta_abs']:+.2f} ({f['delta_pct']:+.1f}%)")
             md.append(f"- **Confidence**: {f['confidence']}")
+            persistence = f.get('persistence_ratio')
+            if persistence is not None:
+                md.append(f"- **Persistence**: {persistence:.0%} of remaining test")
+            if f.get('outlier_filtered'):
+                md.append(f"- **Outlier Filtering**: Yes (outlier buckets were skipped during detection)")
             md.append(f"- **Evidence**: {f['evidence']}")
             md.append("")
     else:
@@ -1391,6 +1576,8 @@ def format_bottleneck_markdown(result: Dict) -> str:
     md.append(f"| Bucket Size | {cfg.get('bucket_seconds', 'N/A')}s |")
     md.append(f"| Warmup Buckets | {cfg.get('warmup_buckets', 'N/A')} |")
     md.append(f"| Sustained Buckets | {cfg.get('sustained_buckets', 'N/A')} |")
+    md.append(f"| Persistence Ratio | {cfg.get('persistence_ratio', 'N/A')} |")
+    md.append(f"| Rolling Window (Outlier) | {cfg.get('rolling_window_buckets', 'N/A')} buckets |")
     md.append(f"| Latency Degradation Threshold | {cfg.get('latency_degrade_pct', 'N/A')}% |")
     md.append(f"| Error Rate Threshold | {cfg.get('error_rate_degrade_abs', 'N/A')}% |")
     md.append(f"| SLA P90 Threshold | {cfg.get('sla_p90_ms', 'N/A')} ms |")

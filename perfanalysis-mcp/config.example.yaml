@@ -47,6 +47,7 @@ perf_analysis:
     warmup_buckets: 2           # Buckets to skip at test start (JMeter ramp-up)
     sustained_buckets: 2        # Consecutive buckets required to confirm a finding
     persistence_ratio: 0.6      # Min fraction of remaining test that must stay degraded
+    rolling_window_buckets: 3   # Window size for rolling median smoothing (outlier filtering)
     latency_degrade_pct: 25.0   # P90 latency increase % over baseline to flag degradation
     error_rate_degrade_abs: 5.0 # Absolute error rate % to flag as degraded
     throughput_plateau_pct: 5.0 # Throughput growth % below which is considered a plateau
