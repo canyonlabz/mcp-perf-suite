@@ -131,12 +131,12 @@ async def write_infrastructure_csv(analysis: Dict, csv_file: Path):
             'resource_type': 'kubernetes',
             'resource_name': k8s_name,
             'metric_type': 'overall',
-            'allocated_cpu': cpu_analysis.get('allocated_cores', 0),
-            'peak_cpu_utilization_pct': cpu_analysis.get('peak_utilization_pct', 0),
-            'avg_cpu_utilization_pct': cpu_analysis.get('avg_utilization_pct', 0),
-            'allocated_memory_gb': memory_analysis.get('allocated_gb', 0),
-            'peak_memory_utilization_pct': memory_analysis.get('peak_utilization_pct', 0),
-            'avg_memory_utilization_pct': memory_analysis.get('avg_utilization_pct', 0),
+            'allocated_cpu': cpu_analysis.get('allocated_cores'),  # None if limits not defined
+            'peak_cpu_utilization_pct': cpu_analysis.get('peak_utilization_pct'),
+            'avg_cpu_utilization_pct': cpu_analysis.get('avg_utilization_pct'),
+            'allocated_memory_gb': memory_analysis.get('allocated_gb'),  # None if limits not defined
+            'peak_memory_utilization_pct': memory_analysis.get('peak_utilization_pct'),
+            'avg_memory_utilization_pct': memory_analysis.get('avg_utilization_pct'),
             'total_containers': len(entity_metrics.get('containers', {})),
             'duration_minutes': entity_metrics.get('time_range', {}).get('duration_minutes', 0)
         })
@@ -154,12 +154,12 @@ async def write_infrastructure_csv(analysis: Dict, csv_file: Path):
             'resource_type': 'host',
             'resource_name': hostname,
             'metric_type': 'overall',
-            'allocated_cpu': cpu_analysis.get('allocated_cpus', 0),
-            'peak_cpu_utilization_pct': cpu_analysis.get('peak_utilization_pct', 0),
-            'avg_cpu_utilization_pct': cpu_analysis.get('avg_utilization_pct', 0),
-            'allocated_memory_gb': memory_analysis.get('allocated_gb', 0),
-            'peak_memory_utilization_pct': memory_analysis.get('peak_utilization_pct', 0),
-            'avg_memory_utilization_pct': memory_analysis.get('avg_utilization_pct', 0),
+            'allocated_cpu': cpu_analysis.get('allocated_cpus'),  # None if not defined
+            'peak_cpu_utilization_pct': cpu_analysis.get('peak_utilization_pct'),
+            'avg_cpu_utilization_pct': cpu_analysis.get('avg_utilization_pct'),
+            'allocated_memory_gb': memory_analysis.get('allocated_gb'),  # None if not defined
+            'peak_memory_utilization_pct': memory_analysis.get('peak_utilization_pct'),
+            'avg_memory_utilization_pct': memory_analysis.get('avg_utilization_pct'),
             'total_containers': 0,  # N/A for hosts
             'duration_minutes': host_metrics.get('time_range', {}).get('duration_minutes', 0)
         })

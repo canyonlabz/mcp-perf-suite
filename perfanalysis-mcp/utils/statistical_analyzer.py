@@ -347,8 +347,8 @@ def analyze_host_correlations(correlations: Dict, performance_data: Dict, infras
             "peak_cpu_utilization": peak_cpu_util,
             "avg_memory_utilization": avg_memory_util,
             "peak_memory_utilization": peak_memory_util,
-            "allocated_cpus": cpu_analysis.get('allocated_cpus', 'unknown'),
-            "allocated_memory_gb": memory_analysis.get('allocated_gb', 'unknown')
+            "allocated_cpus": cpu_analysis.get('allocated_cpus'),  # None if not defined
+            "allocated_memory_gb": memory_analysis.get('allocated_gb')  # None if not defined
         }
         
         host_correlations.append(host_correlation)

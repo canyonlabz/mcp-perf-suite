@@ -147,16 +147,16 @@ async def analyze_kubernetes_metrics(
             if not entity_config:
                 k8s_analysis["assumptions"].append(
                     f"K8s {entity_type.title()} '{filter_name}' not found in environments.json - "
-                    f"using defaults: {resource_allocation['cpus']} cores, {resource_allocation['memory_gb']}GB"
+                    f"no CPU or memory limits defined (pod-level or environments.json)"
                 )
             else:
                 if 'cpus' not in entity_config:
                     k8s_analysis["assumptions"].append(
-                        f"K8s {entity_type.title()} '{filter_name}' missing CPU config - assumed {resource_allocation['cpus']} cores"
+                        f"K8s {entity_type.title()} '{filter_name}' - no CPU limits defined (pod-level or environments.json)"
                     )
                 if 'memory' not in entity_config:
                     k8s_analysis["assumptions"].append(
-                        f"K8s {entity_type.title()} '{filter_name}' missing memory config - assumed {resource_allocation['memory_gb']}GB"
+                        f"K8s {entity_type.title()} '{filter_name}' - no memory limits defined (pod-level or environments.json)"
                     )
             
             # Analyze service/pod metrics
@@ -246,11 +246,11 @@ def analyze_k8s_entity_metrics(entity_data: pd.DataFrame, resource_allocation: D
                 entity_metrics["limits_status"]["cpu_limits_defined"] = True
             else:
                 # Limits exist but are all 0 (not defined in K8s)
-                entity_metrics["cpu_analysis"]["allocated_cores"] = resource_allocation.get('cpus', 0)
+                entity_metrics["cpu_analysis"]["allocated_cores"] = resource_allocation.get('cpus')  # None if unknown
                 entity_metrics["limits_status"]["cpu_limits_defined"] = False
         else:
-            # No limits data in CSV - fall back to static config
-            entity_metrics["cpu_analysis"]["allocated_cores"] = resource_allocation.get('cpus', 0)
+            # No limits data in CSV - use environments.json value (may be None)
+            entity_metrics["cpu_analysis"]["allocated_cores"] = resource_allocation.get('cpus')  # None if unknown
             entity_metrics["limits_status"]["cpu_limits_defined"] = False
         
         # Get utilization from pre-calculated values (handles -1 = not defined)
@@ -303,11 +303,11 @@ def analyze_k8s_entity_metrics(entity_data: pd.DataFrame, resource_allocation: D
                 entity_metrics["limits_status"]["mem_limits_defined"] = True
             else:
                 # Limits exist but are all 0 (not defined in K8s)
-                entity_metrics["memory_analysis"]["allocated_gb"] = resource_allocation.get('memory_gb', 0)
+                entity_metrics["memory_analysis"]["allocated_gb"] = resource_allocation.get('memory_gb')  # None if unknown
                 entity_metrics["limits_status"]["mem_limits_defined"] = False
         else:
-            # No limits data in CSV - fall back to static config
-            entity_metrics["memory_analysis"]["allocated_gb"] = resource_allocation.get('memory_gb', 0)
+            # No limits data in CSV - use environments.json value (may be None)
+            entity_metrics["memory_analysis"]["allocated_gb"] = resource_allocation.get('memory_gb')  # None if unknown
             entity_metrics["limits_status"]["mem_limits_defined"] = False
         
         # Get utilization from pre-calculated values (handles -1 = not defined)
@@ -417,16 +417,16 @@ async def analyze_host_metrics(
             if not host_config:
                 host_analysis["assumptions"].append(
                     f"Host '{hostname}' not found in environments.json - "
-                    f"using defaults: {resource_allocation['cpus']} CPUs, {resource_allocation['memory_gb']}GB"
+                    f"no CPU or memory allocation defined"
                 )
             else:
                 if 'cpus' not in host_config:
                     host_analysis["assumptions"].append(
-                        f"Host '{hostname}' missing CPU config - assumed {resource_allocation['cpus']} CPUs"
+                        f"Host '{hostname}' - no CPU allocation defined in environments.json"
                     )
                 if 'memory' not in host_config:
                     host_analysis["assumptions"].append(
-                        f"Host '{hostname}' missing memory config - assumed {resource_allocation['memory_gb']}GB"
+                        f"Host '{hostname}' - no memory allocation defined in environments.json"
                     )
             
             # Analyze host metrics
@@ -438,13 +438,18 @@ async def analyze_host_metrics(
     return host_analysis
 
 def get_host_resource_allocation(host_config: Dict, hostname: str, config: Dict) -> Dict:
-    """Get host resource allocation with config-driven fallbacks"""
+    """Get host resource allocation. Returns None for values when no real config exists.
     
-    defaults = config['perf_analysis']['default_resources']['host']
+    Resource values come from environments.json host config only.
+    If not defined there, returns None -- no fabricated defaults.
+    """
+    
+    cpu_raw = host_config.get("cpus")
+    mem_raw = host_config.get("memory")
     
     return {
-        "cpus": host_config.get("cpus", defaults["cpus"]),
-        "memory_gb": parse_memory_gb(host_config.get("memory", f"{defaults['memory_gb']}GB"))
+        "cpus": parse_cpu_cores(cpu_raw) if cpu_raw else None,
+        "memory_gb": parse_memory_gb(mem_raw)
     }
 
 def analyze_host_system_metrics(host_data: pd.DataFrame, resource_allocation: Dict, config: Dict) -> Dict:
@@ -491,7 +496,7 @@ def analyze_host_system_metrics(host_data: pd.DataFrame, resource_allocation: Di
 
             if not total_cpu_pct.empty:
                 host_metrics["cpu_analysis"] = {
-                    "allocated_cpus": resource_allocation['cpus'],
+                    "allocated_cpus": resource_allocation.get('cpus'),  # None if unknown
                     "peak_utilization_pct": float(np.nanmax(total_cpu_pct.values) if len(total_cpu_pct.values) else 0.0),
                     "avg_utilization_pct": float(np.nanmean(total_cpu_pct.values) if len(total_cpu_pct.values) else 0.0),
                     "min_utilization_pct": float(np.nanmin(total_cpu_pct.values) if len(total_cpu_pct.values) else 0.0),
@@ -504,7 +509,7 @@ def analyze_host_system_metrics(host_data: pd.DataFrame, resource_allocation: Di
             total_cpu_pct = total_cpu_pct.replace([np.inf, -np.inf], np.nan).fillna(0)
             if not total_cpu_pct.empty:
                 host_metrics["cpu_analysis"] = {
-                    "allocated_cpus": resource_allocation['cpus'],
+                    "allocated_cpus": resource_allocation.get('cpus'),  # None if unknown
                     "peak_utilization_pct": float(np.nanmax(total_cpu_pct.values)),
                     "avg_utilization_pct": float(np.nanmean(total_cpu_pct.values)),
                     "min_utilization_pct": float(np.nanmin(total_cpu_pct.values)),
@@ -549,7 +554,7 @@ def analyze_host_system_metrics(host_data: pd.DataFrame, resource_allocation: Di
             if direct_pct is not None:
                 pct_series = direct_pct.fillna(0)
                 host_metrics["memory_analysis"] = {
-                    "allocated_gb": resource_allocation['memory_gb'],
+                    "allocated_gb": resource_allocation.get('memory_gb'),  # None if unknown
                     "peak_utilization_pct": float(np.nanmax(pct_series.values) if len(pct_series.values) else 0.0),
                     "avg_utilization_pct": float(np.nanmean(pct_series.values) if len(pct_series.values) else 0.0),
                     "min_utilization_pct": float(np.nanmin(pct_series.values) if len(pct_series.values) else 0.0),
@@ -572,7 +577,7 @@ def analyze_host_system_metrics(host_data: pd.DataFrame, resource_allocation: Di
                     util_pct = (used_gb / total_gb_clean) * 100
                     util_pct = util_pct.replace([np.inf, -np.inf], np.nan).fillna(0)
                     host_metrics["memory_analysis"] = {
-                        "allocated_gb": resource_allocation['memory_gb'],
+                        "allocated_gb": resource_allocation.get('memory_gb'),  # None if unknown
                         "peak_usage_gb": float(np.nanmax(used_gb.values) if len(used_gb.values) else 0.0),
                         "avg_usage_gb": float(np.nanmean(used_gb.values) if len(used_gb.values) else 0.0),
                         "detected_total_gb": float(np.nanmean(total_gb.values) if len(total_gb.values) else 0.0),
@@ -594,7 +599,7 @@ def analyze_host_system_metrics(host_data: pd.DataFrame, resource_allocation: Di
                     util_arr = (used_arr / total_arr) * 100
                     util_arr = np.nan_to_num(util_arr, nan=0.0, posinf=0.0, neginf=0.0)
                     host_metrics["memory_analysis"] = {
-                        "allocated_gb": resource_allocation['memory_gb'],
+                        "allocated_gb": resource_allocation.get('memory_gb'),  # None if unknown
                         "peak_usage_gb": float(np.nanmax(used_arr)),
                         "avg_usage_gb": float(np.nanmean(used_arr)),
                         "detected_total_gb": float(np.nanmean(total_arr[np.isfinite(total_arr)]) if np.isfinite(total_arr).any() else 0.0),
