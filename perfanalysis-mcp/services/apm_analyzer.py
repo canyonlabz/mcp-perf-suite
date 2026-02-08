@@ -170,13 +170,18 @@ async def analyze_kubernetes_metrics(
     return k8s_analysis
 
 def get_kubernetes_resource_allocation(entity_config: Dict, entity_name: str, config: Dict) -> Dict:
-    """Get K8s entity (service or pod) resource allocation with config-driven fallbacks"""
+    """Get K8s entity resource allocation. Returns None for values when no real limits exist.
     
-    defaults = config['perf_analysis']['default_resources']['kubernetes']
+    Resource values come from environments.json entity config only.
+    If not defined there, returns None -- no fabricated defaults.
+    """
+    
+    cpu_raw = entity_config.get("cpus")
+    mem_raw = entity_config.get("memory")
     
     return {
-        "cpus": parse_cpu_cores(entity_config.get("cpus", f"{defaults['cpus']} core")),
-        "memory_gb": parse_memory_gib(entity_config.get("memory", f"{defaults['memory_gb']}GiB"))
+        "cpus": parse_cpu_cores(cpu_raw),
+        "memory_gb": parse_memory_gib(mem_raw)
     }
 
 def analyze_k8s_entity_metrics(entity_data: pd.DataFrame, resource_allocation: Dict, config: Dict) -> Dict:
@@ -606,22 +611,26 @@ def analyze_host_system_metrics(host_data: pd.DataFrame, resource_allocation: Di
 # -----------------------------------------------
 # Utility Functions 
 # -----------------------------------------------
-def parse_cpu_cores(cpu_str: str) -> float:
-    """Parse CPU allocation from various formats with robust handling"""
+def parse_cpu_cores(cpu_str) -> float:
+    """Parse CPU allocation from various formats. Returns None if no valid value can be parsed."""
+    if cpu_str is None:
+        return None
     if isinstance(cpu_str, (int, float)):
         return float(cpu_str)
     
     try:
-        # Handle formats: "4.05 core", "4 cores", "4.0", "4"
+        # Handle formats: "4.05 core", "4 cores", "4.0", "4", "50 millicores"
         import re
         cpu_str = str(cpu_str).lower()
         matches = re.findall(r'(\d+\.?\d*)', cpu_str)
-        return float(matches[0]) if matches else 2.0
+        return float(matches[0]) if matches else None
     except (ValueError, AttributeError):
-        return 2.0  # Safe default from config
+        return None
 
-def parse_memory_gb(memory_str: str) -> float:
-    """Parse memory allocation from various formats"""
+def parse_memory_gb(memory_str) -> float:
+    """Parse memory allocation from various formats. Returns None if no valid value can be parsed."""
+    if memory_str is None:
+        return None
     if isinstance(memory_str, (int, float)):
         return float(memory_str)
     
@@ -632,7 +641,7 @@ def parse_memory_gb(memory_str: str) -> float:
         # Extract numeric value
         matches = re.findall(r'(\d+\.?\d*)', memory_str)
         if not matches:
-            return 8.0
+            return None
         
         value = float(matches[0])
         
@@ -646,7 +655,7 @@ def parse_memory_gb(memory_str: str) -> float:
         else:
             return value  # Assume GB if no unit
     except (ValueError, AttributeError):
-        return 8.0  # Safe default from config
+        return None
 
 def parse_memory_gib(memory_str: str) -> float:
     """Parse memory allocation from GiB format (same as GB for practical purposes)"""

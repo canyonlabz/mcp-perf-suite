@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "environments": {
     "QA1": {
       "env_tag": "azure.qa1",
@@ -14,23 +14,17 @@
         "services": [
           {
             "service_filter": "my-app-api",
-            "description": "My App microservice",
-            "cpus": "4.05 core",
-            "memory": "16 GiB"
+            "description": "My App microservice"
           }
         ],
         "pods": [
           {
             "pod_filter": "app-web*",
-            "description": "App Web Pod",
-            "cpus": "4.05 cores",
-            "memory": "16 GiB"
+            "description": "App Web Pod"
           },
           {
             "pod_filter": "app-worker*",
-            "description": "App Worker Pod",
-            "cpus": "1.5 cores",
-            "memory": "8 GiB"
+            "description": "App Worker Pod"
           }
         ]
       }
@@ -39,19 +33,17 @@
       "env_tag": "azure.qa2",
       "metadata": {
         "platform": "Windows Servers",
-        "cpus": 4,
-        "memory": "16GB",
         "description": "QA2 environment for testing"
       },
       "tags": ["example", "test"],
       "services": [],
       "hosts": [
-        {"hostname": "az-web-01", "description": "webserver", "cpus": 4, "memory": "16GB"},
-        {"hostname": "az-web-02", "description": "webserver", "cpus": 4, "memory": "16GB"},
-        {"hostname": "az-db-01", "description": "database", "cpus": 4, "memory": "16GB"},
-        {"hostname": "az-db-02", "description": "database", "cpus": 4, "memory": "16GB"},
-        {"hostname": "az-app-01", "description": "application server", "cpus": 4, "memory": "16GB"},
-        {"hostname": "az-app-02", "description": "application server", "cpus": 4, "memory": "16GB"}
+        {"hostname": "az-web-01", "description": "webserver"},
+        {"hostname": "az-web-02", "description": "webserver"},
+        {"hostname": "az-db-01", "description": "database"},
+        {"hostname": "az-db-02", "description": "database"},
+        {"hostname": "az-app-01", "description": "application server"},
+        {"hostname": "az-app-02", "description": "application server"}
       ],
       "kubernetes": {
         "services": []
