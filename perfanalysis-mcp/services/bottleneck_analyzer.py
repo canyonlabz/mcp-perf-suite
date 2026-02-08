@@ -196,17 +196,20 @@ async def analyze_bottlenecks(
         # ------------------------------------------------------------------
         # 5. Run detection algorithms
         # ------------------------------------------------------------------
+        # Test start time = first bucket's timestamp (used for elapsed-seconds calc)
+        test_start_time = buckets_df["bucket_start"].iloc[0] if len(buckets_df) > 0 else None
+
         findings: List[Dict[str, Any]] = []
 
-        findings.extend(_detect_latency_degradation(buckets_df, baseline, cfg, test_run_id))
-        findings.extend(_detect_error_rate_increase(buckets_df, baseline, cfg, test_run_id))
-        findings.extend(_detect_throughput_plateau(buckets_df, baseline, cfg, test_run_id))
+        findings.extend(_detect_latency_degradation(buckets_df, baseline, cfg, test_run_id, test_start_time))
+        findings.extend(_detect_error_rate_increase(buckets_df, baseline, cfg, test_run_id, test_start_time))
+        findings.extend(_detect_throughput_plateau(buckets_df, baseline, cfg, test_run_id, test_start_time))
 
         if has_infra:
-            findings.extend(_detect_infra_saturation(buckets_df, baseline, cfg, test_run_id))
-            findings.extend(_detect_resource_performance_coupling(buckets_df, cfg, test_run_id))
+            findings.extend(_detect_infra_saturation(buckets_df, baseline, cfg, test_run_id, test_start_time))
+            findings.extend(_detect_resource_performance_coupling(buckets_df, cfg, test_run_id, test_start_time))
 
-        findings.extend(_detect_multi_tier_bottlenecks(jtl_df, cfg, test_run_id))
+        findings.extend(_detect_multi_tier_bottlenecks(jtl_df, cfg, test_run_id, test_start_time))
 
         await ctx.info("Detection", f"Identified {len(findings)} bottleneck(s)")
 
@@ -566,7 +569,9 @@ def _make_finding(
     classification: str = "bottleneck",
     persistence_ratio: Optional[float] = None,
     outlier_filtered: bool = False,
-    bucket_start: Optional[str] = None,
+    onset_timestamp: Optional[str] = None,
+    onset_bucket_index: Optional[int] = None,
+    test_elapsed_seconds: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Construct a standardised finding dict."""
     delta_abs = metric_value - baseline_value
@@ -588,8 +593,43 @@ def _make_finding(
         "classification": classification,
         "persistence_ratio": persistence_ratio,
         "outlier_filtered": outlier_filtered,
+        "onset_timestamp": onset_timestamp,
+        "onset_bucket_index": onset_bucket_index,
+        "test_elapsed_seconds": round(test_elapsed_seconds, 1) if test_elapsed_seconds is not None else None,
         "evidence": evidence,
-        "bucket_start": bucket_start,
+    }
+
+
+def _onset_fields(
+    bucket_start_value, bucket_index: int, test_start_time
+) -> Dict[str, Any]:
+    """
+    Compute the three timestamp fields for a finding from raw bucket data.
+
+    Args:
+        bucket_start_value: The ``bucket_start`` value from the bucket row
+                            (pandas Timestamp or string).
+        bucket_index:       Zero-based bucket index within the **full** buckets
+                            DataFrame (i.e. warmup + position in active slice).
+        test_start_time:    The ``bucket_start`` of the very first bucket in the
+                            test (pandas Timestamp or string).
+
+    Returns:
+        dict with ``onset_timestamp``, ``onset_bucket_index``,
+        ``test_elapsed_seconds`` ready to be unpacked into ``_make_finding(**)``.
+    """
+    try:
+        onset_ts = pd.Timestamp(bucket_start_value)
+        start_ts = pd.Timestamp(test_start_time)
+        elapsed = (onset_ts - start_ts).total_seconds()
+    except Exception:
+        onset_ts = bucket_start_value
+        elapsed = None
+
+    return {
+        "onset_timestamp": str(onset_ts) if onset_ts is not None else None,
+        "onset_bucket_index": bucket_index,
+        "test_elapsed_seconds": float(elapsed) if elapsed is not None else None,
     }
 
 
@@ -650,7 +690,8 @@ def _check_persistence(
 # ---------------------------------------------------------------------------
 
 def _detect_latency_degradation(
-    buckets_df: pd.DataFrame, baseline: Dict, cfg: Dict, test_run_id: str
+    buckets_df: pd.DataFrame, baseline: Dict, cfg: Dict, test_run_id: str,
+    test_start_time=None,
 ) -> List[Dict]:
     """Detect when P90 latency degrades beyond threshold relative to baseline.
 
@@ -729,6 +770,7 @@ def _detect_latency_degradation(
                 classification=classification,
                 persistence_ratio=actual_persistence,
                 outlier_filtered=outliers_skipped > 0,
+                **_onset_fields(row["bucket_start"], warmup + onset_pos, test_start_time),
                 evidence=(
                     f"P90 latency reached {p90_at_onset:.0f}ms (baseline {baseline_p90:.0f}ms, "
                     f"+{delta_pct_val:.1f}%) at {row['concurrency']:.0f} concurrent users. "
@@ -737,7 +779,6 @@ def _detect_latency_degradation(
                     + (f". {outliers_skipped} outlier bucket(s) filtered." if outliers_skipped else "")
                 ),
                 test_run_id=test_run_id,
-                bucket_start=str(row["bucket_start"]),
             ))
             break  # only report the first onset
 
@@ -794,6 +835,7 @@ def _detect_latency_degradation(
                 classification=classification,
                 persistence_ratio=actual_persistence,
                 outlier_filtered=sla_outliers_skipped > 0,
+                **_onset_fields(row["bucket_start"], warmup + onset_pos, test_start_time),
                 evidence=(
                     f"P90 latency {p90_at_onset:.0f}ms exceeded SLA threshold {sla}ms "
                     f"at {row['concurrency']:.0f} concurrent users. "
@@ -802,7 +844,6 @@ def _detect_latency_degradation(
                     + (f". {sla_outliers_skipped} outlier bucket(s) filtered." if sla_outliers_skipped else "")
                 ),
                 test_run_id=test_run_id,
-                bucket_start=str(row["bucket_start"]),
             ))
             break
 
@@ -814,7 +855,8 @@ def _detect_latency_degradation(
 # ---------------------------------------------------------------------------
 
 def _detect_error_rate_increase(
-    buckets_df: pd.DataFrame, baseline: Dict, cfg: Dict, test_run_id: str
+    buckets_df: pd.DataFrame, baseline: Dict, cfg: Dict, test_run_id: str,
+    test_start_time=None,
 ) -> List[Dict]:
     """Detect when error rate exceeds absolute or relative thresholds.
 
@@ -887,6 +929,7 @@ def _detect_error_rate_increase(
                 classification=classification,
                 persistence_ratio=actual_persistence,
                 outlier_filtered=outliers_skipped > 0,
+                **_onset_fields(row["bucket_start"], warmup + onset_pos, test_start_time),
                 evidence=(
                     f"Error rate reached {err_at_onset:.2f}% (baseline {baseline_error:.2f}%) "
                     f"at {row['concurrency']:.0f} concurrent users. "
@@ -895,7 +938,6 @@ def _detect_error_rate_increase(
                     + (f". {outliers_skipped} outlier bucket(s) filtered." if outliers_skipped else "")
                 ),
                 test_run_id=test_run_id,
-                bucket_start=str(row["bucket_start"]),
             ))
             break
 
@@ -907,7 +949,8 @@ def _detect_error_rate_increase(
 # ---------------------------------------------------------------------------
 
 def _detect_throughput_plateau(
-    buckets_df: pd.DataFrame, baseline: Dict, cfg: Dict, test_run_id: str
+    buckets_df: pd.DataFrame, baseline: Dict, cfg: Dict, test_run_id: str,
+    test_start_time=None,
 ) -> List[Dict]:
     """
     Detect when throughput stops increasing even as concurrency rises.
@@ -987,6 +1030,7 @@ def _detect_throughput_plateau(
                 classification=classification,
                 persistence_ratio=actual_persistence,
                 outlier_filtered=outliers_skipped > 0,
+                **_onset_fields(row["bucket_start"], warmup + onset_pos, test_start_time),
                 evidence=(
                     f"Throughput plateaued at {onset_tps:.1f} RPS "
                     f"while concurrency rose to {row['concurrency']:.0f} users. "
@@ -995,7 +1039,6 @@ def _detect_throughput_plateau(
                     + (f". {outliers_skipped} outlier bucket(s) filtered." if outliers_skipped else "")
                 ),
                 test_run_id=test_run_id,
-                bucket_start=str(row["bucket_start"]),
             ))
             break
 
@@ -1007,7 +1050,8 @@ def _detect_throughput_plateau(
 # ---------------------------------------------------------------------------
 
 def _detect_infra_saturation(
-    buckets_df: pd.DataFrame, baseline: Dict, cfg: Dict, test_run_id: str
+    buckets_df: pd.DataFrame, baseline: Dict, cfg: Dict, test_run_id: str,
+    test_start_time=None,
 ) -> List[Dict]:
     """Detect when CPU or memory exceeds configured thresholds."""
     findings = []
@@ -1024,7 +1068,10 @@ def _detect_infra_saturation(
     cpu_flagged = False
     mem_flagged = False
 
-    for idx, row in buckets_df.iloc[warmup:].iterrows():
+    active_slice = buckets_df.iloc[warmup:]
+    for pos, (idx, row) in enumerate(active_slice.iterrows()):
+        bucket_idx = warmup + pos  # absolute bucket index
+
         # CPU saturation
         cpu = row.get("avg_cpu", np.nan)
         if pd.notna(cpu) and cpu >= cpu_threshold:
@@ -1044,12 +1091,12 @@ def _detect_infra_saturation(
                 baseline_value=baseline.get("avg_cpu", 0),
                 severity="critical" if cpu >= 90 else "high",
                 confidence="high",
+                **_onset_fields(row["bucket_start"], bucket_idx, test_start_time),
                 evidence=(
                     f"CPU utilization reached {cpu:.1f}% (threshold {cpu_threshold}%) "
                     f"at {row['concurrency']:.0f} concurrent users"
                 ),
                 test_run_id=test_run_id,
-                bucket_start=str(row["bucket_start"]),
             ))
 
         # Memory saturation
@@ -1071,12 +1118,12 @@ def _detect_infra_saturation(
                 baseline_value=baseline.get("avg_memory", 0),
                 severity="critical" if mem >= 95 else "high",
                 confidence="high",
+                **_onset_fields(row["bucket_start"], bucket_idx, test_start_time),
                 evidence=(
                     f"Memory utilization reached {mem:.1f}% (threshold {mem_threshold}%) "
                     f"at {row['concurrency']:.0f} concurrent users"
                 ),
                 test_run_id=test_run_id,
-                bucket_start=str(row["bucket_start"]),
             ))
 
     return findings
@@ -1087,7 +1134,8 @@ def _detect_infra_saturation(
 # ---------------------------------------------------------------------------
 
 def _detect_resource_performance_coupling(
-    buckets_df: pd.DataFrame, cfg: Dict, test_run_id: str
+    buckets_df: pd.DataFrame, cfg: Dict, test_run_id: str,
+    test_start_time=None,
 ) -> List[Dict]:
     """Detect temporal coincidence of latency degradation and infra pressure."""
     findings = []
@@ -1122,6 +1170,8 @@ def _detect_resource_performance_coupling(
             # Find peak co-occurrence bucket
             peak_idx = active["p90"].idxmax()
             peak_row = active.loc[peak_idx]
+            # Determine absolute bucket index for the peak
+            peak_bucket_idx = warmup + active.index.get_loc(peak_idx)
 
             findings.append(_make_finding(
                 bottleneck_type="resource_performance_coupling",
@@ -1133,13 +1183,13 @@ def _detect_resource_performance_coupling(
                 baseline_value=0.0,
                 severity="high" if abs_corr >= 0.7 else "medium",
                 confidence="high" if abs_corr >= 0.7 else "medium",
+                **_onset_fields(peak_row["bucket_start"], peak_bucket_idx, test_start_time),
                 evidence=(
                     f"{strength.title()} {direction} correlation ({correlation:.3f}) between "
                     f"{resource} utilization and P90 latency. Peak latency at "
                     f"{peak_row['concurrency']:.0f} concurrent users"
                 ),
                 test_run_id=test_run_id,
-                bucket_start=str(peak_row["bucket_start"]),
             ))
 
     return findings
@@ -1150,7 +1200,8 @@ def _detect_resource_performance_coupling(
 # ---------------------------------------------------------------------------
 
 def _detect_multi_tier_bottlenecks(
-    jtl_df: pd.DataFrame, cfg: Dict, test_run_id: str
+    jtl_df: pd.DataFrame, cfg: Dict, test_run_id: str,
+    test_start_time=None,
 ) -> List[Dict]:
     """
     Detect which endpoints degrade first as concurrency increases.
@@ -1166,8 +1217,8 @@ def _detect_multi_tier_bottlenecks(
     if len(labels) <= 1:
         return findings  # Nothing to compare
 
-    # label -> (concurrency, p90, label_sla)
-    first_breach_per_label: Dict[str, Tuple[float, float, float]] = {}
+    # label -> (concurrency, p90, label_sla, bucket_timestamp, bucket_index)
+    first_breach_per_label: Dict[str, Tuple[float, float, float, Any, int]] = {}
 
     for label in labels:
         label_sla = _get_sla_threshold(cfg, label=label)
@@ -1187,7 +1238,10 @@ def _detect_multi_tier_bottlenecks(
         for idx in range(warmup, len(resampled)):
             row = resampled.iloc[idx]
             if pd.notna(row["p90"]) and row["p90"] >= label_sla:
-                first_breach_per_label[label] = (row["concurrency"], row["p90"], label_sla)
+                bucket_ts = resampled.index[idx]  # timestamp from resample index
+                first_breach_per_label[label] = (
+                    row["concurrency"], row["p90"], label_sla, bucket_ts, idx,
+                )
                 break
 
     if not first_breach_per_label:
@@ -1195,7 +1249,7 @@ def _detect_multi_tier_bottlenecks(
 
     # Sort by concurrency to find the earliest degrader
     sorted_labels = sorted(first_breach_per_label.items(), key=lambda x: x[1][0])
-    earliest_label, (earliest_conc, earliest_p90, earliest_sla) = sorted_labels[0]
+    earliest_label, (earliest_conc, earliest_p90, earliest_sla, earliest_ts, earliest_idx) = sorted_labels[0]
 
     findings.append(_make_finding(
         bottleneck_type="multi_tier_bottleneck",
@@ -1207,6 +1261,7 @@ def _detect_multi_tier_bottlenecks(
         baseline_value=earliest_sla,
         severity="high",
         confidence="high",
+        **_onset_fields(earliest_ts, earliest_idx, test_start_time),
         evidence=(
             f"Endpoint '{earliest_label}' was the first to breach the SLA threshold "
             f"({earliest_sla}ms) with P90={earliest_p90:.0f}ms at {earliest_conc:.0f} concurrent users. "
@@ -1216,7 +1271,7 @@ def _detect_multi_tier_bottlenecks(
     ))
 
     # Report up to 4 more early degraders
-    for label, (conc, p90, label_sla) in sorted_labels[1:5]:
+    for label, (conc, p90, label_sla, breach_ts, breach_idx) in sorted_labels[1:5]:
         findings.append(_make_finding(
             bottleneck_type="multi_tier_bottleneck",
             scope="label",
@@ -1227,6 +1282,7 @@ def _detect_multi_tier_bottlenecks(
             baseline_value=label_sla,
             severity="medium",
             confidence="high",
+            **_onset_fields(breach_ts, breach_idx, test_start_time),
             evidence=(
                 f"Endpoint '{label}' breached SLA ({label_sla}ms) "
                 f"with P90={p90:.0f}ms at {conc:.0f} concurrent users"
@@ -1436,7 +1492,8 @@ async def _write_outputs(
             "concurrency", "metric_name", "metric_value", "baseline_value",
             "delta_abs", "delta_pct", "severity", "confidence",
             "classification", "persistence_ratio", "outlier_filtered",
-            "evidence", "bucket_start",
+            "onset_timestamp", "onset_bucket_index", "test_elapsed_seconds",
+            "evidence",
         ]).to_csv(csv_file, index=False)
     output_files["csv"] = str(csv_file)
 
@@ -1535,6 +1592,18 @@ def format_bottleneck_markdown(result: Dict) -> str:
             md.append(f"- **Classification**: {classification_label}")
             md.append(f"- **Scope**: {f['scope']} > {f['scope_name']}")
             md.append(f"- **Concurrency**: {f['concurrency']:.0f} users")
+            # Temporal context
+            onset_ts = f.get('onset_timestamp')
+            bucket_idx = f.get('onset_bucket_index')
+            elapsed_s = f.get('test_elapsed_seconds')
+            if onset_ts:
+                elapsed_str = ""
+                if elapsed_s is not None:
+                    mins = int(elapsed_s // 60)
+                    secs = int(elapsed_s % 60)
+                    elapsed_str = f", {mins}m {secs}s into test" if mins else f", {secs}s into test"
+                bucket_str = f", bucket #{bucket_idx}" if bucket_idx is not None else ""
+                md.append(f"- **Onset**: {onset_ts}{bucket_str}{elapsed_str}")
             md.append(f"- **Metric**: {f['metric_name']} = {f['metric_value']}")
             md.append(f"- **Baseline**: {f['baseline_value']}")
             md.append(f"- **Delta**: {f['delta_abs']:+.2f} ({f['delta_pct']:+.1f}%)")
