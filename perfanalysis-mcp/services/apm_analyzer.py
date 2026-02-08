@@ -146,17 +146,17 @@ async def analyze_kubernetes_metrics(
             # Track assumptions
             if not entity_config:
                 k8s_analysis["assumptions"].append(
-                    f"K8s {entity_type.title()} '{filter_name}' not found in environments.json - "
-                    f"no CPU or memory limits defined (pod-level or environments.json)"
+                    f"K8s {entity_type.title()} '{filter_name}' - "
+                    f"no CPU or memory limits defined at the pod/container level"
                 )
             else:
                 if 'cpus' not in entity_config:
                     k8s_analysis["assumptions"].append(
-                        f"K8s {entity_type.title()} '{filter_name}' - no CPU limits defined (pod-level or environments.json)"
+                        f"K8s {entity_type.title()} '{filter_name}' - no CPU limits defined at the pod/container level"
                     )
                 if 'memory' not in entity_config:
                     k8s_analysis["assumptions"].append(
-                        f"K8s {entity_type.title()} '{filter_name}' - no memory limits defined (pod-level or environments.json)"
+                        f"K8s {entity_type.title()} '{filter_name}' - no memory limits defined at the pod/container level"
                     )
             
             # Analyze service/pod metrics
@@ -416,8 +416,7 @@ async def analyze_host_metrics(
             # Track assumptions
             if not host_config:
                 host_analysis["assumptions"].append(
-                    f"Host '{hostname}' not found in environments.json - "
-                    f"no CPU or memory allocation defined"
+                    f"Host '{hostname}' - no CPU or memory allocation defined"
                 )
             else:
                 if 'cpus' not in host_config:
