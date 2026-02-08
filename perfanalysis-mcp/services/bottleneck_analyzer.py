@@ -194,24 +194,51 @@ async def analyze_bottlenecks(
         baseline = _compute_baseline(buckets_df, cfg)
 
         # ------------------------------------------------------------------
-        # 5. Run detection algorithms
+        # 5. Phase 1 -- Performance Degradation Detection (JTL only)
         # ------------------------------------------------------------------
         # Test start time = first bucket's timestamp (used for elapsed-seconds calc)
         test_start_time = buckets_df["bucket_start"].iloc[0] if len(buckets_df) > 0 else None
 
         findings: List[Dict[str, Any]] = []
 
+        # Phase 1 detectors use only JTL data to find *when* degradation occurs
         findings.extend(_detect_latency_degradation(buckets_df, baseline, cfg, test_run_id, test_start_time))
         findings.extend(_detect_error_rate_increase(buckets_df, baseline, cfg, test_run_id, test_start_time))
         findings.extend(_detect_throughput_plateau(buckets_df, baseline, cfg, test_run_id, test_start_time))
-
-        if has_infra:
-            findings.extend(_detect_infra_saturation(buckets_df, baseline, cfg, test_run_id, test_start_time))
-            findings.extend(_detect_resource_performance_coupling(buckets_df, cfg, test_run_id, test_start_time))
-
         findings.extend(_detect_multi_tier_bottlenecks(jtl_df, cfg, test_run_id, test_start_time))
 
-        await ctx.info("Detection", f"Identified {len(findings)} bottleneck(s)")
+        phase1_count = len(findings)
+        await ctx.info("Phase 1", f"Performance detection found {phase1_count} finding(s)")
+
+        # ------------------------------------------------------------------
+        # 5b. Phase 2a -- Infrastructure Cross-Reference
+        # ------------------------------------------------------------------
+        # Scope infra analysis to degradation windows from Phase 1
+        degradation_windows = _extract_degradation_windows(findings, buckets_df, cfg)
+
+        if has_infra and degradation_windows:
+            findings = _cross_reference_infrastructure(
+                findings, buckets_df, baseline, cfg, degradation_windows
+            )
+            correlated_count = sum(
+                1 for f in findings
+                if f.get("infrastructure_context", {}).get("infra_correlated") is True
+            )
+            independent_count = sum(
+                1 for f in findings
+                if f.get("infrastructure_context", {}).get("infra_correlated") is False
+            )
+            await ctx.info(
+                "Phase 2a",
+                f"Infrastructure cross-reference: {len(degradation_windows)} window(s) analyzed, "
+                f"{correlated_count} infra-correlated, {independent_count} infra-independent"
+            )
+        elif has_infra:
+            await ctx.info("Phase 2a", "No degradation windows from Phase 1 -- skipping infra cross-reference")
+        else:
+            await ctx.info("Phase 2a", "No infrastructure data available -- skipping cross-reference")
+
+        await ctx.info("Detection", f"Identified {len(findings)} finding(s) total")
 
         # ------------------------------------------------------------------
         # 5b. Comparison mode (if baseline_run_id supplied)
@@ -572,6 +599,7 @@ def _make_finding(
     onset_timestamp: Optional[str] = None,
     onset_bucket_index: Optional[int] = None,
     test_elapsed_seconds: Optional[float] = None,
+    infrastructure_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Construct a standardised finding dict."""
     delta_abs = metric_value - baseline_value
@@ -596,6 +624,7 @@ def _make_finding(
         "onset_timestamp": onset_timestamp,
         "onset_bucket_index": onset_bucket_index,
         "test_elapsed_seconds": round(test_elapsed_seconds, 1) if test_elapsed_seconds is not None else None,
+        "infrastructure_context": infrastructure_context,
         "evidence": evidence,
     }
 
@@ -634,7 +663,12 @@ def _onset_fields(
 
 
 def _classify_severity(delta_pct: float, thresholds: Tuple[float, float, float] = (25.0, 50.0, 100.0)) -> str:
-    """Classify severity based on percentage deviation from baseline."""
+    """Classify severity based on percentage deviation from baseline (legacy v0.1).
+
+    Retained only for backward compatibility.  New code should use
+    ``_classify_severity_v2()`` which factors in persistence, scope,
+    and classification in addition to delta magnitude.
+    """
     low, medium, high = thresholds
     abs_pct = abs(delta_pct)
     if abs_pct >= high:
@@ -642,6 +676,82 @@ def _classify_severity(delta_pct: float, thresholds: Tuple[float, float, float] 
     elif abs_pct >= medium:
         return "high"
     elif abs_pct >= low:
+        return "medium"
+    return "low"
+
+
+def _classify_severity_v2(
+    *,
+    delta_pct: float,
+    persistence_ratio: Optional[float] = None,
+    classification: str = "bottleneck",
+    scope: str = "overall",
+    bottleneck_type: str = "latency_degradation",
+    delta_thresholds: Tuple[float, float, float] = (25.0, 50.0, 100.0),
+) -> str:
+    """Multi-factor severity classification (v0.2).
+
+    Computes severity by combining four dimensions:
+
+    1. **Delta magnitude** -- how far the metric deviates from baseline.
+    2. **Persistence** -- what fraction of the remaining test stayed degraded.
+       Higher persistence = more severe.
+    3. **Classification** -- ``known_slow_endpoint`` is always ``info``;
+       ``transient_spike`` is capped at ``low``.
+    4. **Scope** -- ``overall`` findings carry more weight than single-label
+       findings.
+
+    The scoring intentionally keeps infrastructure-saturation and
+    resource-performance-coupling callers out of this function -- those
+    have domain-specific thresholds and remain separate.
+
+    Returns one of: ``critical``, ``high``, ``medium``, ``low``, ``info``.
+    """
+    # --- Short-circuit for non-bottleneck classifications ---
+    if classification == "known_slow_endpoint":
+        return "info"
+    if classification == "transient_spike":
+        return "low"
+
+    # --- Delta score (0-3) ---
+    low_t, med_t, high_t = delta_thresholds
+    abs_delta = abs(delta_pct)
+    if abs_delta >= high_t:
+        delta_score = 3
+    elif abs_delta >= med_t:
+        delta_score = 2
+    elif abs_delta >= low_t:
+        delta_score = 1
+    else:
+        delta_score = 0
+
+    # --- Persistence score (0-3) ---
+    pr = persistence_ratio if persistence_ratio is not None else 0.0
+    if pr >= 0.9:
+        persist_score = 3
+    elif pr >= 0.7:
+        persist_score = 2
+    elif pr >= 0.5:
+        persist_score = 1
+    else:
+        persist_score = 0
+
+    # --- Scope score (0-1) ---
+    scope_score = 1 if scope == "overall" else 0
+
+    # --- Composite ---
+    # Total possible = 3 + 3 + 1 = 7
+    # critical requires near-maximum score across all dimensions:
+    #   severe delta (3) + high persistence (3) + wide scope (1) = 7
+    # high requires strong showing in at least two dimensions.
+    # medium is moderate combination.
+    total = delta_score + persist_score + scope_score
+
+    if total >= 7:
+        return "critical"
+    elif total >= 5:
+        return "high"
+    elif total >= 3:
         return "medium"
     return "low"
 
@@ -765,7 +875,13 @@ def _detect_latency_degradation(
                 metric_name="p90_response_time_ms",
                 metric_value=p90_at_onset,
                 baseline_value=baseline_p90,
-                severity=_classify_severity(delta_pct_val) if is_persistent else "low",
+                severity=_classify_severity_v2(
+                    delta_pct=delta_pct_val,
+                    persistence_ratio=actual_persistence,
+                    classification=classification,
+                    scope="overall",
+                    bottleneck_type="latency_degradation",
+                ),
                 confidence=confidence,
                 classification=classification,
                 persistence_ratio=actual_persistence,
@@ -822,6 +938,7 @@ def _detect_latency_degradation(
                 classification = "transient_spike"
                 confidence = "low"
 
+            sla_delta_pct = (p90_at_onset - sla) / sla * 100 if sla > 0 else 0.0
             findings.append(_make_finding(
                 bottleneck_type="latency_degradation",
                 scope="overall",
@@ -830,7 +947,13 @@ def _detect_latency_degradation(
                 metric_name="p90_sla_breach",
                 metric_value=p90_at_onset,
                 baseline_value=sla,
-                severity="high" if is_persistent else "low",
+                severity=_classify_severity_v2(
+                    delta_pct=sla_delta_pct,
+                    persistence_ratio=actual_persistence,
+                    classification=classification,
+                    scope="overall",
+                    bottleneck_type="latency_degradation",
+                ),
                 confidence=confidence,
                 classification=classification,
                 persistence_ratio=actual_persistence,
@@ -916,6 +1039,7 @@ def _detect_error_rate_increase(
                 classification = "transient_spike"
                 confidence = "low"
 
+            err_delta_pct = (err_at_onset - baseline_error) / baseline_error * 100 if baseline_error > 0 else err_at_onset * 100
             findings.append(_make_finding(
                 bottleneck_type="error_rate_increase",
                 scope="overall",
@@ -924,7 +1048,14 @@ def _detect_error_rate_increase(
                 metric_name="error_rate_pct",
                 metric_value=err_at_onset,
                 baseline_value=baseline_error,
-                severity=_classify_severity(err_at_onset, thresholds=(5.0, 10.0, 25.0)) if is_persistent else "low",
+                severity=_classify_severity_v2(
+                    delta_pct=err_delta_pct,
+                    persistence_ratio=actual_persistence,
+                    classification=classification,
+                    scope="overall",
+                    bottleneck_type="error_rate_increase",
+                    delta_thresholds=(50.0, 200.0, 500.0),  # error rate uses wider thresholds
+                ),
                 confidence=confidence,
                 classification=classification,
                 persistence_ratio=actual_persistence,
@@ -1017,6 +1148,10 @@ def _detect_throughput_plateau(
                 classification = "transient_spike"
                 confidence = "low"
 
+            tps_delta_pct = (
+                (onset_tps - baseline["throughput_rps"]) / baseline["throughput_rps"] * 100
+                if baseline["throughput_rps"] > 0 else 0.0
+            )
             findings.append(_make_finding(
                 bottleneck_type="throughput_plateau",
                 scope="overall",
@@ -1025,7 +1160,13 @@ def _detect_throughput_plateau(
                 metric_name="throughput_rps",
                 metric_value=onset_tps,
                 baseline_value=baseline["throughput_rps"],
-                severity="high" if is_persistent else "low",
+                severity=_classify_severity_v2(
+                    delta_pct=tps_delta_pct,
+                    persistence_ratio=actual_persistence,
+                    classification=classification,
+                    scope="overall",
+                    bottleneck_type="throughput_plateau",
+                ),
                 confidence=confidence,
                 classification=classification,
                 persistence_ratio=actual_persistence,
@@ -1191,6 +1332,239 @@ def _detect_resource_performance_coupling(
                 ),
                 test_run_id=test_run_id,
             ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Phase 2a: Infrastructure Cross-Reference (scoped to degradation windows)
+# ---------------------------------------------------------------------------
+
+def _extract_degradation_windows(
+    findings: List[Dict], buckets_df: pd.DataFrame, cfg: Dict
+) -> List[Dict[str, Any]]:
+    """Extract degradation windows from Phase 1 findings.
+
+    Each degradation window describes **when** performance degraded.
+    Only findings classified as actual bottlenecks (not transient spikes,
+    not known-slow endpoints, not info-level) produce windows.
+
+    Returns a list of dicts, each containing:
+        - finding_index: index into the findings list
+        - onset_bucket_index: absolute bucket index
+        - onset_timestamp: timestamp string
+        - end_bucket_index: last bucket index (end of test if persistent)
+        - end_timestamp: timestamp string
+        - persistence_ratio: from the finding
+        - bottleneck_type: from the finding
+    """
+    windows = []
+    warmup = cfg["warmup_buckets"]
+    total_buckets = len(buckets_df)
+
+    for i, f in enumerate(findings):
+        # Only real bottlenecks produce degradation windows
+        if f.get("classification") in ("transient_spike", "known_slow_endpoint"):
+            continue
+        if f.get("severity") == "info":
+            continue
+
+        onset_idx = f.get("onset_bucket_index")
+        if onset_idx is None:
+            continue
+
+        # Determine end of degradation window
+        persistence = f.get("persistence_ratio")
+        if persistence is not None and persistence >= cfg["persistence_ratio"]:
+            # Persistent degradation -- assume it extends to end of test
+            end_idx = total_buckets - 1
+        else:
+            # Non-persistent -- approximate window as onset + sustained_buckets
+            end_idx = min(onset_idx + cfg["sustained_buckets"], total_buckets - 1)
+
+        onset_ts = f.get("onset_timestamp", "")
+        if end_idx < total_buckets:
+            end_ts = str(buckets_df["bucket_start"].iloc[end_idx]) if end_idx < len(buckets_df) else ""
+        else:
+            end_ts = str(buckets_df["bucket_start"].iloc[-1]) if len(buckets_df) > 0 else ""
+
+        windows.append({
+            "finding_index": i,
+            "onset_bucket_index": onset_idx,
+            "onset_timestamp": onset_ts,
+            "end_bucket_index": end_idx,
+            "end_timestamp": end_ts,
+            "persistence_ratio": persistence,
+            "bottleneck_type": f.get("bottleneck_type"),
+        })
+
+    return windows
+
+
+def _cross_reference_infrastructure(
+    findings: List[Dict],
+    buckets_df: pd.DataFrame,
+    baseline: Dict,
+    cfg: Dict,
+    degradation_windows: List[Dict],
+) -> List[Dict]:
+    """Phase 2a: cross-reference infrastructure metrics with degradation windows.
+
+    For each degradation window:
+    1. Extract avg CPU and Memory during the degradation window.
+    2. Extract avg CPU and Memory during the baseline (healthy) window.
+    3. Compute deltas and a window-scoped correlation.
+    4. Classify as infrastructure-correlated, infrastructure-independent,
+       or infrastructure-inconclusive.
+    5. Attach the ``infrastructure_context`` dict to the corresponding finding.
+
+    Returns the modified findings list with infrastructure_context populated.
+    """
+    has_infra = "avg_cpu" in buckets_df.columns
+    if not has_infra:
+        # Mark all findings as inconclusive
+        for w in degradation_windows:
+            idx = w["finding_index"]
+            if idx < len(findings):
+                findings[idx]["infrastructure_context"] = {
+                    "status": "no_infra_data",
+                    "infra_correlated": None,
+                    "baseline_window": None,
+                    "degradation_window": None,
+                }
+        return findings
+
+    warmup = cfg["warmup_buckets"]
+    # Infra baseline: use the healthy window before the earliest degradation onset.
+    # If no degradation windows exist, this function won't be called, but handle gracefully.
+    earliest_onset = min(
+        (w["onset_bucket_index"] for w in degradation_windows),
+        default=warmup
+    )
+    # Baseline window: from end of warmup to the earliest onset (exclusive)
+    baseline_start = warmup
+    baseline_end = max(earliest_onset, baseline_start + 1)  # at least 1 bucket
+    baseline_slice = buckets_df.iloc[baseline_start:baseline_end]
+
+    # Exclude outliers from baseline if available
+    if "is_outlier" in baseline_slice.columns:
+        non_outlier = baseline_slice[~baseline_slice["is_outlier"]]
+        if not non_outlier.empty:
+            baseline_slice = non_outlier
+
+    def _safe_mean(series):
+        v = series.mean()
+        return round(float(v), 2) if pd.notna(v) else None
+
+    infra_baseline = {
+        "avg_cpu": _safe_mean(baseline_slice["avg_cpu"]) if "avg_cpu" in baseline_slice.columns else None,
+        "avg_memory": _safe_mean(baseline_slice["avg_memory"]) if "avg_memory" in baseline_slice.columns else None,
+        "bucket_range": f"{baseline_start}-{baseline_end - 1}",
+    }
+
+    for w in degradation_windows:
+        idx = w["finding_index"]
+        if idx >= len(findings):
+            continue
+
+        onset = w["onset_bucket_index"]
+        end = w["end_bucket_index"] + 1  # exclusive
+        degrade_slice = buckets_df.iloc[onset:end]
+
+        if degrade_slice.empty:
+            findings[idx]["infrastructure_context"] = {
+                "status": "no_data_in_window",
+                "infra_correlated": None,
+                "baseline_window": infra_baseline,
+                "degradation_window": None,
+            }
+            continue
+
+        infra_during = {
+            "avg_cpu": _safe_mean(degrade_slice["avg_cpu"]) if "avg_cpu" in degrade_slice.columns else None,
+            "avg_memory": _safe_mean(degrade_slice["avg_memory"]) if "avg_memory" in degrade_slice.columns else None,
+            "max_cpu": round(float(degrade_slice["max_cpu"].max()), 2) if "max_cpu" in degrade_slice.columns and degrade_slice["max_cpu"].notna().any() else None,
+            "max_memory": round(float(degrade_slice["max_memory"].max()), 2) if "max_memory" in degrade_slice.columns and degrade_slice["max_memory"].notna().any() else None,
+            "bucket_range": f"{onset}-{end - 1}",
+        }
+
+        # Compute deltas
+        cpu_delta_pct = None
+        mem_delta_pct = None
+        cpu_correlated = False
+        mem_correlated = False
+
+        b_cpu = infra_baseline["avg_cpu"]
+        d_cpu = infra_during["avg_cpu"]
+        if b_cpu is not None and d_cpu is not None and b_cpu > 0:
+            cpu_delta_pct = round((d_cpu - b_cpu) / b_cpu * 100, 1)
+            # Consider CPU correlated if it increased by >= 25% from baseline
+            # or if it exceeds the threshold during degradation
+            cpu_correlated = (
+                cpu_delta_pct >= 25.0
+                or (d_cpu >= cfg["cpu_high_pct"])
+            )
+
+        b_mem = infra_baseline["avg_memory"]
+        d_mem = infra_during["avg_memory"]
+        if b_mem is not None and d_mem is not None and b_mem > 0:
+            mem_delta_pct = round((d_mem - b_mem) / b_mem * 100, 1)
+            mem_correlated = (
+                mem_delta_pct >= 25.0
+                or (d_mem >= cfg["memory_high_pct"])
+            )
+
+        # Window-scoped correlation (P90 vs CPU/Memory within degradation window)
+        window_correlations = {}
+        for resource, col in [("cpu", "avg_cpu"), ("memory", "avg_memory")]:
+            if col in degrade_slice.columns:
+                valid = degrade_slice[["p90", col]].dropna()
+                if len(valid) >= 3:
+                    corr = valid["p90"].corr(valid[col])
+                    if pd.notna(corr):
+                        window_correlations[f"{resource}_p90_correlation"] = round(float(corr), 3)
+
+        # Determine overall classification
+        any_correlated = cpu_correlated or mem_correlated
+        has_any_data = (b_cpu is not None or b_mem is not None)
+
+        if not has_any_data:
+            status = "inconclusive"
+            infra_correlated = None
+            root_cause = "No infrastructure data available for this time window."
+        elif any_correlated:
+            status = "infrastructure_correlated"
+            infra_correlated = True
+            factors = []
+            if cpu_correlated:
+                factors.append(f"CPU (baseline {b_cpu}% -> {d_cpu}%, +{cpu_delta_pct}%)")
+            if mem_correlated:
+                factors.append(f"Memory (baseline {b_mem}% -> {d_mem}%, +{mem_delta_pct}%)")
+            root_cause = f"Infrastructure stress likely contributing: {', '.join(factors)}."
+        else:
+            status = "infrastructure_independent"
+            infra_correlated = False
+            root_cause = (
+                "Infrastructure metrics remained stable during degradation. "
+                "Bottleneck is likely application-level (code, database, or external dependency)."
+            )
+
+        findings[idx]["infrastructure_context"] = {
+            "status": status,
+            "infra_correlated": infra_correlated,
+            "baseline_window": infra_baseline,
+            "degradation_window": infra_during,
+            "cpu_delta_pct": cpu_delta_pct,
+            "memory_delta_pct": mem_delta_pct,
+            "cpu_correlated": cpu_correlated,
+            "memory_correlated": mem_correlated,
+            "window_correlations": window_correlations if window_correlations else None,
+            "root_cause_indicator": root_cause,
+        }
+
+        # Append root cause to finding evidence
+        existing_evidence = findings[idx].get("evidence", "")
+        findings[idx]["evidence"] = f"{existing_evidence} Infra: {root_cause}"
 
     return findings
 
@@ -1384,9 +1758,6 @@ def _detect_multi_tier_bottlenecks(
         bottleneck_count = sum(1 for _, r in sorted_degraded if r["is_persistent"])
 
         for rank, (label, r) in enumerate(sorted_degraded[:5]):
-            severity = ("high" if r["is_persistent"] else "low") if rank == 0 else (
-                "medium" if r["is_persistent"] else "low"
-            )
             degrade_from_baseline = (
                 (r["p90"] - r["baseline_p90"]) / r["baseline_p90"] * 100
                 if r["baseline_p90"] > 0 else 0
@@ -1400,7 +1771,13 @@ def _detect_multi_tier_bottlenecks(
                 metric_name="p90_response_time_ms",
                 metric_value=r["p90"],
                 baseline_value=r["baseline_p90"],
-                severity=severity,
+                severity=_classify_severity_v2(
+                    delta_pct=degrade_from_baseline,
+                    persistence_ratio=r["persistence_ratio"],
+                    classification=r["classification"],
+                    scope="label",
+                    bottleneck_type="multi_tier_bottleneck",
+                ),
                 confidence="high" if r["is_persistent"] else "low",
                 classification=r["classification"],
                 persistence_ratio=r["persistence_ratio"],
@@ -1646,6 +2023,32 @@ def _bottleneck_type_label(bt: str) -> str:
 # OUTPUT GENERATION
 # ============================================================================
 
+def _flatten_findings_for_csv(findings: List[Dict]) -> List[Dict]:
+    """Flatten the nested ``infrastructure_context`` dict into top-level CSV columns.
+
+    The original ``infrastructure_context`` dict is removed and replaced with
+    flat columns: ``infra_correlated``, ``infra_status``,
+    ``infra_cpu_baseline``, ``infra_cpu_during``, ``infra_cpu_delta_pct``,
+    ``infra_memory_baseline``, ``infra_memory_during``, ``infra_memory_delta_pct``.
+    """
+    flattened = []
+    for f in findings:
+        row = {k: v for k, v in f.items() if k != "infrastructure_context"}
+        ic = f.get("infrastructure_context") or {}
+        row["infra_correlated"] = ic.get("infra_correlated")
+        row["infra_status"] = ic.get("status")
+        bl = ic.get("baseline_window") or {}
+        dw = ic.get("degradation_window") or {}
+        row["infra_cpu_baseline"] = bl.get("avg_cpu")
+        row["infra_cpu_during"] = dw.get("avg_cpu")
+        row["infra_cpu_delta_pct"] = ic.get("cpu_delta_pct")
+        row["infra_memory_baseline"] = bl.get("avg_memory")
+        row["infra_memory_during"] = dw.get("avg_memory")
+        row["infra_memory_delta_pct"] = ic.get("memory_delta_pct")
+        flattened.append(row)
+    return flattened
+
+
 async def _write_outputs(
     result: Dict, analysis_path: Path, test_run_id: str, ctx: Context
 ) -> Dict[str, str]:
@@ -1659,7 +2062,7 @@ async def _write_outputs(
 
     # --- CSV ---
     csv_file = analysis_path / "bottleneck_analysis.csv"
-    csv_rows = result.get("findings", [])
+    csv_rows = _flatten_findings_for_csv(result.get("findings", []))
     if csv_rows:
         await write_csv_output(csv_rows, csv_file)
     else:
@@ -1670,6 +2073,9 @@ async def _write_outputs(
             "delta_abs", "delta_pct", "severity", "confidence",
             "classification", "persistence_ratio", "outlier_filtered",
             "onset_timestamp", "onset_bucket_index", "test_elapsed_seconds",
+            "infra_correlated", "infra_status",
+            "infra_cpu_baseline", "infra_cpu_during", "infra_cpu_delta_pct",
+            "infra_memory_baseline", "infra_memory_during", "infra_memory_delta_pct",
             "evidence",
         ]).to_csv(csv_file, index=False)
     output_files["csv"] = str(csv_file)
@@ -1792,6 +2198,43 @@ def format_bottleneck_markdown(result: Dict) -> str:
             if f.get('outlier_filtered'):
                 md.append(f"- **Outlier Filtering**: Yes (outlier buckets were skipped during detection)")
             md.append(f"- **Evidence**: {f['evidence']}")
+
+            # Infrastructure context (Phase 2a)
+            ic = f.get("infrastructure_context")
+            if ic and ic.get("status") not in (None, "no_infra_data"):
+                md.append("")
+                md.append("  **Infrastructure Context (Phase 2a):**\n")
+                status_label = ic["status"].replace("_", " ").title()
+                md.append(f"  - Status: {status_label}")
+
+                bl = ic.get("baseline_window") or {}
+                dw = ic.get("degradation_window") or {}
+                if bl.get("avg_cpu") is not None or dw.get("avg_cpu") is not None:
+                    md.append("")
+                    md.append("  | Metric | Baseline | During Degradation | Delta |")
+                    md.append("  |--------|----------|--------------------|-------|")
+                    if bl.get("avg_cpu") is not None:
+                        cpu_d = ic.get("cpu_delta_pct")
+                        cpu_d_str = f"{cpu_d:+.1f}%" if cpu_d is not None else "N/A"
+                        corr_tag = " *" if ic.get("cpu_correlated") else ""
+                        md.append(
+                            f"  | Avg CPU | {bl.get('avg_cpu', 'N/A')}% | "
+                            f"{dw.get('avg_cpu', 'N/A')}% | {cpu_d_str}{corr_tag} |"
+                        )
+                    if bl.get("avg_memory") is not None:
+                        mem_d = ic.get("memory_delta_pct")
+                        mem_d_str = f"{mem_d:+.1f}%" if mem_d is not None else "N/A"
+                        corr_tag = " *" if ic.get("memory_correlated") else ""
+                        md.append(
+                            f"  | Avg Memory | {bl.get('avg_memory', 'N/A')}% | "
+                            f"{dw.get('avg_memory', 'N/A')}% | {mem_d_str}{corr_tag} |"
+                        )
+                    md.append("")
+                    md.append("  \\* = correlated with degradation")
+
+                root_cause = ic.get("root_cause_indicator")
+                if root_cause:
+                    md.append(f"\n  > {root_cause}")
             md.append("")
     else:
         md.append("## Findings\n")
