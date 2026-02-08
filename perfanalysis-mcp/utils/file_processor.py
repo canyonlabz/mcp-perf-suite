@@ -451,17 +451,17 @@ def format_infrastructure_markdown(analysis: Dict, test_run_id: str) -> str:
         md_content += f"- **Hosts Analyzed**: {total_hosts}\n"
         md_content += f"- **Environments**: {', '.join(host_summary.get('environments', []))}\n"
     
-    # Configuration assumptions
+    # Configuration notes
     if assumptions:
-        md_content += "\n## Configuration Assumptions\n\n"
-        md_content += "⚠️ The following resource allocations were assumed due to missing configuration:\n\n"
-        for assumption in assumptions[:10]:  # Limit assumptions list
+        md_content += "\n## Configuration Notes\n\n"
+        md_content += "⚠️ The following resource configuration notes were identified during analysis:\n\n"
+        for assumption in assumptions[:10]:  # Limit notes list
             md_content += f"- {assumption}\n"
         
         if len(assumptions) > 10:
-            md_content += f"- ... and {len(assumptions) - 10} more assumptions\n"
+            md_content += f"- ... and {len(assumptions) - 10} more notes\n"
         
-        md_content += "\n💡 **Recommendation**: Update environments.json with actual resource allocations for more accurate analysis.\n"
+        md_content += "\n💡 **Note**: Resource utilization percentages are unavailable when pod/container-level or host-level limits are not defined.\n"
     
     md_content += f"\n---\n*Generated: {analysis.get('analysis_timestamp', 'N/A')}*"
     

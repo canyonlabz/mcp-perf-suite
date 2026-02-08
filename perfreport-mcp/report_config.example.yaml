@@ -13,13 +13,13 @@ version: "1.1"
 # These settings control what columns are displayed in infrastructure metric tables.
 # 
 # Why you might disable allocation columns:
-# - Resource allocation values come from datadog-mcp/environments.json and may be inaccurate
-# - Some environments have no limits set (scale-on-demand cloud configurations)
-# - Displaying potentially incorrect allocation values can cause confusion
-# - You may want to focus on actual usage rather than theoretical limits
+# - Some environments have no limits set at the pod/container level (scale-on-demand cloud configurations)
+# - When limits are managed at the node-pool level, pod-level allocation is unavailable
+# - Displaying allocation columns with no data can cause confusion
+# - You may want to focus on actual usage (cores, GB) rather than utilization percentages
 #
 # When to keep allocation columns enabled:
-# - Your environments.json has accurate resource allocation values
+# - Your Kubernetes pods/containers have CPU and memory limits defined
 # - You want to show utilization as a percentage of allocated resources
 # - Your team relies on allocation data for capacity planning
 

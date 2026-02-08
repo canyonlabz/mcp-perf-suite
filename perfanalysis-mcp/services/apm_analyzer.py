@@ -172,8 +172,8 @@ async def analyze_kubernetes_metrics(
 def get_kubernetes_resource_allocation(entity_config: Dict, entity_name: str, config: Dict) -> Dict:
     """Get K8s entity resource allocation. Returns None for values when no real limits exist.
     
-    Resource values come from environments.json entity config only.
-    If not defined there, returns None -- no fabricated defaults.
+    Resource values come from the entity's environment configuration.
+    If not defined, returns None -- no fabricated defaults.
     """
     
     cpu_raw = entity_config.get("cpus")
@@ -188,9 +188,9 @@ def analyze_k8s_entity_metrics(entity_data: pd.DataFrame, resource_allocation: D
     """
     Analyze individual K8s entity (service or pod) metrics with DYNAMIC limits from Datadog.
     
-    IMPORTANT: CPU/Memory limits are now read from the CSV (kubernetes.cpu.limits, 
-    kubernetes.memory.limits) rather than from environments.json. The static 
-    resource_allocation is used as fallback only if dynamic limits are not available.
+    IMPORTANT: CPU/Memory limits are now read dynamically from the CSV (kubernetes.cpu.limits, 
+    kubernetes.memory.limits). The static resource_allocation is used as fallback only if 
+    dynamic limits are not available in the metrics data.
     
     Note: A value of -1 for cpu_util_pct or mem_util_pct indicates that Kubernetes
     limits are not defined for that service/pod.
@@ -249,7 +249,7 @@ def analyze_k8s_entity_metrics(entity_data: pd.DataFrame, resource_allocation: D
                 entity_metrics["cpu_analysis"]["allocated_cores"] = resource_allocation.get('cpus')  # None if unknown
                 entity_metrics["limits_status"]["cpu_limits_defined"] = False
         else:
-            # No limits data in CSV - use environments.json value (may be None)
+            # No limits data in CSV - use static config value (may be None)
             entity_metrics["cpu_analysis"]["allocated_cores"] = resource_allocation.get('cpus')  # None if unknown
             entity_metrics["limits_status"]["cpu_limits_defined"] = False
         
@@ -306,7 +306,7 @@ def analyze_k8s_entity_metrics(entity_data: pd.DataFrame, resource_allocation: D
                 entity_metrics["memory_analysis"]["allocated_gb"] = resource_allocation.get('memory_gb')  # None if unknown
                 entity_metrics["limits_status"]["mem_limits_defined"] = False
         else:
-            # No limits data in CSV - use environments.json value (may be None)
+            # No limits data in CSV - use static config value (may be None)
             entity_metrics["memory_analysis"]["allocated_gb"] = resource_allocation.get('memory_gb')  # None if unknown
             entity_metrics["limits_status"]["mem_limits_defined"] = False
         
@@ -421,11 +421,11 @@ async def analyze_host_metrics(
             else:
                 if 'cpus' not in host_config:
                     host_analysis["assumptions"].append(
-                        f"Host '{hostname}' - no CPU allocation defined in environments.json"
+                        f"Host '{hostname}' - no CPU allocation defined"
                     )
                 if 'memory' not in host_config:
                     host_analysis["assumptions"].append(
-                        f"Host '{hostname}' - no memory allocation defined in environments.json"
+                        f"Host '{hostname}' - no memory allocation defined"
                     )
             
             # Analyze host metrics
@@ -439,8 +439,8 @@ async def analyze_host_metrics(
 def get_host_resource_allocation(host_config: Dict, hostname: str, config: Dict) -> Dict:
     """Get host resource allocation. Returns None for values when no real config exists.
     
-    Resource values come from environments.json host config only.
-    If not defined there, returns None -- no fabricated defaults.
+    Resource values come from the host's environment configuration.
+    If not defined, returns None -- no fabricated defaults.
     """
     
     cpu_raw = host_config.get("cpus")
