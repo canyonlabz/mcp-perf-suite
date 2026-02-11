@@ -183,20 +183,20 @@ The analysis follows the same mental model a performance test engineer uses: fir
                       │
          ┌────────────┴────────────┐
          ▼                         ▼
-┌────────────────────┐   ┌────────────────────────────────────────┐
-│  Phase 2a          │   │  Phase 2b                              │
-│  Infrastructure    │   │  Capacity Risk Detection               │
-│  Cross-Reference   │   │                                        │
+┌────────────────────┐   ┌─────────────────────────────────────────┐
+│  Phase 2a          │   │  Phase 2b                               │
+│  Infrastructure    │   │  Capacity Risk Detection                │
+│  Cross-Reference   │   │                                         │
 │                    │   │  Scans infra across full test for       │
-│  Scoped to Phase 1 │   │  sustained stress WITH healthy latency │
-│  degradation       │   │                                        │
+│  Scoped to Phase 1 │   │  sustained stress WITH healthy latency  │
+│  degradation       │   │                                         │
 │  windows only      │   │  - Sustained high utilization           │
 │                    │   │  - Climbing trends (memory leaks, etc.) │
 │  Classifies:       │   │  - Excludes Phase 2a overlaps           │
-│  - infra_correlated│   │                                        │
+│  - infra_correlated│   │                                         │
 │  - infra_independ. │   │  Classification: capacity_risk          │
 │  - inconclusive    │   │  (warnings, not bottlenecks)            │
-└────────────────────┘   └────────────────────────────────────────┘
+└────────────────────┘   └─────────────────────────────────────────┘
 ```
 
 **Phase 2a — Infrastructure Cross-Reference:**
