@@ -6,44 +6,338 @@ This document summarizes the enhancements and new features added to the MCP Perf
 
 ## Table of Contents
 
-- [1. JMeter Log Analysis Tool (February 2026)](#1-jmeter-log-analysis-tool-february-2026)
+- [1. Bottleneck Analyzer v0.2 (February 2026)](#1-bottleneck-analyzer-v02-february-2026)
   - [1.1 Overview](#11-overview)
-  - [1.2 New MCP Tool](#12-new-mcp-tool)
-  - [1.3 Configuration](#13-configuration)
-  - [1.4 Output Files](#14-output-files)
-  - [1.5 Key Capabilities](#15-key-capabilities)
-  - [1.6 Files Created/Modified](#16-files-createdmodified)
-- [2. AI-Assisted Report Revision (January 31, 2026)](#2-ai-assisted-report-revision-january-31-2026)
+  - [1.2 MCP Tool](#12-mcp-tool)
+  - [1.3 What It Does](#13-what-it-does)
+  - [1.4 Key Capabilities (v0.2)](#14-key-capabilities-v02)
+  - [1.5 Two-Phase Analysis Architecture](#15-two-phase-analysis-architecture)
+  - [1.6 Finding Classifications](#16-finding-classifications)
+  - [1.7 Raw Metrics Fallback (Missing K8s Limits)](#17-raw-metrics-fallback-missing-k8s-limits)
+  - [1.8 Configuration](#18-configuration)
+  - [1.9 Output Files](#19-output-files)
+  - [1.10 Files Created/Modified](#110-files-createdmodified)
+- [2. JMeter Log Analysis Tool (February 2026)](#2-jmeter-log-analysis-tool-february-2026)
   - [2.1 Overview](#21-overview)
-  - [2.2 New MCP Tools](#22-new-mcp-tools)
+  - [2.2 New MCP Tool](#22-new-mcp-tool)
   - [2.3 Configuration](#23-configuration)
-  - [2.4 Workflow](#24-workflow)
-  - [2.5 Files Created/Modified](#25-files-createdmodified)
-- [3. Datadog MCP Dynamic Limits (January 23, 2026)](#3-datadog-mcp-dynamic-limits-january-23-2026)
-  - [3.1 Phase 1: Datadog MCP Changes](#31-phase-1-datadog-mcp-changes)
-  - [3.2 Phase 2: PerfAnalysis MCP Changes](#32-phase-2-perfanalysis-mcp-changes)
-  - [3.3 Phase 3: PerfReport MCP Changes](#33-phase-3-perfreport-mcp-changes)
-- [4. Report Enhancements (PerfReport MCP)](#4-report-enhancements-perfreport-mcp)
-  - [4.1 Human-Readable Test Duration](#41-human-readable-test-duration)
-  - [4.2 Cleaner Infrastructure Summaries](#42-cleaner-infrastructure-summaries)
-  - [4.3 Formatted Bottleneck Analysis](#43-formatted-bottleneck-analysis)
-  - [4.4 BlazeMeter Report Link](#44-blazemeter-report-link)
-  - [4.5 Cleaner Service/Host Names](#45-cleaner-servicehost-names)
-  - [4.6 Configurable Resource Allocation Display](#46-configurable-resource-allocation-display)
-- [5. New Charts Available](#5-new-charts-available)
-  - [5.1 CPU Utilization vs Virtual Users (Dual-Axis)](#51-cpu-utilization-vs-virtual-users-dual-axis)
-  - [5.2 Memory Utilization vs Virtual Users (Dual-Axis)](#52-memory-utilization-vs-virtual-users-dual-axis)
-  - [5.3 CPU Core Usage Over Time](#53-cpu-core-usage-over-time)
-  - [5.4 Memory Usage Over Time](#54-memory-usage-over-time)
-  - [5.5 CPU Core Comparison Bar Chart](#55-cpu-core-comparison-bar-chart)
-  - [5.6 Memory Usage Comparison Bar Chart](#56-memory-usage-comparison-bar-chart)
-- [6. Future Updates](#6-future-updates)
+  - [2.4 Output Files](#24-output-files)
+  - [2.5 Key Capabilities](#25-key-capabilities)
+  - [2.6 Files Created/Modified](#26-files-createdmodified)
+- [3. AI-Assisted Report Revision (January 31, 2026)](#3-ai-assisted-report-revision-january-31-2026)
+  - [3.1 Overview](#31-overview)
+  - [3.2 New MCP Tools](#32-new-mcp-tools)
+  - [3.3 Configuration](#33-configuration)
+  - [3.4 Workflow](#34-workflow)
+  - [3.5 Files Created/Modified](#35-files-createdmodified)
+- [4. Datadog MCP Dynamic Limits (January 23, 2026)](#4-datadog-mcp-dynamic-limits-january-23-2026)
+  - [4.1 Phase 1: Datadog MCP Changes](#41-phase-1-datadog-mcp-changes)
+  - [4.2 Phase 2: PerfAnalysis MCP Changes](#42-phase-2-perfanalysis-mcp-changes)
+  - [4.3 Phase 3: PerfReport MCP Changes](#43-phase-3-perfreport-mcp-changes)
+- [5. Report Enhancements (PerfReport MCP)](#5-report-enhancements-perfreport-mcp)
+  - [5.1 Human-Readable Test Duration](#51-human-readable-test-duration)
+  - [5.2 Cleaner Infrastructure Summaries](#52-cleaner-infrastructure-summaries)
+  - [5.3 Formatted Bottleneck Analysis](#53-formatted-bottleneck-analysis)
+  - [5.4 BlazeMeter Report Link](#54-blazemeter-report-link)
+  - [5.5 Cleaner Service/Host Names](#55-cleaner-servicehost-names)
+  - [5.6 Configurable Resource Allocation Display](#56-configurable-resource-allocation-display)
+- [6. New Charts Available](#6-new-charts-available)
+  - [6.1 CPU Utilization vs Virtual Users (Dual-Axis)](#61-cpu-utilization-vs-virtual-users-dual-axis)
+  - [6.2 Memory Utilization vs Virtual Users (Dual-Axis)](#62-memory-utilization-vs-virtual-users-dual-axis)
+  - [6.3 CPU Core Usage Over Time](#63-cpu-core-usage-over-time)
+  - [6.4 Memory Usage Over Time](#64-memory-usage-over-time)
+  - [6.5 CPU Core Comparison Bar Chart](#65-cpu-core-comparison-bar-chart)
+  - [6.6 Memory Usage Comparison Bar Chart](#66-memory-usage-comparison-bar-chart)
+- [7. Future Updates](#7-future-updates)
 
 ---
 
-## 1. JMeter Log Analysis Tool (February 2026)
+## 1. Bottleneck Analyzer v0.2 (February 2026)
 
 ### 1.1 Overview
+
+The `identify_bottlenecks` tool in the PerfAnalysis MCP Server has been significantly upgraded (v0.2) to deliver accurate, actionable bottleneck detection with dramatically reduced false positives. The v0.1 implementation flagged transient spikes and inherently slow endpoints as bottlenecks, lacked temporal context, and reported 0% infrastructure utilization when Kubernetes resource limits were not defined. v0.2 addresses all of these issues through 8 targeted improvements.
+
+**The primary question this tool answers:**
+
+> At what concurrency level does system performance begin to degrade, and what is the limiting factor?
+
+**Core principle:** A bottleneck is a *sustained, non-recovering* degradation pattern. If the system recovers, it was a transient event, not a bottleneck.
+
+---
+
+### 1.2 MCP Tool
+
+| Tool | Purpose |
+|------|---------|
+| `identify_bottlenecks` | Analyzes load test results (JTL) and infrastructure metrics (Datadog) to detect performance degradation thresholds, sustained bottlenecks, and capacity risks |
+
+```python
+identify_bottlenecks(
+    test_run_id: str,                # Unique test run identifier
+    baseline_run_id: str = None,     # Optional previous run ID for comparison
+    ctx: Context = None              # FastMCP context
+) -> dict
+```
+
+**Returns:**
+- `status`: `"success"` or `"failed"`
+- `summary`: Headline answer, threshold concurrency, bottleneck counts by type and severity
+- `findings_count`: Total bottlenecks detected
+- `output_files`: Paths to JSON, CSV, and Markdown reports
+
+---
+
+### 1.3 What It Does
+
+The tool detects six categories of performance degradation:
+
+| Category | What It Detects |
+|----------|----------------|
+| **Latency Degradation** | P90 response time increases beyond threshold from baseline |
+| **Error Rate Increase** | Error rate rises above absolute threshold |
+| **Throughput Plateau** | Throughput stops scaling with increasing concurrency |
+| **Infrastructure Saturation** | CPU or Memory utilization exceeds configured thresholds |
+| **Resource-Performance Coupling** | Latency degradation coincides with infrastructure stress |
+| **Multi-Tier Bottlenecks** | Specific endpoints degrade earlier than others under load |
+
+---
+
+### 1.4 Key Capabilities (v0.2)
+
+The following 8 improvements were implemented:
+
+#### Improvement 1: Sustained Degradation Validation
+
+Degradation must **persist** through the remainder of the test to be classified as a bottleneck. A new `persistence_ratio` parameter (default: 0.6 = 60%) defines the minimum fraction of remaining buckets that must stay degraded after onset.
+
+- If persistence is met: confirmed **bottleneck**
+- If the system recovers: reclassified as **transient spike** (severity: low)
+
+This eliminates false positives from temporary spikes caused by garbage collection, cold caches, or transient network issues.
+
+#### Improvement 2: Outlier Filtering
+
+After time bucketing, a **rolling median smoothing** step filters noise from key metrics (P50, P90, P95, avg response time, error rate, throughput). Outlier buckets are detected using Median Absolute Deviation (MAD) and excluded from baseline computation and sustained-degradation scanning.
+
+- Raw values preserved in `<metric>_raw` columns for transparency
+- Configurable via `rolling_window_buckets` (default: 3)
+
+#### Improvement 3: Timestamps in Findings
+
+Every finding now includes precise temporal context:
+
+- `onset_timestamp`: UTC timestamp when degradation was detected
+- `onset_bucket_index`: Zero-based bucket index within the test
+- `test_elapsed_seconds`: Seconds from test start to onset
+
+Example: "**Onset**: 2025-12-16 09:35:00+00:00, bucket #9, 9m 0s into test"
+
+#### Improvement 4: Multi-Tier Bottleneck Accuracy
+
+Per-endpoint analysis now uses the same rigorous detection as overall metrics:
+
+- **Per-label baseline** computed from early post-warmup buckets
+- **Inherently slow vs load-induced distinction**: If an endpoint's P90 is already above SLA at baseline, it is classified as `known_slow_endpoint` (severity: info), not a bottleneck
+- Per-label outlier detection and persistence checks
+- Evidence recommends per-API SLA overrides for known-slow endpoints
+
+#### Improvement 5: Multi-Factor Severity Classification
+
+A new `_classify_severity_v2()` function computes severity from a **composite score** across four dimensions:
+
+| Dimension | Score Range | What It Measures |
+|-----------|------------|------------------|
+| Delta magnitude | 0-3 | How far the metric deviates from baseline |
+| Persistence | 0-3 | What fraction of the test stayed degraded |
+| Scope | 0-1 | Overall (higher weight) vs single-endpoint |
+| Classification | Short-circuit | Known-slow = info, transient = low |
+
+Composite scoring (0-7): critical (>= 7), high (>= 5), medium (>= 3), low (< 3).
+
+#### Improvement 6: Two-Phase Analysis Architecture
+
+See [1.5 Two-Phase Analysis Architecture](#15-two-phase-analysis-architecture) below.
+
+#### Improvement 7: Capacity Risk Detection
+
+See [1.5 Two-Phase Analysis Architecture](#15-two-phase-analysis-architecture) (Phase 2b).
+
+#### Improvement 8: Raw Metrics Fallback (Missing K8s Limits)
+
+See [1.7 Raw Metrics Fallback](#17-raw-metrics-fallback-missing-k8s-limits) below.
+
+---
+
+### 1.5 Two-Phase Analysis Architecture
+
+The analysis follows the same mental model a performance test engineer uses: first identify **when** degradation happened, then examine infrastructure for **that specific time window** to understand **why**.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 1 — Performance Degradation Detection (JTL only)         │
+│                                                                 │
+│  Detectors: Latency, Error Rate, Throughput, Multi-Tier         │
+│  Output: Findings with onset timestamps + degradation windows   │
+└─────────────────────┬───────────────────────────────────────────┘
+                      │
+         ┌────────────┴────────────┐
+         ▼                         ▼
+┌────────────────────┐   ┌────────────────────────────────────────┐
+│  Phase 2a          │   │  Phase 2b                              │
+│  Infrastructure    │   │  Capacity Risk Detection               │
+│  Cross-Reference   │   │                                        │
+│                    │   │  Scans infra across full test for       │
+│  Scoped to Phase 1 │   │  sustained stress WITH healthy latency │
+│  degradation       │   │                                        │
+│  windows only      │   │  - Sustained high utilization           │
+│                    │   │  - Climbing trends (memory leaks, etc.) │
+│  Classifies:       │   │  - Excludes Phase 2a overlaps           │
+│  - infra_correlated│   │                                        │
+│  - infra_independ. │   │  Classification: capacity_risk          │
+│  - inconclusive    │   │  (warnings, not bottlenecks)            │
+└────────────────────┘   └────────────────────────────────────────┘
+```
+
+**Phase 2a — Infrastructure Cross-Reference:**
+
+For each Phase 1 bottleneck finding, Phase 2a extracts infrastructure metrics for the specific degradation window and compares against the baseline window:
+
+```json
+{
+  "status": "infrastructure_correlated",
+  "baseline_window": { "avg_cpu": 40.0, "avg_memory": 55.0 },
+  "degradation_window": { "avg_cpu": 82.0, "avg_memory": 68.0, "max_cpu": 87.0 },
+  "cpu_delta_pct": 105.0,
+  "root_cause_indicator": "Infrastructure stress likely contributing: CPU (baseline 40.0% -> 82.0%, +105.0%)."
+}
+```
+
+**Phase 2b — Capacity Risk Detection:**
+
+Detects infrastructure stress that has NOT yet caused performance degradation — an early warning:
+
+- Sustained CPU/Memory above threshold while P90 remains within SLA
+- Climbing trends (CPU or Memory average increases >= 30% from first-half to second-half of test)
+- Reports headroom, duration, and SLA compliance during the stress window
+- Findings appear in a separate "Capacity Observations" section, not mixed with bottlenecks
+
+---
+
+### 1.6 Finding Classifications
+
+Every finding is assigned one of four classifications:
+
+| Classification | Meaning | Severity |
+|---------------|---------|----------|
+| `bottleneck` | Sustained, non-recovering performance degradation | medium - critical |
+| `transient_spike` | Brief degradation that recovered (< persistence_ratio) | low |
+| `known_slow_endpoint` | Endpoint already above SLA at baseline (not load-induced) | info |
+| `capacity_risk` | Infrastructure stressed but performance still healthy | low - medium |
+
+The headline and threshold concurrency exclude transient spikes, known-slow endpoints, and capacity risks from bottleneck tallies.
+
+**Example headlines:**
+- "The system handled up to 25 concurrent users with no sustained performance degradation (1 transient spike(s), 1 known slow endpoint(s) noted)."
+- "Performance degradation detected at 150 concurrent users (2 bottleneck(s), 1 capacity risk(s))."
+
+---
+
+### 1.7 Raw Metrics Fallback (Missing K8s Limits)
+
+In Kubernetes environments where CPU/Memory limits are not defined, Datadog reports raw usage (nanocores, bytes) but cannot compute utilization percentages. The v0.1 tool would report 0.0% for all infrastructure metrics in this scenario.
+
+**v0.2 detection logic:**
+
+1. Loads `cpu_util_pct` / `mem_util_pct` from the Datadog CSV
+2. If all utilization values are zero or near-zero, detects missing limits
+3. Falls back to raw metrics: `kubernetes.cpu.usage.total` (nanocores -> cores) and `kubernetes.memory.usage` (bytes -> GB)
+4. Uses **relative-from-baseline thresholds** instead of absolute percentage thresholds
+
+**Reporting differences in raw mode:**
+
+| Aspect | Percentage Mode | Raw Mode |
+|--------|----------------|----------|
+| Baseline display | `Avg CPU: 45.2%` | `Avg CPU: 0.096 cores` |
+| Threshold | `cpu_high_pct: 80%` | `raw_metric_degrade_pct: 50% from baseline` |
+| Headroom | `17% remaining` | `N/A (limits not defined)` |
+| Capacity risk | Uses absolute thresholds | Uses relative-from-baseline |
+| Note | - | "K8s resource limits not defined. Reporting raw usage." |
+
+**Infrastructure metadata returned:**
+```json
+{
+  "metric_mode": "raw",
+  "limits_available": false,
+  "cpu_unit": "cores",
+  "memory_unit": "GB"
+}
+```
+
+---
+
+### 1.8 Configuration
+
+All parameters are configurable under the `bottleneck_analysis` section of `config.yaml`:
+
+```yaml
+bottleneck_analysis:
+  bucket_seconds: 60              # Time bucket width
+  warmup_buckets: 2               # Buckets to skip at test start
+  sustained_buckets: 2            # Consecutive degraded buckets to trigger detection
+  persistence_ratio: 0.6          # Min fraction of remaining test that must stay degraded
+  rolling_window_buckets: 3       # Window size for rolling median smoothing
+  latency_degrade_pct: 25.0       # % increase from baseline to flag latency degradation
+  error_rate_degrade_abs: 5.0     # Absolute error rate threshold
+  throughput_plateau_pct: 5.0     # Throughput flatness threshold
+  sla_p90_ms: 5000                # P90 SLA threshold (ms)
+  cpu_high_pct: 80                # CPU utilization threshold (%) — used when limits available
+  memory_high_pct: 85             # Memory utilization threshold (%) — used when limits available
+  raw_metric_degrade_pct: 50.0    # Relative increase from baseline when utilization % unavailable
+```
+
+---
+
+### 1.9 Output Files
+
+All outputs are written to `artifacts/<test_run_id>/analysis/`:
+
+| File | Description |
+|------|-------------|
+| `bottleneck_analysis.json` | Full analysis metadata, configuration, baseline metrics, infrastructure metadata, and findings with infrastructure context |
+| `bottleneck_analysis.csv` | One row per finding with flattened fields (25+ columns including onset timestamps, persistence ratio, classification, infrastructure context) |
+| `bottleneck_analysis.md` | Human-readable report with executive summary, baseline metrics, detailed findings, infrastructure context tables, capacity observations, and analysis configuration |
+
+**Markdown Report Sections:**
+1. Executive Summary (headline, metrics table, counts by type and severity)
+2. Baseline Metrics (concurrency, P90, error rate, throughput, CPU/Memory with units)
+3. Detailed Findings (per finding: classification, scope, onset, metric/baseline/delta, persistence, evidence, infrastructure context table)
+4. Capacity Observations (Phase 2b findings, separate from bottlenecks)
+5. Analysis Configuration (all parameters and infra metric mode)
+
+**CSV Fields:**
+`test_run_id`, `analysis_mode`, `bottleneck_type`, `scope`, `scope_name`, `concurrency`, `metric_name`, `metric_value`, `baseline_value`, `delta_abs`, `delta_pct`, `severity`, `confidence`, `classification`, `persistence_ratio`, `outlier_filtered`, `onset_timestamp`, `onset_bucket_index`, `test_elapsed_seconds`, `evidence`, `infra_correlated`, `infra_status`, `infra_cpu_baseline`, `infra_cpu_during`, `infra_memory_baseline`, `infra_memory_during`, `infra_metric_mode`, `infra_limits_available`
+
+---
+
+### 1.10 Files Created/Modified
+
+#### Files Created
+| File | Purpose |
+|------|---------|
+| `perfanalysis-mcp/services/bottleneck_analyzer.py` | Core bottleneck analysis engine — time bucketing, outlier filtering, 6 detection algorithms, two-phase infrastructure analysis, capacity risk detection, raw metrics fallback, severity classification, and output formatting |
+
+#### Files Modified
+| File | Changes |
+|------|---------|
+| `perfanalysis-mcp/perfanalysis.py` | Registered `identify_bottlenecks` MCP tool |
+| `perfanalysis-mcp/config.example.yaml` | Added `bottleneck_analysis` configuration section with all v0.2 parameters |
+
+---
+
+## 2. JMeter Log Analysis Tool (February 2026)
+
+### 2.1 Overview
 
 A new `analyze_jmeter_log` tool has been added to the JMeter MCP server. This tool performs deep analysis of JMeter and BlazeMeter log files, providing granular error grouping, first-occurrence request/response details, and optional JTL correlation — designed to help performance test engineers quickly identify issues and perform root cause analysis.
 
@@ -51,7 +345,7 @@ This is a more thorough, JMeter-specific alternative to the existing `analyze_lo
 
 ---
 
-### 1.2 New MCP Tool
+### 2.2 New MCP Tool
 
 | Tool | Purpose |
 |------|---------|
@@ -76,7 +370,7 @@ analyze_jmeter_log(
 
 ---
 
-### 1.3 Configuration
+### 2.3 Configuration
 
 A new `jmeter_log` section was added to `config.yaml` / `config.example.yaml`:
 
@@ -95,7 +389,7 @@ jmeter_log:
 
 ---
 
-### 1.4 Output Files
+### 2.4 Output Files
 
 All outputs are written to `artifacts/<test_run_id>/analysis/`:
 
@@ -119,7 +413,7 @@ Where `<source>` is `jmeter` or `blazemeter` depending on the `log_source` param
 
 ---
 
-### 1.5 Key Capabilities
+### 2.5 Key Capabilities
 
 - **Multi-line block parsing**: Handles JSR223 Post-Processor verbose output, including `Request=[...]` and `Response=[...]` boundary detection
 - **Granular error grouping**: Groups by composite signature (error category + response code + API endpoint + normalized message hash), so different root causes on the same API are tracked separately
@@ -131,7 +425,7 @@ Where `<source>` is `jmeter` or `blazemeter` depending on the `log_source` param
 
 ---
 
-### 1.6 Files Created/Modified
+### 2.6 Files Created/Modified
 
 ### Files Created
 | File | Purpose |
@@ -145,14 +439,13 @@ Where `<source>` is `jmeter` or `blazemeter` depending on the `log_source` param
 | `jmeter-mcp/jmeter.py` | Registered `analyze_jmeter_log` MCP tool |
 | `jmeter-mcp/utils/file_utils.py` | Added 6 new I/O helper functions (`get_analysis_output_dir`, `get_source_artifacts_dir`, `discover_files_by_extension`, `save_csv_file`, `save_json_file`, `save_markdown_file`) |
 | `jmeter-mcp/config.example.yaml` | Added `jmeter_log` configuration section |
-| `jmeter-mcp/config.windows.yaml` | Added `jmeter_log` configuration section |
 | `jmeter-mcp/README.md` | Updated tools, workflow, project structure, output structure, and future enhancements |
 
 ---
 
-## 2. AI-Assisted Report Revision (January 31, 2026)
+## 3. AI-Assisted Report Revision (January 31, 2026)
 
-### 2.1 Overview
+### 3.1 Overview
 
 A new AI-assisted workflow enables intelligent revision of performance test reports using a Human-In-The-Loop (HITL) approach. This feature allows MCP clients like Cursor to analyze test data and generate improved content for specific report sections while preserving all original metrics, tables, and data.
 
@@ -165,7 +458,7 @@ A new AI-assisted workflow enables intelligent revision of performance test repo
 
 ---
 
-### 2.2 New MCP Tools
+### 3.2 New MCP Tools
 
 Three new tools were added to PerfReport MCP:
 
@@ -226,7 +519,7 @@ revise_performance_test_report(
 
 ---
 
-### 2.3 Configuration
+### 3.3 Configuration
 
 New `revisable_sections` block added to `report_config.yaml`:
 
@@ -259,7 +552,7 @@ revisable_sections:
 
 ---
 
-### 2.4 Workflow
+### 3.4 Workflow
 
 The AI-assisted revision follows this workflow:
 
@@ -274,7 +567,7 @@ The AI-assisted revision follows this workflow:
                                                                ▼
 ┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
 │  6. HITL Iteration  │    │  5. User Review     │    │  4. Assembly        │
-│     (Optional)      │◀───│                     │◀──│                     │
+│     (Optional)      │◀──│                      │◀──│                     │
 │                     │    │ Review revised      │    │ revise_performance  │
 │ Repeat steps 2-4    │    │ report              │    │ _test_report()      │
 └─────────────────────┘    └─────────────────────┘    └─────────────────────┘
@@ -303,7 +596,7 @@ artifacts/{run_id}/
 
 ---
 
-### 2.5 Files Created/Modified
+### 3.5 Files Created/Modified
 
 #### New Files
 
@@ -314,8 +607,6 @@ artifacts/{run_id}/
 | `perfreport-mcp/services/report_revision_generator.py` | Report assembly with AI content |
 | `perfreport-mcp/utils/revision_utils.py` | Path helpers, validation, version management |
 | `.cursor/rules/report-revision-workflow.mdc` | Cursor Rules for orchestrating the workflow |
-| `docs/reports/TODO-project-specific-slas.md` | Enhancement proposal for project-level SLAs |
-| `docs/reports/TODO-report-data-loader-refactoring.md` | Enhancement proposal for shared data loader |
 
 #### Modified Files
 
@@ -341,7 +632,7 @@ artifacts/{run_id}/
 
 ---
 
-## 3. Datadog MCP Dynamic Limits (January 23, 2026)
+## 4. Datadog MCP Dynamic Limits (January 23, 2026)
 
 **Summary:** CPU and Memory resource limits are now queried dynamically from Datadog rather than relying on static configurations in `environments.json`. This ensures accurate % utilization calculations that reflect actual Kubernetes resource configurations.
 
@@ -361,7 +652,7 @@ Previously, the Datadog MCP calculated % CPU/Memory utilization by:
 
 ---
 
-### 3.1 Phase 1: Datadog MCP Changes
+### 4.1 Phase 1: Datadog MCP Changes
 
 **File:** `datadog-mcp/services/datadog_api.py`
 
@@ -423,7 +714,7 @@ When limits not defined:
 
 ---
 
-### 3.2 Phase 2: PerfAnalysis MCP Changes
+### 4.2 Phase 2: PerfAnalysis MCP Changes
 
 **File:** `perfanalysis-mcp/services/apm_analyzer.py`
 
@@ -454,7 +745,7 @@ JSON output now includes status flags:
 
 ---
 
-### 3.3 Phase 3: PerfReport MCP Changes
+### 4.3 Phase 3: PerfReport MCP Changes
 
 **File:** `perfreport-mcp/services/report_generator.py`
 
@@ -504,9 +795,9 @@ JSON output now includes status flags:
 
 ---
 
-## 4. Report Enhancements (PerfReport MCP)
+## 5. Report Enhancements (PerfReport MCP)
 
-### 4.1 Human-Readable Test Duration
+### 5.1 Human-Readable Test Duration
 
 **What Changed:** Test duration is now displayed in a human-friendly format instead of raw seconds.
 
@@ -532,7 +823,7 @@ JSON output now includes status flags:
 
 ---
 
-### 4.2 Cleaner Infrastructure Summaries
+### 5.2 Cleaner Infrastructure Summaries
 
 **What Changed:** Removed auto-generated headers and footers from infrastructure and correlation analysis sections that were redundant in the final report.
 
@@ -557,7 +848,7 @@ The infrastructure analysis shows...
 
 ---
 
-### 4.3 Formatted Bottleneck Analysis
+### 5.3 Formatted Bottleneck Analysis
 
 **What Changed:** Bottleneck insights are now displayed as properly formatted markdown bullet points instead of raw list notation.
 
@@ -579,7 +870,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 4.4 BlazeMeter Report Link
+### 5.4 BlazeMeter Report Link
 
 **What Changed:** Performance reports now include a direct link to the BlazeMeter public report for the test run.
 
@@ -601,7 +892,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 4.5 Cleaner Service/Host Names
+### 5.5 Cleaner Service/Host Names
 
 **What Changed:** Service and host names in infrastructure tables are now displayed without environment prefixes and Datadog query wildcards.
 
@@ -628,7 +919,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 4.6 Configurable Resource Allocation Display
+### 5.6 Configurable Resource Allocation Display
 
 **What Changed:** A new `report_config.yaml` file allows you to show or hide resource allocation columns in infrastructure tables.
 
@@ -669,9 +960,9 @@ infrastructure_tables:
 
 ---
 
-## 5. New Charts Available
+## 6. New Charts Available
 
-### 5.1 CPU Utilization vs Virtual Users (Dual-Axis)
+### 6.1 CPU Utilization vs Virtual Users (Dual-Axis)
 
 **Chart ID:** `CPU_UTILIZATION_VUSERS_DUALAXIS`
 
@@ -704,7 +995,7 @@ infrastructure_tables:
 
 ---
 
-### 5.2 Memory Utilization vs Virtual Users (Dual-Axis)
+### 6.2 Memory Utilization vs Virtual Users (Dual-Axis)
 
 **Chart ID:** `MEMORY_UTILIZATION_VUSERS_DUALAXIS`
 
@@ -719,7 +1010,7 @@ infrastructure_tables:
 
 ---
 
-### 5.3 CPU Core Usage Over Time
+### 6.3 CPU Core Usage Over Time
 
 **Chart ID:** `CPU_CORES_LINE`
 
@@ -744,7 +1035,7 @@ unit:
 
 ---
 
-### 5.4 Memory Usage Over Time
+### 6.4 Memory Usage Over Time
 
 **Chart ID:** `MEMORY_USAGE_LINE`
 
@@ -769,7 +1060,7 @@ unit:
 
 ---
 
-### 5.5 CPU Core Comparison Bar Chart
+### 6.5 CPU Core Comparison Bar Chart
 
 **Chart ID:** `CPU_CORE_COMPARISON_BAR`
 
@@ -790,7 +1081,7 @@ unit:
 │      │       │   │       │   │       │   │                 │
 │  0.0 └───────┴───┴───────┴───┴───────┴───┴─────────────    │
 │              Run         Run         Run                   │
-│           123456789    80840304    81012456                 │
+│           123456789    80840304    81012456                │
 │                        Test Run                            │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -806,7 +1097,7 @@ unit:
 
 ---
 
-### 5.6 Memory Usage Comparison Bar Chart
+### 6.6 Memory Usage Comparison Bar Chart
 
 **Chart ID:** `MEMORY_USAGE_COMPARISON_BAR`
 
@@ -827,7 +1118,7 @@ unit:
 │      │       │   │       │   │       │   │                 │
 │  0.0 └───────┴───┴───────┴───┴───────┴───┴─────────────    │
 │              Run         Run         Run                   │
-│           123456789    80840304    81012456                 │
+│           123456789    80840304    81012456                │
 │                        Test Run                            │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -843,9 +1134,12 @@ unit:
 
 ---
 
-## 6. Future Updates
+## 7. Future Updates
 
 *This section will be updated as new enhancements are released.*
+
+### Planned: PerfAnalysis MCP Enhancements
+- ~~Bottleneck Analyzer v0.2 — Sustained Degradation, Outlier Filtering, Two-Phase Infrastructure Analysis, Raw Metrics Fallback~~ ✅ **Completed February 8, 2026**
 
 ### Planned: Datadog MCP Enhancements
 - ~~Dynamic CPU/Memory limits from Datadog~~ ✅ **Completed January 23, 2026**
@@ -857,6 +1151,8 @@ unit:
 ### New Files Created
 | File | Description |
 |------|-------------|
+| `perfanalysis-mcp/services/bottleneck_analyzer.py` | Bottleneck analysis engine — time bucketing, outlier filtering, two-phase infrastructure analysis, capacity risk detection, raw metrics fallback |
+| `docs/todo/TODO-perfanalysis_identify_bottlenecks_spec.md` | Full specification for identify_bottlenecks tool with all v0.2 improvements |
 | `perfreport-mcp/utils/report_utils.py` | Shared utility functions for report formatting |
 | `perfreport-mcp/utils/revision_utils.py` | Path helpers, validation, version management for revisions |
 | `perfreport-mcp/report_config.yaml` | Report display configuration |
@@ -866,12 +1162,12 @@ unit:
 | `perfreport-mcp/services/revision_context_manager.py` | Save/load revision content with versioning |
 | `perfreport-mcp/services/report_revision_generator.py` | Report assembly with AI content |
 | `.cursor/rules/report-revision-workflow.mdc` | Cursor Rules for AI-assisted revision workflow |
-| `docs/reports/TODO-project-specific-slas.md` | Enhancement proposal for project-level SLAs |
-| `docs/reports/TODO-report-data-loader-refactoring.md` | Enhancement proposal for shared data loader |
 
 ### Files Modified
 | File | Changes |
 |------|---------|
+| `perfanalysis-mcp/perfanalysis.py` | Registered `identify_bottlenecks` MCP tool |
+| `perfanalysis-mcp/config.example.yaml` | Added `bottleneck_analysis` configuration section with v0.2 parameters |
 | `datadog-mcp/services/datadog_api.py` | Dynamic limits queries, combined usage+limits requests, utilization calculation with -1 marker, CSV consistency fix |
 | `perfanalysis-mcp/services/apm_analyzer.py` | Read limits from CSV, filter -1 values, limits_status tracking, None handling for undefined limits |
 | `perfreport-mcp/perfreport.py` | Registered 3 new MCP tools for AI-assisted revision |
@@ -887,4 +1183,4 @@ unit:
 
 ---
 
-*Last Updated: February 7, 2026*
+*Last Updated: February 8, 2026*
