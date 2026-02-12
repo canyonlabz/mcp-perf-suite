@@ -15,6 +15,7 @@ from services.blazemeter_api import (
     download_artifact_zip_file,
     extract_artifact_zip_file,
     process_extracted_artifact_files,
+    session_artifact_processor,
     get_public_report_url,
     fetch_aggregate_report,
 )
@@ -146,6 +147,31 @@ async def get_artifact_file_list(session_id: str, ctx: Context) -> dict:
         Dict of filename -> URL. Context updated with file list.
     """
     return await get_session_artifacts(session_id, ctx)
+
+@mcp.tool()
+async def process_session_artifacts(run_id: str, sessions_id: list, ctx: Context) -> dict:
+    """
+    Downloads, extracts, and processes artifact ZIPs for all sessions of a BlazeMeter run.
+
+    Handles single-session and multi-session runs uniformly. Each session's artifacts
+    are downloaded to a session subfolder, then JTL files are combined into a single
+    test-results.csv and JMeter logs are moved with session numbering (if multi-session).
+
+    Built-in retry (up to 3 attempts per download) and idempotent design: if called
+    again after a partial failure, it skips already-completed sessions and retries
+    only the failed ones.
+
+    Args:
+        run_id (str): BlazeMeter run/master ID.
+        sessions_id (list): List of session IDs from get_run_results (sessionsId field).
+            For single-session runs, this is a list with one element.
+
+    Returns:
+        dict: Per-session status, combined CSV path, log file paths, and overall status.
+            - status: "success" (all done), "partial" (some failed), "error" (all failed)
+            - Re-run with same parameters to retry failed sessions.
+    """
+    return await session_artifact_processor(run_id, sessions_id, ctx)
 
 @mcp.tool()
 async def download_artifacts_zip(artifact_zip_url: str, run_id: str, ctx: Context) -> str:
