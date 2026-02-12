@@ -46,7 +46,7 @@ If the user provides Confluence information, assume they want to publish results
 ## 1. Initialize Task Tracking
 
 For each test run, create granular task items using task tracking to monitor progress:
-- BlazeMeter workflow steps (8 steps)
+- BlazeMeter workflow steps (6 steps)
 - Datadog workflow steps (4 steps)
 - PerfAnalysis workflow steps (4 steps)
 - PerfReport workflow steps (4 steps)
@@ -66,30 +66,36 @@ For each test run:
 
 1. Use tool `get_run_results` for the given performance test using test_run_id.
    - Extract and store the start_time and end_time from the test run results (required for downstream Datadog workflow).
-   - If start/end times cannot be extracted from this step, fallback to extracting from the aggregate report
+   - Extract the `sessionsId` list from the response (contains one entry per load generator/engine).
+   - If start/end times cannot be extracted from this step, fallback to extracting from the aggregate report.
 2. Use tool `get_artifacts_path` which returns the location of where test results will be stored locally.
-3. Use tool `get_artifact_file_list` for given test_run_id. If there is a failure, try getting the test run results again, and resume the workflow.
-   - Returns a dict of downloadable artifact/log files for a given BlazeMeter test_run_id.
-   - Keys are filenames, values are their URLs.
-4. Use tool `download_artifacts_zip` for given test_run_id and artifact_zip_url.
-   - If download fails, retry.
-   - Re-fetch run details and artifact list before retrying
-5. Use tool `extract_artifact_zip` for given test_run_id.
-6. Use tool `process_extracted_files` for given test_run_id and path to files from zip extraction.
-7. Use tool `get_public_report` which retrieves a public BlazeMeter report URL for the given test_run_id.
+3. Use tool `process_session_artifacts` with run_id and the sessionsId list from step 1.
+   - This single tool handles downloading, extracting, and processing all session artifacts.
+   - For single-session runs (1 entry in sessionsId): produces `test-results.csv` and `jmeter.log`.
+   - For multi-session runs (N entries in sessionsId): produces combined `test-results.csv` and numbered logs (`jmeter-1.log` through `jmeter-N.log`).
+   - Built-in retry logic: each session's download is retried up to 3 times automatically.
+   - **Idempotent:** If the tool returns `status: "partial"` or `status: "error"`, re-run the tool with the same parameters. It skips completed sessions and retries only the failed ones.
+4. Use tool `get_public_report` which retrieves a public BlazeMeter report URL for the given test_run_id.
    - **IMPORTANT:** Save the returned `public_url` to `artifacts/{run_id}/blazemeter/public_report.json` for use by PerfReport MCP.
    - JSON format: `{"run_id": "<run_id>", "public_url": "<url>", "public_token": "<token>"}`
    - This enables the performance report to include a direct link to the BlazeMeter report.
-8. Use tool `get_aggregate_report` which retrieves the BlazeMeter aggregate performance report for a given test_run_id.
-9. **Error Handling:**
+5. Use tool `get_aggregate_report` which retrieves the BlazeMeter aggregate performance report for a given test_run_id.
+6. **(Optional) Analyze JMeter logs** using JMeter MCP tool `analyze_jmeter_log` with the test_run_id and `log_source: "blazemeter"`.
+   - This step requires the JMeter MCP server to be enabled and running.
+   - Analyzes the JMeter log file(s) produced in step 3 for errors, exceptions, and performance issues.
+   - Discovers all `.log` files in `artifacts/{run_id}/blazemeter/` automatically (handles both single and multi-session logs).
+   - Output files are used downstream by PerfAnalysis and PerfReport MCP workflows.
+   - If the JMeter MCP server is not available, skip this step.
+7. **Error Handling:**
    - If API calls fail, retry up to 3 times
    - If retries fail, stop workflow and report error
    - Do not proceed to next workflow if BlazeMeter workflow fails
-10. **Validation:** Verify required files exist:
+8. **Validation:** Verify required files exist:
    - `artifacts/{run_id}/blazemeter/aggregate_performance_report.csv`
    - `artifacts/{run_id}/blazemeter/test-results.csv`
-   - `artifacts/{run_id}/blazemeter/jmeter.log`
-11. Update task tracking: Mark all BlazeMeter steps as completed.
+   - `artifacts/{run_id}/blazemeter/jmeter.log` (single-session) OR `artifacts/{run_id}/blazemeter/jmeter-*.log` (multi-session)
+   - `artifacts/{run_id}/blazemeter/sessions/session_manifest.json`
+9. Update task tracking: Mark all BlazeMeter steps as completed.
 
 **Data to pass forward:**
 - `run_id` → to all downstream workflows
@@ -154,7 +160,7 @@ For each test run:
    - Requires: Outputs from steps 1 and 2 must be completed first.
 4. Use tool `analyze_logs` with the test_run_id.
    - This analyzes JMeter/BlazeMeter logs and Datadog APM logs for errors and performance issues.
-   - Requires: `artifacts/{test_run_id}/blazemeter/jmeter.log` and `artifacts/{test_run_id}/datadog/logs_*.csv`
+   - Requires: `artifacts/{test_run_id}/blazemeter/jmeter.log` (single-session) OR `artifacts/{test_run_id}/blazemeter/jmeter-*.log` (multi-session), and `artifacts/{test_run_id}/datadog/logs_*.csv`
 5. **Error Handling:**
    - These are Python code executions (not API calls)
    - Do NOT retry on failure
