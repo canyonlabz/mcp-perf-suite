@@ -176,7 +176,10 @@ async def process_session_artifacts(run_id: str, sessions_id: list, ctx: Context
 @mcp.tool()
 async def download_artifacts_zip(artifact_zip_url: str, run_id: str, ctx: Context) -> str:
     """
+    [DEPRECATED] Use process_session_artifacts instead.
+
     Downloads the artifacts.zip for a given BlazeMeter run to the proper artifacts path.
+    This tool handles only a single session and does not support multi-session runs.
 
     Args:
         artifact_zip_url (str): S3 URL to artifacts.zip.
@@ -201,7 +204,10 @@ async def download_artifacts_zip(artifact_zip_url: str, run_id: str, ctx: Contex
 @mcp.tool()
 async def extract_artifact_zip(local_zip_path: str, run_id: str, ctx: Context) -> list:
     """
+    [DEPRECATED] Use process_session_artifacts instead.
+
     Extracts a downloaded artifacts.zip file for a BlazeMeter run.
+    This tool handles only a single session and does not support multi-session runs.
 
     Args:
         local_zip_path (str): Path to artifacts.zip.
@@ -216,7 +222,10 @@ async def extract_artifact_zip(local_zip_path: str, run_id: str, ctx: Context) -
 @mcp.tool()
 def process_extracted_files(run_id: str, extracted_files: list, ctx: Context) -> dict:
     """
+    [DEPRECATED] Use process_session_artifacts instead.
+
     Processes BlazeMeter run artifacts (kpi.jtl, jmeter.log).
+    This tool handles only a single session and does not support multi-session runs.
 
     Args:
         run_id (str): BlazeMeter run ID.

@@ -85,21 +85,27 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
         # Analyze Load Testing Logs
         # ============================
         if LOAD_TOOL in ["blazemeter", "jmeter"]:
-            jmeter_log_path = artifacts_base / "blazemeter" / "jmeter.log"
+            blazemeter_dir = artifacts_base / "blazemeter"
+            # Glob matches: jmeter.log (single-session) AND jmeter-1.log, jmeter-2.log, etc. (multi-session)
+            jmeter_logs = sorted(blazemeter_dir.glob("jmeter*.log"))
             
-            if jmeter_log_path.exists():
-                ctx.info(f"Analyzing JMeter log: {jmeter_log_path}")
-                jmeter_issues = await analyze_jmeter_log(
-                    jmeter_log_path, 
-                    test_run_id, 
-                    CONFIG, 
-                    ctx
-                )
-                all_log_issues.extend(jmeter_issues)
-                issues_by_source["jmeter"] = len(jmeter_issues)
-                ctx.info(f"Found {len(jmeter_issues)} JMeter log issues")
+            if jmeter_logs:
+                for jmeter_log_path in jmeter_logs:
+                    ctx.info(f"Analyzing JMeter log: {jmeter_log_path.name}")
+                    jmeter_issues = await analyze_jmeter_log(
+                        jmeter_log_path, 
+                        test_run_id, 
+                        CONFIG, 
+                        ctx
+                    )
+                    all_log_issues.extend(jmeter_issues)
+                issues_by_source["jmeter"] = len([
+                    issue for issue in all_log_issues
+                    if issue.get("source") == "jmeter"
+                ])
+                ctx.info(f"Found {issues_by_source['jmeter']} JMeter log issues across {len(jmeter_logs)} log file(s)")
             else:
-                ctx.warning(f"JMeter log not found: {jmeter_log_path}")
+                ctx.warning(f"No JMeter logs found in: {blazemeter_dir}")
                 issues_by_source["jmeter"] = 0
         
         # ============================
