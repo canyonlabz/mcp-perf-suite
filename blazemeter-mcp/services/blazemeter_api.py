@@ -11,8 +11,12 @@ from datetime import datetime
 from typing import Dict, Any, List, Union
 from dotenv import load_dotenv
 from fastmcp import FastMCP, Context  # ✅ FastMCP 2.x import
-from utils.config import load_config
+from utils.config import load_config, get_cleanup_session_folders
 from utils.file_utils import write_public_report_json
+from services.artifact_manager import (
+    get_manifest_path, load_manifest, save_manifest, create_manifest,
+    append_jtl_to_csv, download_with_retry,
+)
 
 # Load environment variables from .env file such as API keys and secrets
 load_dotenv()
@@ -584,6 +588,270 @@ def process_extracted_artifact_files(run_id: str, extracted_files: list, ctx: Co
         ctx.set_state("process_errors", result.get("errors"))
 
     return result
+
+
+# ===============================================
+# Session Artifact Processor (Composite)
+# ===============================================
+
+async def session_artifact_processor(
+    run_id: str,
+    sessions_id: list,
+    ctx: Context,
+) -> dict:
+    """
+    Downloads, extracts, and processes artifact ZIPs for all sessions of a run.
+
+    Handles single-session and multi-session runs uniformly via session subfolders.
+    Supports idempotent re-runs using a session manifest -- if called again after a
+    partial failure, it skips already-completed sessions and retries only the failed ones.
+
+    Args:
+        run_id: BlazeMeter run/master ID.
+        sessions_id: List of session IDs from get_run_results (sessionsId field).
+            For single-session runs, this is a list with one element.
+        ctx: FastMCP context for logging and state.
+
+    Returns:
+        dict with per-session status, combined CSV path, log file paths, and manifest path.
+            - status: "success" (all done), "partial" (some failed), "error" (all failed)
+    """
+    # Load config values (with defaults)
+    max_retries = bz_config.get("artifact_download_max_retries", 3)
+    retry_delay = bz_config.get("artifact_download_retry_delay", 2)
+    cleanup = get_cleanup_session_folders(config)
+
+    dest_folder = os.path.join(artifacts_base, str(run_id), "blazemeter")
+    sessions_folder = os.path.join(dest_folder, "sessions")
+    os.makedirs(sessions_folder, exist_ok=True)
+
+    total_sessions = len(sessions_id)
+    is_multi = total_sessions > 1
+
+    # --- Load or create manifest ---
+    manifest = load_manifest(run_id)
+    if manifest is None:
+        manifest = create_manifest(run_id, sessions_id)
+        save_manifest(run_id, manifest)
+        await ctx.info(f"Created session manifest for {total_sessions} session(s).")
+    else:
+        await ctx.info(f"Resuming from existing manifest. {total_sessions} session(s).")
+
+    # --- Process each session ---
+    for i, session_id in enumerate(sessions_id, start=1):
+        session_key = f"session-{i}"
+        session_data = manifest["sessions"].get(session_key, {})
+
+        # Skip completed sessions
+        if session_data.get("status") == "completed":
+            await ctx.info(f"Skipping {session_key} (already completed).")
+            continue
+
+        session_dir = os.path.join(sessions_folder, session_key)
+        os.makedirs(session_dir, exist_ok=True)
+
+        # ---- STAGE 1: Download ----
+        dl_stage = session_data.get("stages", {}).get("download", {})
+        zip_path = os.path.join(session_dir, "artifacts.zip")
+
+        if dl_stage.get("status") != "completed":
+            await ctx.info(f"Downloading artifacts for {session_key} ({session_id})...")
+            manifest["sessions"][session_key]["status"] = "downloading"
+            manifest["sessions"][session_key]["stages"]["download"]["status"] = "in_progress"
+            save_manifest(run_id, manifest)
+
+            # Get artifact file list for this session
+            await get_session_artifacts(session_id, ctx)
+            artifact_zip_url = ctx.get_state("artifact_zip_url") if ctx else None
+
+            if not artifact_zip_url:
+                manifest["sessions"][session_key]["status"] = "failed"
+                manifest["sessions"][session_key]["stages"]["download"] = {
+                    "status": "failed", "attempts": 0,
+                    "error": f"No artifacts.zip URL found for session {session_id}",
+                }
+                save_manifest(run_id, manifest)
+                await ctx.error(f"No artifacts.zip URL for {session_key}")
+                continue
+
+            dl_result = await download_with_retry(
+                artifact_zip_url=artifact_zip_url,
+                dest_path=zip_path,
+                ssl_verify_setting=get_ssl_verify_setting(),
+                auth_headers_func=get_headers,
+                max_retries=max_retries,
+                retry_delay=retry_delay,
+                ctx=ctx,
+            )
+            manifest["sessions"][session_key]["stages"]["download"] = {
+                "status": dl_result["status"],
+                "file": zip_path if dl_result["status"] == "completed" else None,
+                "attempts": dl_result["attempts"],
+                "error": dl_result.get("error"),
+            }
+            if dl_result["status"] == "failed":
+                manifest["sessions"][session_key]["status"] = "failed"
+                save_manifest(run_id, manifest)
+                await ctx.error(f"Download failed for {session_key}: {dl_result['error']}")
+                continue
+        else:
+            await ctx.info(f"Skipping download for {session_key} (already downloaded).")
+
+        # ---- STAGE 2: Extract ----
+        ext_stage = session_data.get("stages", {}).get("extract", {})
+        extract_dir = os.path.join(session_dir, "artifacts")
+
+        if ext_stage.get("status") != "completed":
+            await ctx.info(f"Extracting artifacts for {session_key}...")
+            manifest["sessions"][session_key]["status"] = "extracting"
+            manifest["sessions"][session_key]["stages"]["extract"]["status"] = "in_progress"
+            save_manifest(run_id, manifest)
+
+            try:
+                os.makedirs(extract_dir, exist_ok=True)
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    zf.extractall(extract_dir)
+                    file_count = len(zf.namelist())
+                manifest["sessions"][session_key]["stages"]["extract"] = {
+                    "status": "completed", "file_count": file_count,
+                }
+                await ctx.info(f"Extracted {file_count} files for {session_key}.")
+            except Exception as e:
+                manifest["sessions"][session_key]["status"] = "failed"
+                manifest["sessions"][session_key]["stages"]["extract"] = {
+                    "status": "failed", "error": str(e),
+                }
+                save_manifest(run_id, manifest)
+                await ctx.error(f"Extraction failed for {session_key}: {e}")
+                continue
+        else:
+            await ctx.info(f"Skipping extraction for {session_key} (already extracted).")
+
+        # ---- STAGE 3: Process (move logs + append JTL) ----
+        proc_stage = session_data.get("stages", {}).get("process", {})
+
+        if proc_stage.get("status") != "completed":
+            await ctx.info(f"Processing artifacts for {session_key}...")
+            manifest["sessions"][session_key]["status"] = "processing"
+            manifest["sessions"][session_key]["stages"]["process"]["status"] = "in_progress"
+            save_manifest(run_id, manifest)
+
+            try:
+                extracted_files = [
+                    os.path.join(extract_dir, f) for f in os.listdir(extract_dir)
+                ]
+
+                # --- Move JMeter log ---
+                log_file = next(
+                    (f for f in extracted_files if os.path.basename(f).lower() == "jmeter.log"),
+                    None,
+                )
+                log_dest_name = f"jmeter-{i}.log" if is_multi else "jmeter.log"
+                log_dest = os.path.join(dest_folder, log_dest_name)
+
+                if log_file and os.path.exists(log_file):
+                    shutil.copy2(log_file, log_dest)
+                    await ctx.info(f"Copied log to {log_dest_name}")
+                else:
+                    await ctx.warning(f"jmeter.log not found in {session_key}")
+
+                # --- Append JTL to combined CSV ---
+                kpi_file = next(
+                    (f for f in extracted_files if os.path.basename(f).lower() == "kpi.jtl"),
+                    None,
+                )
+                csv_path = os.path.join(dest_folder, "test-results.csv")
+                jtl_rows = 0
+
+                if kpi_file and os.path.exists(kpi_file):
+                    # Check if this session's data is already in the combined CSV
+                    sessions_included = manifest["combined_csv"].get("sessions_included", [])
+                    if session_key not in sessions_included:
+                        is_first = len(sessions_included) == 0
+                        jtl_rows = append_jtl_to_csv(kpi_file, csv_path, is_first=is_first)
+                        manifest["combined_csv"]["sessions_included"].append(session_key)
+                        manifest["combined_csv"]["total_rows"] += jtl_rows
+                        await ctx.info(f"Appended {jtl_rows} rows from {session_key} to test-results.csv")
+                    else:
+                        await ctx.info(f"Skipping JTL append for {session_key} (already included).")
+                else:
+                    await ctx.warning(f"kpi.jtl not found in {session_key}")
+
+                # Mark session completed
+                manifest["sessions"][session_key]["status"] = "completed"
+                manifest["sessions"][session_key]["stages"]["process"] = {
+                    "status": "completed",
+                    "jtl_rows": jtl_rows,
+                    "log_file": log_dest_name if log_file else None,
+                }
+                save_manifest(run_id, manifest)
+
+            except Exception as e:
+                manifest["sessions"][session_key]["status"] = "failed"
+                manifest["sessions"][session_key]["stages"]["process"] = {
+                    "status": "failed", "error": str(e),
+                }
+                save_manifest(run_id, manifest)
+                await ctx.error(f"Processing failed for {session_key}: {e}")
+                continue
+
+    # --- Cleanup session folders if configured ---
+    if cleanup:
+        all_completed = all(
+            s.get("status") == "completed" for s in manifest["sessions"].values()
+        )
+        if all_completed:
+            shutil.rmtree(sessions_folder, ignore_errors=True)
+            await ctx.info("Cleaned up sessions/ subfolder.")
+
+    save_manifest(run_id, manifest)
+
+    # --- Build return summary ---
+    completed = [k for k, v in manifest["sessions"].items() if v["status"] == "completed"]
+    failed = [k for k, v in manifest["sessions"].items() if v["status"] == "failed"]
+    log_files = []
+    for k, v in manifest["sessions"].items():
+        lf = v.get("stages", {}).get("process", {}).get("log_file")
+        if lf:
+            log_files.append(lf)
+
+    overall_status = "success" if len(failed) == 0 else ("partial" if completed else "error")
+
+    result = {
+        "status": overall_status,
+        "run_id": str(run_id),
+        "total_sessions": total_sessions,
+        "completed_sessions": len(completed),
+        "failed_sessions": len(failed),
+        "sessions": {
+            k: {
+                "status": v["status"],
+                "error": (
+                    v.get("stages", {}).get("download", {}).get("error")
+                    or v.get("stages", {}).get("extract", {}).get("error")
+                    or v.get("stages", {}).get("process", {}).get("error")
+                ),
+            }
+            for k, v in manifest["sessions"].items()
+        },
+        "combined_csv": os.path.join(dest_folder, "test-results.csv") if completed else None,
+        "combined_csv_rows": manifest["combined_csv"]["total_rows"],
+        "log_files": log_files,
+        "manifest_path": get_manifest_path(run_id),
+        "message": (
+            f"{len(completed)} of {total_sessions} sessions processed successfully."
+            + (f" Re-run to retry {len(failed)} failed session(s)." if failed else "")
+        ),
+    }
+
+    # Update context for downstream tools
+    if ctx:
+        ctx.set_state("processed_csv_path", result["combined_csv"])
+        ctx.set_state("processed_log_files", log_files)
+        ctx.set_state("session_manifest", manifest)
+
+    return result
+
 
 async def get_public_report_url(run_id: str, ctx: Context) -> dict:
     """
