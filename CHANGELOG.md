@@ -6,55 +6,174 @@ This document summarizes the enhancements and new features added to the MCP Perf
 
 ## Table of Contents
 
-- [1. Bottleneck Analyzer v0.2 (February 2026)](#1-bottleneck-analyzer-v02-february-2026)
+- [1. Multi-Session Artifact Handling (February 2026)](#1-multi-session-artifact-handling-february-2026)
   - [1.1 Overview](#11-overview)
-  - [1.2 MCP Tool](#12-mcp-tool)
-  - [1.3 What It Does](#13-what-it-does)
-  - [1.4 Key Capabilities (v0.2)](#14-key-capabilities-v02)
-  - [1.5 Two-Phase Analysis Architecture](#15-two-phase-analysis-architecture)
-  - [1.6 Finding Classifications](#16-finding-classifications)
-  - [1.7 Raw Metrics Fallback (Missing K8s Limits)](#17-raw-metrics-fallback-missing-k8s-limits)
-  - [1.8 Configuration](#18-configuration)
-  - [1.9 Output Files](#19-output-files)
-  - [1.10 Files Created/Modified](#110-files-createdmodified)
-- [2. JMeter Log Analysis Tool (February 2026)](#2-jmeter-log-analysis-tool-february-2026)
+  - [1.2 New MCP Tool](#12-new-mcp-tool)
+  - [1.3 Design](#13-design)
+  - [1.4 Configuration](#14-configuration)
+  - [1.5 Files Created/Modified](#15-files-createdmodified)
+- [2. Bottleneck Analyzer v0.2 (February 2026)](#2-bottleneck-analyzer-v02-february-2026)
   - [2.1 Overview](#21-overview)
-  - [2.2 New MCP Tool](#22-new-mcp-tool)
-  - [2.3 Configuration](#23-configuration)
-  - [2.4 Output Files](#24-output-files)
-  - [2.5 Key Capabilities](#25-key-capabilities)
-  - [2.6 Files Created/Modified](#26-files-createdmodified)
-- [3. AI-Assisted Report Revision (January 31, 2026)](#3-ai-assisted-report-revision-january-31-2026)
+  - [2.2 MCP Tool](#22-mcp-tool)
+  - [2.3 What It Does](#23-what-it-does)
+  - [2.4 Key Capabilities (v0.2)](#24-key-capabilities-v02)
+  - [2.5 Two-Phase Analysis Architecture](#25-two-phase-analysis-architecture)
+  - [2.6 Finding Classifications](#26-finding-classifications)
+  - [2.7 Raw Metrics Fallback (Missing K8s Limits)](#27-raw-metrics-fallback-missing-k8s-limits)
+  - [2.8 Configuration](#28-configuration)
+  - [2.9 Output Files](#29-output-files)
+  - [2.10 Files Created/Modified](#210-files-createdmodified)
+- [3. JMeter Log Analysis Tool (February 2026)](#3-jmeter-log-analysis-tool-february-2026)
   - [3.1 Overview](#31-overview)
-  - [3.2 New MCP Tools](#32-new-mcp-tools)
+  - [3.2 New MCP Tool](#32-new-mcp-tool)
   - [3.3 Configuration](#33-configuration)
-  - [3.4 Workflow](#34-workflow)
-  - [3.5 Files Created/Modified](#35-files-createdmodified)
-- [4. Datadog MCP Dynamic Limits (January 23, 2026)](#4-datadog-mcp-dynamic-limits-january-23-2026)
-  - [4.1 Phase 1: Datadog MCP Changes](#41-phase-1-datadog-mcp-changes)
-  - [4.2 Phase 2: PerfAnalysis MCP Changes](#42-phase-2-perfanalysis-mcp-changes)
-  - [4.3 Phase 3: PerfReport MCP Changes](#43-phase-3-perfreport-mcp-changes)
-- [5. Report Enhancements (PerfReport MCP)](#5-report-enhancements-perfreport-mcp)
-  - [5.1 Human-Readable Test Duration](#51-human-readable-test-duration)
-  - [5.2 Cleaner Infrastructure Summaries](#52-cleaner-infrastructure-summaries)
-  - [5.3 Formatted Bottleneck Analysis](#53-formatted-bottleneck-analysis)
-  - [5.4 BlazeMeter Report Link](#54-blazemeter-report-link)
-  - [5.5 Cleaner Service/Host Names](#55-cleaner-servicehost-names)
-  - [5.6 Configurable Resource Allocation Display](#56-configurable-resource-allocation-display)
-- [6. New Charts Available](#6-new-charts-available)
-  - [6.1 CPU Utilization vs Virtual Users (Dual-Axis)](#61-cpu-utilization-vs-virtual-users-dual-axis)
-  - [6.2 Memory Utilization vs Virtual Users (Dual-Axis)](#62-memory-utilization-vs-virtual-users-dual-axis)
-  - [6.3 CPU Core Usage Over Time](#63-cpu-core-usage-over-time)
-  - [6.4 Memory Usage Over Time](#64-memory-usage-over-time)
-  - [6.5 CPU Core Comparison Bar Chart](#65-cpu-core-comparison-bar-chart)
-  - [6.6 Memory Usage Comparison Bar Chart](#66-memory-usage-comparison-bar-chart)
-- [7. Future Updates](#7-future-updates)
+  - [3.4 Output Files](#34-output-files)
+  - [3.5 Key Capabilities](#35-key-capabilities)
+  - [3.6 Files Created/Modified](#36-files-createdmodified)
+- [4. AI-Assisted Report Revision (January 31, 2026)](#4-ai-assisted-report-revision-january-31-2026)
+  - [4.1 Overview](#41-overview)
+  - [4.2 New MCP Tools](#42-new-mcp-tools)
+  - [4.3 Configuration](#43-configuration)
+  - [4.4 Workflow](#44-workflow)
+  - [4.5 Files Created/Modified](#45-files-createdmodified)
+- [5. Datadog MCP Dynamic Limits (January 23, 2026)](#5-datadog-mcp-dynamic-limits-january-23-2026)
+  - [5.1 Phase 1: Datadog MCP Changes](#51-phase-1-datadog-mcp-changes)
+  - [5.2 Phase 2: PerfAnalysis MCP Changes](#52-phase-2-perfanalysis-mcp-changes)
+  - [5.3 Phase 3: PerfReport MCP Changes](#53-phase-3-perfreport-mcp-changes)
+- [6. Report Enhancements (PerfReport MCP)](#6-report-enhancements-perfreport-mcp)
+  - [6.1 Human-Readable Test Duration](#61-human-readable-test-duration)
+  - [6.2 Cleaner Infrastructure Summaries](#62-cleaner-infrastructure-summaries)
+  - [6.3 Formatted Bottleneck Analysis](#63-formatted-bottleneck-analysis)
+  - [6.4 BlazeMeter Report Link](#64-blazemeter-report-link)
+  - [6.5 Cleaner Service/Host Names](#65-cleaner-servicehost-names)
+  - [6.6 Configurable Resource Allocation Display](#66-configurable-resource-allocation-display)
+- [7. New Charts Available](#7-new-charts-available)
+  - [7.1 CPU Utilization vs Virtual Users (Dual-Axis)](#71-cpu-utilization-vs-virtual-users-dual-axis)
+  - [7.2 Memory Utilization vs Virtual Users (Dual-Axis)](#72-memory-utilization-vs-virtual-users-dual-axis)
+  - [7.3 CPU Core Usage Over Time](#73-cpu-core-usage-over-time)
+  - [7.4 Memory Usage Over Time](#74-memory-usage-over-time)
+  - [7.5 CPU Core Comparison Bar Chart](#75-cpu-core-comparison-bar-chart)
+  - [7.6 Memory Usage Comparison Bar Chart](#76-memory-usage-comparison-bar-chart)
+- [8. Future Updates](#8-future-updates)
 
 ---
 
-## 1. Bottleneck Analyzer v0.2 (February 2026)
+## 1. Multi-Session Artifact Handling (February 2026)
 
 ### 1.1 Overview
+
+When a BlazeMeter test run uses multiple load generators (engines), each engine produces its own `artifacts.zip` file containing a `kpi.jtl` and `jmeter.log`. Previously, the BlazeMeter MCP tools processed one session at a time, and each subsequent download/extract/process cycle **overwrote** the previous session's files. This meant only the last session's JTL and log data was retained locally, causing incomplete data for downstream analysis tools like `identify_bottlenecks` and `correlate_test_results`.
+
+This enhancement introduces a unified session-based artifact processing model that handles both single-session and multi-session runs through a single consolidated tool.
+
+---
+
+### 1.2 New MCP Tool
+
+| Tool | Purpose |
+|------|---------|
+| `process_session_artifacts` | Downloads, extracts, and processes artifact ZIPs for all sessions of a BlazeMeter run |
+
+```python
+process_session_artifacts(
+    run_id: str,          # BlazeMeter run/master ID
+    sessions_id: list,    # List of session IDs from get_run_results (sessionsId field)
+    ctx: Context          # FastMCP context
+) -> dict
+```
+
+**Returns:**
+- `status`: `"success"` (all done), `"partial"` (some failed), `"error"` (all failed)
+- `total_sessions` / `completed_sessions` / `failed_sessions`: Session counts
+- `combined_csv`: Path to the combined `test-results.csv`
+- `log_files`: List of JMeter log filenames produced
+- `manifest_path`: Path to the session manifest JSON
+- `message`: Human-readable summary with retry guidance
+
+**Key Features:**
+- **Unified handling:** Always creates `sessions/session-{i}/` subfolders, whether 1 or N sessions
+- **Built-in retry:** Each session's download is retried up to 3 times (configurable) before failing
+- **Idempotent / resumable:** If called again after a partial failure, skips completed sessions and retries only the failed ones, using a session manifest as the source of truth
+- **JTL concatenation:** Combines all session JTL files into a single `test-results.csv` with header deduplication
+- **Log numbering:** Single session produces `jmeter.log`; multi-session produces `jmeter-1.log` through `jmeter-N.log`
+
+**Deprecated Tools:** The following tools are now deprecated in favor of `process_session_artifacts`:
+- `download_artifacts_zip`
+- `extract_artifact_zip`
+- `process_extracted_files`
+
+---
+
+### 1.3 Design
+
+**Directory Structure (all runs):**
+
+```
+artifacts/{run_id}/blazemeter/
+  sessions/
+    session_manifest.json       # Source of truth for session processing state
+    session-1/
+      artifacts.zip             # Downloaded zip for session 1
+      artifacts/                # Extracted contents
+        kpi.jtl
+        jmeter.log
+        error.jtl
+    session-2/                  # Only exists if multi-session
+      artifacts.zip
+      artifacts/
+        ...
+  test-results.csv              # Combined JTL from all sessions (header deduped)
+  jmeter.log                    # Single session: just the log (no numbering)
+  jmeter-1.log                  # Multi-session: numbered logs
+  jmeter-2.log
+  aggregate_performance_report.csv  # From BlazeMeter API (unchanged)
+  test_config.json                  # From BlazeMeter API (unchanged)
+```
+
+**Session Manifest:** A `session_manifest.json` file tracks per-session processing state with stage-level granularity (download, extract, process). This enables idempotent re-runs -- the tool reads the manifest on each invocation and skips completed work.
+
+**PerfAnalysis Integration:** The `analyze_logs` function in PerfAnalysis MCP now uses a glob pattern (`jmeter*.log`) to discover all JMeter log files, supporting both single-session (`jmeter.log`) and multi-session (`jmeter-1.log`, `jmeter-2.log`, etc.) layouts.
+
+---
+
+### 1.4 Configuration
+
+New settings added to `blazemeter-mcp/config.example.yaml` under the `blazemeter` section:
+
+```yaml
+blazemeter:
+  artifact_download_max_retries: 3   # Max download attempts per session artifact ZIP
+  artifact_download_retry_delay: 2   # Seconds to wait between download retry attempts
+  cleanup_session_folders: false     # If true, remove sessions/ subfolder after combining artifacts
+```
+
+---
+
+### 1.5 Files Created/Modified
+
+#### Files Created
+
+| File | Purpose |
+|------|---------|
+| `blazemeter-mcp/services/artifact_manager.py` | Helper module -- session manifest management, JTL concatenation with header dedup, download-with-retry logic |
+
+#### Files Modified
+
+| File | Changes |
+|------|---------|
+| `blazemeter-mcp/config.example.yaml` | Added `artifact_download_max_retries`, `artifact_download_retry_delay`, `cleanup_session_folders` settings |
+| `blazemeter-mcp/utils/config.py` | Added convenience accessors for new config values with defaults |
+| `blazemeter-mcp/services/blazemeter_api.py` | Added `session_artifact_processor` orchestration function; imports from `artifact_manager.py` |
+| `blazemeter-mcp/blazemeter.py` | Added `process_session_artifacts` MCP tool; marked `download_artifacts_zip`, `extract_artifact_zip`, `process_extracted_files` as `[DEPRECATED]` |
+| `perfanalysis-mcp/services/log_analyzer.py` | Replaced hardcoded `jmeter.log` path with `jmeter*.log` glob pattern for multi-session support |
+| `blazemeter-mcp/.cursor/rules/AGENTS.md` | Updated workflow: consolidated steps 4-7 into single step using `process_session_artifacts`; added optional JMeter log analysis step |
+| `.cursor/rules/performance-testing-workflow.mdc` | Updated BlazeMeter workflow section (consolidated artifact steps), PerfAnalysis log references, and task tracking counts |
+
+---
+
+## 2. Bottleneck Analyzer v0.2 (February 2026)
+
+### 2.1 Overview
 
 The `identify_bottlenecks` tool in the PerfAnalysis MCP Server has been significantly upgraded (v0.2) to deliver accurate, actionable bottleneck detection with dramatically reduced false positives. The v0.1 implementation flagged transient spikes and inherently slow endpoints as bottlenecks, lacked temporal context, and reported 0% infrastructure utilization when Kubernetes resource limits were not defined. v0.2 addresses all of these issues through 8 targeted improvements.
 
@@ -66,7 +185,7 @@ The `identify_bottlenecks` tool in the PerfAnalysis MCP Server has been signific
 
 ---
 
-### 1.2 MCP Tool
+### 2.2 MCP Tool
 
 | Tool | Purpose |
 |------|---------|
@@ -88,7 +207,7 @@ identify_bottlenecks(
 
 ---
 
-### 1.3 What It Does
+### 2.3 What It Does
 
 The tool detects six categories of performance degradation:
 
@@ -103,7 +222,7 @@ The tool detects six categories of performance degradation:
 
 ---
 
-### 1.4 Key Capabilities (v0.2)
+### 2.4 Key Capabilities (v0.2)
 
 The following 8 improvements were implemented:
 
@@ -157,19 +276,19 @@ Composite scoring (0-7): critical (>= 7), high (>= 5), medium (>= 3), low (< 3).
 
 #### Improvement 6: Two-Phase Analysis Architecture
 
-See [1.5 Two-Phase Analysis Architecture](#15-two-phase-analysis-architecture) below.
+See [2.5 Two-Phase Analysis Architecture](#25-two-phase-analysis-architecture) below.
 
 #### Improvement 7: Capacity Risk Detection
 
-See [1.5 Two-Phase Analysis Architecture](#15-two-phase-analysis-architecture) (Phase 2b).
+See [2.5 Two-Phase Analysis Architecture](#25-two-phase-analysis-architecture) (Phase 2b).
 
 #### Improvement 8: Raw Metrics Fallback (Missing K8s Limits)
 
-See [1.7 Raw Metrics Fallback](#17-raw-metrics-fallback-missing-k8s-limits) below.
+See [2.7 Raw Metrics Fallback](#27-raw-metrics-fallback-missing-k8s-limits) below.
 
 ---
 
-### 1.5 Two-Phase Analysis Architecture
+### 2.5 Two-Phase Analysis Architecture
 
 The analysis follows the same mental model a performance test engineer uses: first identify **when** degradation happened, then examine infrastructure for **that specific time window** to understand **why**.
 
@@ -224,7 +343,7 @@ Detects infrastructure stress that has NOT yet caused performance degradation �
 
 ---
 
-### 1.6 Finding Classifications
+### 2.6 Finding Classifications
 
 Every finding is assigned one of four classifications:
 
@@ -243,7 +362,7 @@ The headline and threshold concurrency exclude transient spikes, known-slow endp
 
 ---
 
-### 1.7 Raw Metrics Fallback (Missing K8s Limits)
+### 2.7 Raw Metrics Fallback (Missing K8s Limits)
 
 In Kubernetes environments where CPU/Memory limits are not defined, Datadog reports raw usage (nanocores, bytes) but cannot compute utilization percentages. The v0.1 tool would report 0.0% for all infrastructure metrics in this scenario.
 
@@ -276,7 +395,7 @@ In Kubernetes environments where CPU/Memory limits are not defined, Datadog repo
 
 ---
 
-### 1.8 Configuration
+### 2.8 Configuration
 
 All parameters are configurable under the `bottleneck_analysis` section of `config.yaml`:
 
@@ -298,7 +417,7 @@ bottleneck_analysis:
 
 ---
 
-### 1.9 Output Files
+### 2.9 Output Files
 
 All outputs are written to `artifacts/<test_run_id>/analysis/`:
 
@@ -320,7 +439,7 @@ All outputs are written to `artifacts/<test_run_id>/analysis/`:
 
 ---
 
-### 1.10 Files Created/Modified
+### 2.10 Files Created/Modified
 
 #### Files Created
 | File | Purpose |
@@ -335,9 +454,9 @@ All outputs are written to `artifacts/<test_run_id>/analysis/`:
 
 ---
 
-## 2. JMeter Log Analysis Tool (February 2026)
+## 3. JMeter Log Analysis Tool (February 2026)
 
-### 2.1 Overview
+### 3.1 Overview
 
 A new `analyze_jmeter_log` tool has been added to the JMeter MCP server. This tool performs deep analysis of JMeter and BlazeMeter log files, providing granular error grouping, first-occurrence request/response details, and optional JTL correlation — designed to help performance test engineers quickly identify issues and perform root cause analysis.
 
@@ -345,7 +464,7 @@ This is a more thorough, JMeter-specific alternative to the existing `analyze_lo
 
 ---
 
-### 2.2 New MCP Tool
+### 3.2 New MCP Tool
 
 | Tool | Purpose |
 |------|---------|
@@ -370,7 +489,7 @@ analyze_jmeter_log(
 
 ---
 
-### 2.3 Configuration
+### 3.3 Configuration
 
 A new `jmeter_log` section was added to `config.yaml` / `config.example.yaml`:
 
@@ -389,7 +508,7 @@ jmeter_log:
 
 ---
 
-### 2.4 Output Files
+### 3.4 Output Files
 
 All outputs are written to `artifacts/<test_run_id>/analysis/`:
 
@@ -413,7 +532,7 @@ Where `<source>` is `jmeter` or `blazemeter` depending on the `log_source` param
 
 ---
 
-### 2.5 Key Capabilities
+### 3.5 Key Capabilities
 
 - **Multi-line block parsing**: Handles JSR223 Post-Processor verbose output, including `Request=[...]` and `Response=[...]` boundary detection
 - **Granular error grouping**: Groups by composite signature (error category + response code + API endpoint + normalized message hash), so different root causes on the same API are tracked separately
@@ -425,7 +544,7 @@ Where `<source>` is `jmeter` or `blazemeter` depending on the `log_source` param
 
 ---
 
-### 2.6 Files Created/Modified
+### 3.6 Files Created/Modified
 
 ### Files Created
 | File | Purpose |
@@ -443,9 +562,9 @@ Where `<source>` is `jmeter` or `blazemeter` depending on the `log_source` param
 
 ---
 
-## 3. AI-Assisted Report Revision (January 31, 2026)
+## 4. AI-Assisted Report Revision (January 31, 2026)
 
-### 3.1 Overview
+### 4.1 Overview
 
 A new AI-assisted workflow enables intelligent revision of performance test reports using a Human-In-The-Loop (HITL) approach. This feature allows MCP clients like Cursor to analyze test data and generate improved content for specific report sections while preserving all original metrics, tables, and data.
 
@@ -458,7 +577,7 @@ A new AI-assisted workflow enables intelligent revision of performance test repo
 
 ---
 
-### 3.2 New MCP Tools
+### 4.2 New MCP Tools
 
 Three new tools were added to PerfReport MCP:
 
@@ -519,7 +638,7 @@ revise_performance_test_report(
 
 ---
 
-### 3.3 Configuration
+### 4.3 Configuration
 
 New `revisable_sections` block added to `report_config.yaml`:
 
@@ -552,7 +671,7 @@ revisable_sections:
 
 ---
 
-### 3.4 Workflow
+### 4.4 Workflow
 
 The AI-assisted revision follows this workflow:
 
@@ -596,7 +715,7 @@ artifacts/{run_id}/
 
 ---
 
-### 3.5 Files Created/Modified
+### 4.5 Files Created/Modified
 
 #### New Files
 
@@ -632,7 +751,7 @@ artifacts/{run_id}/
 
 ---
 
-## 4. Datadog MCP Dynamic Limits (January 23, 2026)
+## 5. Datadog MCP Dynamic Limits (January 23, 2026)
 
 **Summary:** CPU and Memory resource limits are now queried dynamically from Datadog rather than relying on static configurations in `environments.json`. This ensures accurate % utilization calculations that reflect actual Kubernetes resource configurations.
 
@@ -652,7 +771,7 @@ Previously, the Datadog MCP calculated % CPU/Memory utilization by:
 
 ---
 
-### 4.1 Phase 1: Datadog MCP Changes
+### 5.1 Phase 1: Datadog MCP Changes
 
 **File:** `datadog-mcp/services/datadog_api.py`
 
@@ -714,7 +833,7 @@ When limits not defined:
 
 ---
 
-### 4.2 Phase 2: PerfAnalysis MCP Changes
+### 5.2 Phase 2: PerfAnalysis MCP Changes
 
 **File:** `perfanalysis-mcp/services/apm_analyzer.py`
 
@@ -745,7 +864,7 @@ JSON output now includes status flags:
 
 ---
 
-### 4.3 Phase 3: PerfReport MCP Changes
+### 5.3 Phase 3: PerfReport MCP Changes
 
 **File:** `perfreport-mcp/services/report_generator.py`
 
@@ -795,9 +914,9 @@ JSON output now includes status flags:
 
 ---
 
-## 5. Report Enhancements (PerfReport MCP)
+## 6. Report Enhancements (PerfReport MCP)
 
-### 5.1 Human-Readable Test Duration
+### 6.1 Human-Readable Test Duration
 
 **What Changed:** Test duration is now displayed in a human-friendly format instead of raw seconds.
 
@@ -823,7 +942,7 @@ JSON output now includes status flags:
 
 ---
 
-### 5.2 Cleaner Infrastructure Summaries
+### 6.2 Cleaner Infrastructure Summaries
 
 **What Changed:** Removed auto-generated headers and footers from infrastructure and correlation analysis sections that were redundant in the final report.
 
@@ -848,7 +967,7 @@ The infrastructure analysis shows...
 
 ---
 
-### 5.3 Formatted Bottleneck Analysis
+### 6.3 Formatted Bottleneck Analysis
 
 **What Changed:** Bottleneck insights are now displayed as properly formatted markdown bullet points instead of raw list notation.
 
@@ -870,7 +989,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 5.4 BlazeMeter Report Link
+### 6.4 BlazeMeter Report Link
 
 **What Changed:** Performance reports now include a direct link to the BlazeMeter public report for the test run.
 
@@ -892,7 +1011,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 5.5 Cleaner Service/Host Names
+### 6.5 Cleaner Service/Host Names
 
 **What Changed:** Service and host names in infrastructure tables are now displayed without environment prefixes and Datadog query wildcards.
 
@@ -919,7 +1038,7 @@ Based on correlation and infrastructure analysis:
 
 ---
 
-### 5.6 Configurable Resource Allocation Display
+### 6.6 Configurable Resource Allocation Display
 
 **What Changed:** A new `report_config.yaml` file allows you to show or hide resource allocation columns in infrastructure tables.
 
@@ -960,9 +1079,9 @@ infrastructure_tables:
 
 ---
 
-## 6. New Charts Available
+## 7. New Charts Available
 
-### 6.1 CPU Utilization vs Virtual Users (Dual-Axis)
+### 7.1 CPU Utilization vs Virtual Users (Dual-Axis)
 
 **Chart ID:** `CPU_UTILIZATION_VUSERS_DUALAXIS`
 
@@ -995,7 +1114,7 @@ infrastructure_tables:
 
 ---
 
-### 6.2 Memory Utilization vs Virtual Users (Dual-Axis)
+### 7.2 Memory Utilization vs Virtual Users (Dual-Axis)
 
 **Chart ID:** `MEMORY_UTILIZATION_VUSERS_DUALAXIS`
 
@@ -1010,7 +1129,7 @@ infrastructure_tables:
 
 ---
 
-### 6.3 CPU Core Usage Over Time
+### 7.3 CPU Core Usage Over Time
 
 **Chart ID:** `CPU_CORES_LINE`
 
@@ -1035,7 +1154,7 @@ unit:
 
 ---
 
-### 6.4 Memory Usage Over Time
+### 7.4 Memory Usage Over Time
 
 **Chart ID:** `MEMORY_USAGE_LINE`
 
@@ -1060,7 +1179,7 @@ unit:
 
 ---
 
-### 6.5 CPU Core Comparison Bar Chart
+### 7.5 CPU Core Comparison Bar Chart
 
 **Chart ID:** `CPU_CORE_COMPARISON_BAR`
 
@@ -1097,7 +1216,7 @@ unit:
 
 ---
 
-### 6.6 Memory Usage Comparison Bar Chart
+### 7.6 Memory Usage Comparison Bar Chart
 
 **Chart ID:** `MEMORY_USAGE_COMPARISON_BAR`
 
@@ -1134,7 +1253,7 @@ unit:
 
 ---
 
-## 7. Future Updates
+## 8. Future Updates
 
 *This section will be updated as new enhancements are released.*
 
@@ -1151,6 +1270,7 @@ unit:
 ### New Files Created
 | File | Description |
 |------|-------------|
+| `blazemeter-mcp/services/artifact_manager.py` | Helper module for session artifact processing — manifest management, JTL concatenation, download-with-retry |
 | `perfanalysis-mcp/services/bottleneck_analyzer.py` | Bottleneck analysis engine — time bucketing, outlier filtering, two-phase infrastructure analysis, capacity risk detection, raw metrics fallback |
 | `docs/todo/TODO-perfanalysis_identify_bottlenecks_spec.md` | Full specification for identify_bottlenecks tool with all v0.2 improvements |
 | `perfreport-mcp/utils/report_utils.py` | Shared utility functions for report formatting |
@@ -1166,6 +1286,13 @@ unit:
 ### Files Modified
 | File | Changes |
 |------|---------|
+| `blazemeter-mcp/config.example.yaml` | Added `artifact_download_max_retries`, `artifact_download_retry_delay`, `cleanup_session_folders` settings |
+| `blazemeter-mcp/utils/config.py` | Added convenience accessors for artifact download/retry/cleanup config values |
+| `blazemeter-mcp/services/blazemeter_api.py` | Added `session_artifact_processor` orchestration function for multi-session artifact handling |
+| `blazemeter-mcp/blazemeter.py` | Added `process_session_artifacts` tool; deprecated `download_artifacts_zip`, `extract_artifact_zip`, `process_extracted_files` |
+| `perfanalysis-mcp/services/log_analyzer.py` | Updated JMeter log discovery to use `jmeter*.log` glob for multi-session support |
+| `blazemeter-mcp/.cursor/rules/AGENTS.md` | Consolidated artifact steps into single `process_session_artifacts` step; added optional JMeter log analysis step |
+| `.cursor/rules/performance-testing-workflow.mdc` | Updated BlazeMeter and PerfAnalysis workflow sections for multi-session support |
 | `perfanalysis-mcp/perfanalysis.py` | Registered `identify_bottlenecks` MCP tool |
 | `perfanalysis-mcp/config.example.yaml` | Added `bottleneck_analysis` configuration section with v0.2 parameters |
 | `datadog-mcp/services/datadog_api.py` | Dynamic limits queries, combined usage+limits requests, utilization calculation with -1 marker, CSV consistency fix |
@@ -1179,8 +1306,7 @@ unit:
 | `perfreport-mcp/services/charts/single_axis_charts.py` | CPU Cores and Memory Usage charts |
 | `perfreport-mcp/chart_schema.yaml` | New chart specifications |
 | `perfreport-mcp/templates/default_report_template.md` | BlazeMeter report link placeholder |
-| `.cursor/rules/performance-testing-workflow.mdc` | Workflow updates for public report saving |
 
 ---
 
-*Last Updated: February 8, 2026*
+*Last Updated: February 10, 2026*
