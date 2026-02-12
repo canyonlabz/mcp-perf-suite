@@ -245,12 +245,35 @@ def analyze_logs(
     # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
-    # 6. Categorize each error entry
+    # 6. Categorize each error entry (skip 2xx/3xx — not real errors)
     # ------------------------------------------------------------------
+    categorized_entries: List[dict] = []
+    skipped_per_file: Dict[str, int] = defaultdict(int)
     for entry in all_error_entries:
-        category, severity = _categorize_error(entry)
+        result = _categorize_error(entry)
+        if result is None:
+            # 2xx/3xx response code — skip (script assertion issue, not app error)
+            skipped_per_file[entry.get("log_file", "")] += 1
+            continue
+        category, severity = result
         entry["error_category"] = category
         entry["severity"] = severity
+        categorized_entries.append(entry)
+    all_error_entries = categorized_entries
+
+    # Enrich log file metadata with skipped/relevant counts
+    for meta in log_file_metadata:
+        filename = meta.get("filename", "")
+        total_blocks = meta.get("error_lines", 0)
+        skipped = skipped_per_file.get(filename, 0)
+        meta["error_blocks_total"] = total_blocks
+        meta["error_blocks_skipped"] = skipped
+        meta["error_blocks_relevant"] = total_blocks - skipped
+        if skipped > 0:
+            meta["skip_reason"] = (
+                "2xx/3xx response codes filtered "
+                "(script/assertion issues, not application errors)"
+            )
 
     # ------------------------------------------------------------------
     # 7. Group errors by signature
@@ -647,11 +670,12 @@ def _extract_jsr223_error_block(lines: List[str]) -> dict:
 # Error Categorization
 # ============================================================
 
-def _categorize_error(entry: dict) -> Tuple[str, str]:
+def _categorize_error(entry: dict) -> Optional[Tuple[str, str]]:
     """
     Determine error category and severity for a parsed error entry.
 
     Classification priority:
+      0. HTTP 2xx/3xx response codes → None (skip — not application errors)
       1. FATAL log level → "Fatal JMeter Error" (Critical)
       2. HTTP response code → "HTTP 5xx Error" or "HTTP 4xx Error"
       3. Keyword matching against ERROR_CATEGORIES
@@ -663,13 +687,28 @@ def _categorize_error(entry: dict) -> Tuple[str, str]:
                log_level, response_code, error_message, raw_block).
 
     Returns:
-        Tuple of (error_category, severity).
+        Tuple of (error_category, severity), or None if the entry
+        should be skipped (e.g., 2xx/3xx response codes that are
+        not real application errors).
     """
     log_level = (entry.get("log_level") or "").upper()
     response_code = entry.get("response_code", "N/A")
     error_message = entry.get("error_message", "")
     raw_block = entry.get("raw_block", "")
     search_text = f"{error_message} {raw_block}"
+
+    # 0. Skip 2xx/3xx response codes — these are valid HTTP responses,
+    #    not application errors. They appear in logs when a JMeter
+    #    Response Assertion is overly strict (e.g., expecting 200 but
+    #    receiving 202 Accepted or 302 Redirect). This is a script
+    #    issue, not an application or environment issue.
+    if response_code != "N/A":
+        try:
+            code_int = int(response_code)
+            if 200 <= code_int < 400:
+                return None
+        except (ValueError, TypeError):
+            pass
 
     # 1. FATAL log level
     if log_level == "FATAL":
@@ -1547,17 +1586,37 @@ def _format_markdown_output(
     # === 8. Log Files Analyzed ===
     lines.append("## Log Files Analyzed")
     lines.append("")
-    lines.append("| File | Size | Total Lines | Error Blocks |")
-    lines.append("|---|---|---|---|")
+    lines.append(
+        "| File | Size | Total Lines "
+        "| Error Blocks (Total) | Skipped (2xx/3xx) | Relevant |"
+    )
+    lines.append("|---|---|---|---|---|---|")
 
     for meta in log_file_metadata:
         size_mb = meta.get("size_bytes", 0) / (1024 * 1024)
         size_str = f"{size_mb:.1f} MB" if size_mb >= 1 else f"{meta.get('size_bytes', 0):,} bytes"
+        total_blocks = meta.get("error_blocks_total", meta.get("error_lines", 0))
+        skipped = meta.get("error_blocks_skipped", 0)
+        relevant = meta.get("error_blocks_relevant", total_blocks)
         lines.append(
             f"| {meta.get('filename', '')} "
             f"| {size_str} "
             f"| {meta.get('total_lines', 0):,} "
-            f"| {meta.get('error_lines', 0):,} |"
+            f"| {total_blocks:,} "
+            f"| {skipped:,} "
+            f"| {relevant:,} |"
+        )
+
+    # Add footnote if any files had skipped blocks
+    has_skipped = any(
+        meta.get("error_blocks_skipped", 0) > 0 for meta in log_file_metadata
+    )
+    if has_skipped:
+        lines.append("")
+        lines.append(
+            "> **Note:** Skipped error blocks contain HTTP 2xx/3xx response codes "
+            "which are valid responses, not application errors. These typically "
+            "result from overly strict JMeter Response Assertions in the test script."
         )
 
     lines.append("")
