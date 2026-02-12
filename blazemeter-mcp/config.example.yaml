@@ -23,3 +23,6 @@ blazemeter:
   polling_max_retries: 3
   polling_timeout_seconds: 600
   pagination_limit: 150
+  artifact_download_max_retries: 3   # Max download attempts per session artifact ZIP
+  artifact_download_retry_delay: 2   # Seconds to wait between download retry attempts
+  cleanup_session_folders: false     # If true, remove sessions/ subfolder after combining artifacts
