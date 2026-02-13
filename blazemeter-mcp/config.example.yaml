@@ -1,9 +1,9 @@
 server:
   name: "blazemeter-mcp"
-  version: "0.8.0-alpha.1"
+  version: "0.9.0-alpha.1"
   description: "BlazeMeter MCP Server for performance test execution and results retrieval"
   build:
-    date: "2026-01-23"
+    date: "2026-02-10"
 
 general:
   enable_debug: False   # Enable/disable debug mode

@@ -1,9 +1,9 @@
 server:
   name: "perfanalysis-mcp"
-  version: "0.7.0-alpha.1"
+  version: "0.7.1-alpha.1"
   description: "Performance Analysis MCP Server for BlazeMeter and Datadog correlation"
   build:
-    date: "2026-01-23"
+    date: "2026-02-10"
 
 general:
   enable_debug: False   # Enable/disable debug mode
