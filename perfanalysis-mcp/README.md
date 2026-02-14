@@ -242,7 +242,8 @@ perfanalysis-mcp/
 ```yaml
 # Performance Analysis Settings
 perf_analysis:
-  response_time_sla: 5000  # milliseconds
+  # SLA thresholds are defined in slas.yaml (not here).
+  # See slas.example.yaml for per-profile and per-API SLA configuration.
   statistical_confidence: 0.95
   anomaly_sensitivity:
     low: 3.0      # Standard deviations

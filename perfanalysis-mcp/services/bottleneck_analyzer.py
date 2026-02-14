@@ -281,6 +281,7 @@ async def analyze_bottlenecks(
         # ------------------------------------------------------------------
         result = {
             "test_run_id": test_run_id,
+            "sla_id": sla_id,
             "analysis_mode": "comparison" if baseline_run_id else "single_run",
             "analysis_timestamp": datetime.datetime.now().isoformat(),
             "configuration": cfg,
@@ -2867,7 +2868,8 @@ def format_bottleneck_markdown(result: Dict) -> str:
     md.append(f"| Rolling Window (Outlier) | {cfg.get('rolling_window_buckets', 'N/A')} buckets |")
     md.append(f"| Latency Degradation Threshold | {cfg.get('latency_degrade_pct', 'N/A')}% |")
     md.append(f"| Error Rate Threshold | {cfg.get('error_rate_degrade_abs', 'N/A')}% |")
-    md.append(f"| SLA P90 Threshold | {cfg.get('sla_p90_ms', 'N/A')} ms |")
+    sla_id_display = result.get("sla_id") or "file-level default"
+    md.append(f"| SLA Profile | {sla_id_display} (per-API thresholds from slas.yaml) |")
     if is_raw:
         md.append(f"| Infra Metric Mode | **Raw** (K8s limits not defined) |")
         md.append(f"| CPU Unit | {cpu_unit} |")

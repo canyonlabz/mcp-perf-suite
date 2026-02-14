@@ -19,7 +19,10 @@ artifacts:
 
 # Performance Analysis Settings  
 perf_analysis:
-  response_time_sla: 5000  # milliseconds
+  # DEPRECATED: response_time_sla is no longer used.
+  # SLA thresholds are now defined in slas.yaml (per-profile, per-API).
+  # See slas.example.yaml for configuration details.
+  # response_time_sla: 5000
   load_tool: "blazemeter"  # Options: blazemeter, jmeter, gatling
   apm_tool: "datadog"  # Options: datadog, newrelic, appdynamics, dynatrace
   statistical_confidence: 0.95
@@ -51,7 +54,9 @@ perf_analysis:
     latency_degrade_pct: 25.0   # P90 latency increase % over baseline to flag degradation
     error_rate_degrade_abs: 5.0 # Absolute error rate % to flag as degraded
     throughput_plateau_pct: 5.0 # Throughput growth % below which is considered a plateau
-    sla_p90_ms: null            # P90 SLA threshold (ms). null = use response_time_sla above
+    # DEPRECATED: sla_p90_ms is no longer used.
+    # SLA thresholds are resolved dynamically from slas.yaml.
+    # sla_p90_ms: null
     cpu_high_pct: null          # CPU saturation threshold. null = use resource_thresholds.cpu.high
     memory_high_pct: null       # Memory saturation threshold. null = use resource_thresholds.memory.high
     raw_metric_degrade_pct: 50.0 # Relative increase from baseline to flag when utilization % unavailable (no K8s limits)
