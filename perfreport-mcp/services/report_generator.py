@@ -160,14 +160,16 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             overall_stats = perf_data.get("overall_stats", {})
             sla_analysis = perf_data.get("sla_analysis", {})
             
-            # Extract SLA violators
+            # Extract SLA violators (thresholds come from slas.yaml via PerfAnalysis)
             api_analysis = perf_data.get("api_analysis", {})
             for api_name, stats in api_analysis.items():
                 if not stats.get("sla_compliant", True):
                     api_violations.append({
                         "api_name": api_name,
                         "avg_response_time": stats.get("avg_response_time", 0),
-                        "sla_threshold": stats.get("sla_threshold_ms", 5000),
+                        "sla_threshold": stats.get("sla_threshold_ms"),
+                        "sla_unit": stats.get("sla_unit", "P90"),
+                        "sla_source": stats.get("sla_source", "slas.yaml"),
                         "error_rate": stats.get("error_rate", 0)
                     })
 
@@ -307,7 +309,12 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             },
             
             "sla_analysis": {
-                "sla_threshold_ms": sla_analysis.get("sla_threshold_ms", 5000),
+                # SLA thresholds are now per-API (resolved from slas.yaml).
+                # The sla_threshold_ms here is informational -- it represents
+                # the profile/file-level default. Per-API thresholds are in
+                # each violation entry and in api_analysis.
+                "sla_threshold_ms": sla_analysis.get("sla_threshold_ms"),
+                "sla_unit": sla_analysis.get("sla_unit", "P90"),
                 "compliant_apis": sla_analysis.get("compliant_apis", 0),
                 "non_compliant_apis": sla_analysis.get("non_compliant_apis", 0),
                 "compliance_rate": sla_analysis.get("compliance_rate", 100.0),
@@ -1256,10 +1263,16 @@ def _build_recommendations(perf_data: Optional[Dict], infra_data: Optional[Dict]
         overall = perf_data.get("overall_stats", {})
         if overall.get("error_rate", 0) > 1:
             recommendations.append("- Investigate and resolve error causes to improve reliability")
-        
-        avg_rt = overall.get("avg_response_time", 0)
-        if avg_rt > 5000:
-            recommendations.append("- Optimize response times to meet SLA requirements")
+
+        # Use SLA compliance data instead of a hardcoded threshold.
+        # If any APIs are non-compliant, recommend optimization.
+        sla = perf_data.get("sla_analysis", {})
+        non_compliant = sla.get("non_compliant_apis", 0)
+        if non_compliant > 0:
+            recommendations.append(
+                f"- Optimize response times to meet SLA requirements "
+                f"({non_compliant} API(s) exceeded their SLA threshold)"
+            )
     
     if not recommendations:
         recommendations.append("- Continue monitoring performance trends")

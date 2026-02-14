@@ -11,7 +11,7 @@ from scipy.stats import pearsonr, spearmanr
 
 # Import config at module level (global)
 from utils.config import load_config
-from utils.sla_config import get_sla_for_api
+from utils.sla_config import get_sla_for_api, validate_sla_patterns
 
 # Load configuration globally
 CONFIG = load_config()
@@ -104,7 +104,14 @@ async def perform_aggregate_analysis(df: pd.DataFrame, test_run_id: str, config:
 
     # SLA Analysis
     sla_analysis = analyze_sla_compliance(individual_apis, sla_id)
-    
+
+    # Validate SLA patterns -- report any api_override patterns that don't
+    # match actual test result labels. Only runs when an sla_id is provided
+    # (the file-level default_sla has no api_overrides to validate).
+    if sla_id:
+        actual_labels = individual_apis['labelName'].tolist()
+        await validate_sla_patterns(sla_id, actual_labels, ctx)
+
     # Statistical Analysis
     statistical_summary = {
         "total_apis_analyzed": len(individual_apis),

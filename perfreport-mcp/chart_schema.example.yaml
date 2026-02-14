@@ -88,7 +88,9 @@ charts:
     sort: "descending"
     filter_condition: "sla_compliant == False"  # Only show violators
     sla_threshold:
-      value: 5000  # Default SLA in ms
+      # SLA thresholds are resolved per-API from slas.yaml (PerfAnalysis MCP).
+      # The 'source' field reads the per-API sla_threshold_ms from analysis output.
+      # No hardcoded default -- value comes from the analysis data.
       source: "sla_threshold_ms"
       show_line: true
       line_style: "dashed"

@@ -606,8 +606,19 @@ def _build_api_comparison_table(run_metadata_list: List[Dict]) -> str:
     
     rows = []
     for api in sorted(all_apis):
-        row_data = [api, "5000"]  # API name and SLA threshold
-        
+        # Resolve the per-API SLA threshold from the first run that has a
+        # violation for this API. SLA thresholds come from slas.yaml via
+        # PerfAnalysis -- no hardcoded values.
+        api_sla_threshold = "N/A"
+        for meta in run_metadata_list:
+            violations = meta.get("sla_analysis", {}).get("violations", [])
+            match = next((v for v in violations if v.get("api_name") == api), None)
+            if match and match.get("sla_threshold"):
+                api_sla_threshold = str(int(match["sla_threshold"]))
+                break
+
+        row_data = [api, api_sla_threshold]
+
         # Get response times for this API across runs
         for meta in run_metadata_list:
             violations = meta.get("sla_analysis", {}).get("violations", [])
