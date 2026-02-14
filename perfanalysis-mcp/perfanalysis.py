@@ -18,13 +18,16 @@ from services.log_analyzer import analyze_logs as analyze_logs_impl
 mcp = FastMCP(name="perfanalysis")
 
 @mcp.tool()
-async def analyze_test_results(test_run_id: str, ctx: Context) -> Dict[str, Any]:
+async def analyze_test_results(test_run_id: str, ctx: Context, sla_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Analyze BlazeMeter JMeter test results (JTL CSV format)
     
     Args:
         test_run_id: The unique test run identifier
         ctx: FastMCP workflow context for chaining
+        sla_id: Optional SLA profile ID from slas.yaml. When provided, per-API
+                SLA thresholds are resolved using the three-level pattern matching
+                hierarchy. When omitted, the file-level default_sla is used.
         
     Returns:
         Dictionary containing statistical analysis of test results
@@ -33,7 +36,7 @@ async def analyze_test_results(test_run_id: str, ctx: Context) -> Dict[str, Any]
         This must be run BEFORE analyze_environment_metrics and correlate_test_results.
         Required files: artifacts/{test_run_id}/blazemeter/test-results.csv
     """
-    return await analyze_blazemeter_results(test_run_id, ctx)
+    return await analyze_blazemeter_results(test_run_id, ctx, sla_id=sla_id)
 
 @mcp.tool()
 async def analyze_environment_metrics(test_run_id: str, environment: str, ctx: Context) -> Dict[str, Any]:
@@ -51,18 +54,20 @@ async def analyze_environment_metrics(test_run_id: str, environment: str, ctx: C
     return await analyze_apm_metrics(test_run_id, environment, ctx)
 
 @mcp.tool()
-async def correlate_test_results(test_run_id: str, ctx: Context) -> Dict[str, Any]:
+async def correlate_test_results(test_run_id: str, ctx: Context, sla_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Cross-correlate BlazeMeter and APM data to identify relationships
     
     Args:
         test_run_id: The unique test run identifier
         ctx: FastMCP workflow context for chaining
+        sla_id: Optional SLA profile ID from slas.yaml. Passed to temporal
+                analysis for SLA threshold resolution.
         
     Returns:
         Dictionary containing correlation analysis results
     """
-    return await correlate_performance_data(test_run_id, ctx)
+    return await correlate_performance_data(test_run_id, ctx, sla_id=sla_id)
 
 @mcp.tool(enabled=False)
 async def detect_anomalies(test_run_id: str, sensitivity: str = "medium", ctx: Context = None) -> Dict[str, Any]:
@@ -80,7 +85,7 @@ async def detect_anomalies(test_run_id: str, sensitivity: str = "medium", ctx: C
     return await detect_performance_anomalies(test_run_id, sensitivity, ctx)
 
 @mcp.tool()
-async def identify_bottlenecks(test_run_id: str, ctx: Context, baseline_run_id: Optional[str] = None) -> Dict[str, Any]:
+async def identify_bottlenecks(test_run_id: str, ctx: Context, baseline_run_id: Optional[str] = None, sla_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Identify performance bottlenecks and the concurrency threshold where degradation begins.
     
@@ -94,6 +99,10 @@ async def identify_bottlenecks(test_run_id: str, ctx: Context, baseline_run_id: 
         test_run_id: The unique test run identifier
         ctx: FastMCP workflow context for chaining
         baseline_run_id: Optional previous run ID for comparison analysis
+        sla_id: Optional SLA profile ID from slas.yaml. Enables per-endpoint
+                SLA resolution for latency breach detection and multi-tier
+                bottleneck analysis. When omitted, the file-level default_sla
+                is used for all endpoints.
         
     Returns:
         Dictionary containing:
@@ -111,7 +120,7 @@ async def identify_bottlenecks(test_run_id: str, ctx: Context, baseline_run_id: 
         - artifacts/{test_run_id}/analysis/bottleneck_analysis.csv
         - artifacts/{test_run_id}/analysis/bottleneck_analysis.md
     """
-    return await analyze_bottlenecks(test_run_id, ctx, baseline_run_id)
+    return await analyze_bottlenecks(test_run_id, ctx, baseline_run_id, sla_id=sla_id)
 
 @mcp.tool(enabled=False)
 async def compare_test_runs(test_run_ids: List[str], comparison_type: str = "performance", ctx: Context = None) -> Dict[str, Any]:

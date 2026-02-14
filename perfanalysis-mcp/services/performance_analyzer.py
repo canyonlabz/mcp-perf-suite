@@ -62,13 +62,22 @@ artifacts_base = config['artifacts']['artifacts_path']
 # -----------------------------------------------
 # Main Functions for the PerfAnalysis MCP
 # -----------------------------------------------
-async def analyze_blazemeter_results(test_run_id: str, ctx: Context) -> Dict[str, Any]:
+# TODO: Rename this function to a load-test-agnostic name (e.g. analyze_load_test_results)
+#       so it is not tied to a single vendor. The MCP framework will support multiple
+#       load testing tools in the future (JMeter, Gatling, k6, etc.), and the analysis
+#       logic is already tool-agnostic -- only the function name is vendor-specific.
+async def analyze_blazemeter_results(test_run_id: str, ctx: Context, sla_id: Optional[str] = None) -> Dict[str, Any]:
     """
-    Analyze BlazeMeter test results using aggregate report data
+    Analyze load test results using aggregate report data.
+    
+    NOTE: This function is vendor-agnostic in its logic. The BlazeMeter-specific
+    name is legacy and will be renamed in a future refactor.
     
     Args:
         test_run_id: The unique test run identifier
         ctx: FastMCP workflow context for chaining
+        sla_id: Optional SLA profile ID from slas.yaml for per-API SLA resolution.
+                If None, the file-level default_sla is used.
         
     Returns:
         Dictionary containing comprehensive performance analysis
@@ -100,8 +109,8 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context) -> Dict[str
         analysis_path = Path(artifacts_base) / test_run_id / 'analysis'
         analysis_path.mkdir(parents=True, exist_ok=True)
         
-        # Perform comprehensive analysis
-        analysis_result = await perform_aggregate_analysis(df, test_run_id, config, ctx)
+        # Perform comprehensive analysis (SLA thresholds resolved from slas.yaml)
+        analysis_result = await perform_aggregate_analysis(df, test_run_id, config, ctx, sla_id=sla_id)
         
         # Extract key summaries for response
         overall_summary = analysis_result.get('overall_stats', {})
@@ -223,9 +232,15 @@ async def analyze_apm_metrics(test_run_id: str, environment: str, ctx: Context) 
         await ctx.error("Analysis Error", error_msg)
         return {"error": error_msg, "status": "failed"}
 
-async def correlate_performance_data(test_run_id: str, ctx: Context) -> Dict[str, Any]:
+async def correlate_performance_data(test_run_id: str, ctx: Context, sla_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Cross-correlate BlazeMeter and Datadog data to identify relationships
+    
+    Args:
+        test_run_id: The unique test run identifier
+        ctx: FastMCP workflow context for chaining
+        sla_id: Optional SLA profile ID from slas.yaml. Passed to temporal
+                analysis for SLA threshold resolution.
     """
     try:
         # Load previous analysis results
@@ -251,7 +266,7 @@ async def correlate_performance_data(test_run_id: str, ctx: Context) -> Dict[str
             infrastructure_data = json.load(f)
         
         # Perform correlation analysis
-        correlation_results = calculate_correlation_matrix(performance_data, infrastructure_data, test_run_id, config)
+        correlation_results = calculate_correlation_matrix(performance_data, infrastructure_data, test_run_id, config, sla_id=sla_id)
         
         # Save correlation results
         output_file = analysis_path / 'correlation_analysis.json'
@@ -336,14 +351,14 @@ async def detect_performance_anomalies(test_run_id: str, sensitivity: str, ctx: 
         await ctx.error("Anomaly Detection Error", error_msg)
         return {"error": error_msg, "status": "failed"}
 
-async def identify_system_bottlenecks(test_run_id: str, ctx: Context) -> Dict[str, Any]:
+async def identify_system_bottlenecks(test_run_id: str, ctx: Context, sla_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Legacy stub — bottleneck analysis has moved to services.bottleneck_analyzer.
     This function is kept for backward compatibility only.
     The MCP tool now calls services.bottleneck_analyzer.analyze_bottlenecks directly.
     """
     from services.bottleneck_analyzer import analyze_bottlenecks
-    return await analyze_bottlenecks(test_run_id, ctx)
+    return await analyze_bottlenecks(test_run_id, ctx, sla_id=sla_id)
 
 async def compare_multiple_runs(test_run_ids: List[str], comparison_type: str, ctx: Context) -> Dict[str, Any]:
     """
@@ -500,20 +515,51 @@ async def get_current_analysis_status(test_run_id: str, ctx: Context) -> Dict[st
 # -----------------------------------------------
 # Helper Functions for data processing & analysis
 # -----------------------------------------------
-def validate_sla_compliance(analysis: Dict, sla_threshold: int) -> Dict:
-    """Validate response times against SLA threshold"""
-    sla_results = {"threshold_ms": sla_threshold, "violations": []}
-    
-    if 'api_analysis' in analysis:
-        for api, stats in analysis['api_analysis'].items():
-            if stats.get('avg_response_time', 0) > sla_threshold:
-                sla_results['violations'].append({
-                    "api": api,
-                    "avg_response_time": stats['avg_response_time'],
-                    "violation_amount": stats['avg_response_time'] - sla_threshold
-                })
-    
-    sla_results['compliance_rate'] = 1 - (len(sla_results['violations']) / max(len(analysis.get('api_analysis', {})), 1))
+def validate_sla_compliance(analysis: Dict, sla_id: Optional[str] = None) -> Dict:
+    """Validate response times against SLA thresholds from slas.yaml.
+
+    Uses the centralized SLA resolver to get per-API thresholds. Compliance
+    is checked against the configured percentile (sla_unit), NOT average.
+
+    NOTE: The primary SLA compliance logic lives in
+    ``utils.statistical_analyzer.analyze_sla_compliance()``. This helper is
+    kept for any ad-hoc callers that need a quick compliance check against
+    an already-computed analysis dict.
+
+    Args:
+        analysis: Dict containing 'api_analysis' with per-API stats.
+        sla_id:   Optional SLA profile ID from slas.yaml.
+
+    Returns:
+        Dict with threshold info, violations list, and compliance_rate.
+    """
+    from utils.sla_config import get_sla_for_api
+
+    sla_results: Dict[str, Any] = {"violations": [], "sla_source": "slas.yaml"}
+    api_analysis = analysis.get('api_analysis', {})
+
+    for api, api_stats in api_analysis.items():
+        resolved = get_sla_for_api(sla_id, api)
+        sla_threshold = resolved["response_time_sla_ms"]
+        sla_unit = resolved["sla_unit"]
+
+        # Map sla_unit to the stat key in api_analysis
+        unit_key_map = {"P90": "p90_response_time", "P95": "p95_response_time", "P99": "p99_response_time"}
+        metric_key = unit_key_map.get(sla_unit, "p90_response_time")
+        metric_value = api_stats.get(metric_key, 0)
+
+        if metric_value > sla_threshold:
+            sla_results['violations'].append({
+                "api": api,
+                "sla_unit": sla_unit,
+                "metric_value": metric_value,
+                "sla_threshold_ms": sla_threshold,
+                "violation_amount": metric_value - sla_threshold,
+                "sla_source": resolved["source"],
+            })
+
+    total_apis = max(len(api_analysis), 1)
+    sla_results['compliance_rate'] = 1 - (len(sla_results['violations']) / total_apis)
     return sla_results
 
 def process_infrastructure_metrics(host_metrics: List[Path], k8s_metrics: List[Path]) -> Dict:
