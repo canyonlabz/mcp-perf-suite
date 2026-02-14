@@ -1,10 +1,37 @@
 # utils/file_processor.py
 import json
 import csv
+import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 import aiofiles
+
+
+# -----------------------------------------------
+# Custom JSON encoder for NumPy / pandas types
+# -----------------------------------------------
+class NumpyEncoder(json.JSONEncoder):
+    """JSON encoder that transparently converts NumPy/pandas types to native Python.
+
+    Without this, ``json.dumps()`` raises ``TypeError: Object of type int64
+    is not JSON serializable`` whenever a dict contains values that leaked
+    through from pandas DataFrame / Series operations.
+    """
+
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, pd.Timestamp):
+            return obj.isoformat()
+        return super().default(obj)
+
 
 # -----------------------------------------------
 # File loading functions
@@ -35,7 +62,7 @@ async def write_json_output(data: Dict[str, Any], file_path: Path) -> None:
     """Write data to JSON file asynchronously"""
     try:
         async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
-            await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+            await f.write(json.dumps(data, indent=2, ensure_ascii=False, cls=NumpyEncoder))
     except Exception as e:
         raise Exception(f"Failed to write JSON file {file_path}: {str(e)}")
 

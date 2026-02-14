@@ -224,11 +224,11 @@ async def analyze_bottlenecks(
             )
             correlated_count = sum(
                 1 for f in findings
-                if f.get("infrastructure_context", {}).get("infra_correlated") is True
+                if (f.get("infrastructure_context") or {}).get("infra_correlated") is True
             )
             independent_count = sum(
                 1 for f in findings
-                if f.get("infrastructure_context", {}).get("infra_correlated") is False
+                if (f.get("infrastructure_context") or {}).get("infra_correlated") is False
             )
             await ctx.info(
                 "Phase 2a",
@@ -730,29 +730,33 @@ def _make_finding(
     test_elapsed_seconds: Optional[float] = None,
     infrastructure_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Construct a standardised finding dict."""
-    delta_abs = metric_value - baseline_value
-    delta_pct = (delta_abs / baseline_value * 100) if baseline_value else 0.0
+    """Construct a standardised finding dict.
+
+    All numeric values are explicitly cast to native Python types to prevent
+    NumPy scalars (int64, float64) from leaking into JSON output.
+    """
+    delta_abs = float(metric_value - baseline_value)
+    delta_pct = float((delta_abs / baseline_value * 100) if baseline_value else 0.0)
     return {
         "test_run_id": test_run_id,
         "analysis_mode": "single_run",
         "bottleneck_type": bottleneck_type,
         "scope": scope,
         "scope_name": scope_name,
-        "concurrency": round(concurrency, 1),
+        "concurrency": float(round(concurrency, 1)),
         "metric_name": metric_name,
-        "metric_value": round(metric_value, 2),
-        "baseline_value": round(baseline_value, 2),
-        "delta_abs": round(delta_abs, 2),
-        "delta_pct": round(delta_pct, 2),
+        "metric_value": float(round(metric_value, 2)),
+        "baseline_value": float(round(baseline_value, 2)),
+        "delta_abs": float(round(delta_abs, 2)),
+        "delta_pct": float(round(delta_pct, 2)),
         "severity": severity,
         "confidence": confidence,
         "classification": classification,
         "persistence_ratio": persistence_ratio,
         "outlier_filtered": outlier_filtered,
         "onset_timestamp": onset_timestamp,
-        "onset_bucket_index": onset_bucket_index,
-        "test_elapsed_seconds": round(test_elapsed_seconds, 1) if test_elapsed_seconds is not None else None,
+        "onset_bucket_index": int(onset_bucket_index) if onset_bucket_index is not None else None,
+        "test_elapsed_seconds": float(round(test_elapsed_seconds, 1)) if test_elapsed_seconds is not None else None,
         "infrastructure_context": infrastructure_context,
         "evidence": evidence,
     }
@@ -2222,8 +2226,8 @@ def _detect_multi_tier_bottlenecks(
         p90_at_onset = resampled["p90"].iloc[onset_idx]
 
         label_results[label] = {
-            "concurrency": onset_row["concurrency"],
-            "p90": p90_at_onset,
+            "concurrency": float(onset_row["concurrency"]),
+            "p90": float(p90_at_onset),
             "baseline_p90": label_baseline_p90,
             "sla": label_sla,
             "onset_ts": onset_ts,
@@ -2446,7 +2450,7 @@ def _compute_summary(
         "total_bottlenecks": len(findings),
         "bottlenecks_by_type": by_type,
         "bottlenecks_by_severity": by_severity,
-        "threshold_concurrency": round(threshold_conc, 0) if threshold_conc else None,
+        "threshold_concurrency": float(round(threshold_conc, 0)) if threshold_conc else None,
         "max_concurrency_tested": round(float(max_conc), 0) if pd.notna(max_conc) else None,
         "max_throughput_rps": round(float(max_rps), 1) if pd.notna(max_rps) else None,
         "optimal_concurrency": round(optimal_concurrency, 0) if optimal_concurrency else None,
@@ -2821,7 +2825,7 @@ def format_bottleneck_markdown(result: Dict) -> str:
             delta = cf.get('delta_pct', 0)
             md.append(f"- **Delta**: {cf.get('delta_abs', 0):+.2f} ({delta:+.1f}%)")
 
-            ic = cf.get("infrastructure_context", {})
+            ic = cf.get("infrastructure_context") or {}
             if ic.get("headroom_pct") is not None:
                 md.append(f"- **Headroom**: {ic['headroom_pct']}%")
             elif ic.get("limits_available") is False:
