@@ -253,6 +253,7 @@ docs/*
 !docs/datadog_query_guide.md
 !docs/jmeter_mcp_configuration_guide.md
 !docs/metrics_calculations_and_display.md
+!docs/sla_configuration_guide.md
 !docs/README.md
 
 # Re-include the changelogs directory itself
