@@ -11,6 +11,7 @@ from scipy.stats import pearsonr, spearmanr
 
 # Import config at module level (global)
 from utils.config import load_config
+from utils.sla_config import get_sla_for_api
 
 # Load configuration globally
 CONFIG = load_config()
@@ -21,7 +22,7 @@ PFA_CONFIG = CONFIG.get('perf_analysis', {})
 # -----------------------------------------------
 # BlazeMeter/JMeter statistical analysis functions
 # -----------------------------------------------
-async def perform_aggregate_analysis(df: pd.DataFrame, test_run_id: str, config: Dict, ctx: Context) -> Dict[str, Any]:
+async def perform_aggregate_analysis(df: pd.DataFrame, test_run_id: str, config: Dict, ctx: Context, sla_id: Optional[str] = None) -> Dict[str, Any]:
     """Perform comprehensive analysis on aggregate report data"""
     
     # Convert numpy types to Python native types for JSON serialization
@@ -63,14 +64,24 @@ async def perform_aggregate_analysis(df: pd.DataFrame, test_run_id: str, config:
     # Analyze individual APIs (exclude "ALL" row)
     individual_apis = df[df['labelName'] != 'ALL']
     api_analysis = {}
-    
-    # Get SLA threshold from config
-    sla_threshold = config.get('perf_analysis', {}).get('response_time_sla', 5000)
-    
+
+    # Map sla_unit to the corresponding aggregate report column name
+    sla_unit_column_map = {"P90": "90line", "P95": "95line", "P99": "99line"}
+
     for _, row in individual_apis.iterrows():
         api_name = row['labelName']
         avg_rt = to_native_type(row['avgResponseTime'])
-        
+
+        # Resolve per-API SLA from slas.yaml
+        api_sla = get_sla_for_api(sla_id, api_name)
+        sla_threshold = api_sla["response_time_sla_ms"]
+        sla_unit = api_sla["sla_unit"]
+        sla_column = sla_unit_column_map.get(sla_unit, "90line")
+
+        # Compare the configured percentile against the SLA threshold
+        percentile_value = to_native_type(row[sla_column])
+        sla_compliant = bool(percentile_value <= sla_threshold) if percentile_value is not None else None
+
         api_analysis[api_name] = {
             "samples": to_native_type(row['samples']),
             "avg_response_time": avg_rt,
@@ -85,12 +96,14 @@ async def perform_aggregate_analysis(df: pd.DataFrame, test_run_id: str, config:
             "error_rate": to_native_type(row['errorsRate']),
             "success_rate": to_native_type(100.0 - row['errorsRate']) if pd.notna(row['errorsRate']) else 100.0,
             "throughput": to_native_type(row['avgThroughput']),
-            "sla_compliant": bool(avg_rt <= sla_threshold) if avg_rt is not None else None,
-            "sla_threshold_ms": sla_threshold
+            "sla_compliant": sla_compliant,
+            "sla_threshold_ms": sla_threshold,
+            "sla_unit": sla_unit,
+            "sla_source": api_sla["source"],
         }
-    
+
     # SLA Analysis
-    sla_analysis = analyze_sla_compliance(individual_apis, sla_threshold)
+    sla_analysis = analyze_sla_compliance(individual_apis, sla_id)
     
     # Statistical Analysis
     statistical_summary = {
@@ -117,32 +130,69 @@ async def perform_aggregate_analysis(df: pd.DataFrame, test_run_id: str, config:
         }
     }
 
-def analyze_sla_compliance(df: pd.DataFrame, sla_threshold: float) -> Dict[str, Any]:
-    """Analyze SLA compliance across APIs"""
-    
+def analyze_sla_compliance(df: pd.DataFrame, sla_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Analyze SLA compliance across APIs using per-API SLA resolution.
+
+    Each API is evaluated against its own resolved SLA threshold using the
+    percentile metric defined by sla_unit (P90 by default).
+
+    Args:
+        df:      DataFrame of individual APIs (excludes the 'ALL' row).
+        sla_id:  SLA profile ID for per-API resolution. If None, the
+                 file-level default_sla from slas.yaml is used.
+
+    Returns:
+        Dict with compliance summary, per-API results, and violations.
+    """
     if df.empty:
         return {"error": "No API data to analyze"}
-    
-    compliant_apis = df[df['avgResponseTime'] <= sla_threshold]
-    violating_apis = df[df['avgResponseTime'] > sla_threshold]
-    
+
+    # Map sla_unit to the corresponding aggregate report column name
+    sla_unit_column_map = {"P90": "90line", "P95": "95line", "P99": "99line"}
+
+    # Resolve the profile-level default for summary metadata
+    profile_default_sla = get_sla_for_api(sla_id, "")
+
+    compliant_count = 0
+    violating_count = 0
     violations = []
-    for _, row in violating_apis.iterrows():
-        violations.append({
-            "api_name": row['labelName'],
-            "avg_response_time": float(row['avgResponseTime']),
-            "sla_threshold": sla_threshold,
-            "violation_amount": float(row['avgResponseTime'] - sla_threshold),
-            "violation_percentage": float((row['avgResponseTime'] - sla_threshold) / sla_threshold * 100)
-        })
-    
+
+    for _, row in df.iterrows():
+        api_name = row['labelName']
+        api_sla = get_sla_for_api(sla_id, api_name)
+        sla_threshold = api_sla["response_time_sla_ms"]
+        sla_unit = api_sla["sla_unit"]
+        sla_column = sla_unit_column_map.get(sla_unit, "90line")
+
+        percentile_value = float(row[sla_column]) if pd.notna(row[sla_column]) else None
+
+        if percentile_value is not None and percentile_value <= sla_threshold:
+            compliant_count += 1
+        else:
+            violating_count += 1
+            if percentile_value is not None:
+                violations.append({
+                    "api_name": api_name,
+                    "percentile_value": percentile_value,
+                    "sla_unit": sla_unit,
+                    "sla_threshold": sla_threshold,
+                    "sla_source": api_sla["source"],
+                    "violation_amount": float(percentile_value - sla_threshold),
+                    "violation_percentage": float(
+                        (percentile_value - sla_threshold) / sla_threshold * 100
+                    ),
+                })
+
+    total = len(df)
     return {
-        "sla_threshold_ms": sla_threshold,
-        "total_apis": len(df),
-        "compliant_apis": len(compliant_apis),
-        "violating_apis": len(violating_apis),
-        "compliance_rate": float(len(compliant_apis) / len(df) * 100),
-        "violations": violations
+        "sla_threshold_ms": profile_default_sla["response_time_sla_ms"],
+        "sla_unit": profile_default_sla["sla_unit"],
+        "total_apis": total,
+        "compliant_apis": compliant_count,
+        "non_compliant_apis": violating_count,
+        "compliance_rate": float(compliant_count / total * 100) if total > 0 else 0.0,
+        "violations": violations,
     }
 
 def get_slowest_api(df: pd.DataFrame) -> Optional[Dict]:
@@ -189,7 +239,7 @@ def get_high_variability_apis(df: pd.DataFrame, threshold: float = 50.0) -> List
 # -----------------------------------------------
 # Correlation analysis functions
 # -----------------------------------------------
-def calculate_correlation_matrix(performance_data: Dict, infrastructure_data: Dict, test_run_id: str, config: Dict = None) -> Dict:
+def calculate_correlation_matrix(performance_data: Dict, infrastructure_data: Dict, test_run_id: str, config: Dict = None, sla_id: Optional[str] = None) -> Dict:
     """Calculate temporal correlation between performance and infrastructure metrics"""
     
     correlations = {
@@ -210,8 +260,11 @@ def calculate_correlation_matrix(performance_data: Dict, infrastructure_data: Di
             config = {}
         
         granularity_window = config.get('perf_analysis', {}).get('correlation_granularity_window', 60)
-        sla_threshold = config.get('perf_analysis', {}).get('response_time_sla', 5000)
         resource_thresholds = config.get('perf_analysis', {}).get('resource_thresholds', {})
+
+        # Resolve the SLA threshold from slas.yaml (profile default used for temporal analysis)
+        resolved_sla = get_sla_for_api(sla_id, "")
+        sla_threshold = resolved_sla["response_time_sla_ms"]
         
         # === ENVIRONMENT TYPE DETECTION ===
         infra_summary = infrastructure_data.get('infrastructure_summary', {})
@@ -503,7 +556,7 @@ def analyze_temporal_kubernetes_correlations(correlations: Dict, performance_dat
             return correlations
 
         # Process the data
-        perf_df = load_and_process_performance_data(blazemeter_file)
+        perf_df = load_and_process_performance_data(blazemeter_file, sla_threshold=sla_threshold)
         infra_df = load_and_process_infrastructure_data(datadog_files, granularity_window)
         
         if perf_df is None or infra_df is None:
@@ -575,7 +628,7 @@ def analyze_temporal_host_correlations(correlations: Dict, performance_data: Dic
             return correlations    
 
         # Process the data
-        perf_df = load_and_process_performance_data(blazemeter_file)
+        perf_df = load_and_process_performance_data(blazemeter_file, sla_threshold=sla_threshold)
         infra_df = load_and_process_infrastructure_data(datadog_files, granularity_window)
 
         if perf_df is None or infra_df is None:
@@ -615,8 +668,28 @@ def analyze_temporal_host_correlations(correlations: Dict, performance_data: Dic
         correlations["error"] = f"Temporal Host correlation analysis failed: {str(e)}"
         return correlations
 
-def load_and_process_performance_data(file_path: Path) -> Optional[pd.DataFrame]:
-    """Load and process BlazeMeter performance data for temporal analysis - OPTIMIZED"""
+def load_and_process_performance_data(file_path: Path, sla_threshold: float = None) -> Optional[pd.DataFrame]:
+    """
+    Load and process BlazeMeter performance data for temporal analysis.
+
+    Args:
+        file_path:      Path to the test-results.csv (JTL) file.
+        sla_threshold:  SLA threshold in milliseconds from slas.yaml.
+                        Used to flag individual requests as SLA violations.
+
+    Returns:
+        DataFrame with columns: timestamp, elapsed, label, success, sla_violation.
+        Returns None on error.
+
+    Raises:
+        ValueError: If sla_threshold is not provided.
+    """
+    if sla_threshold is None:
+        raise ValueError(
+            "sla_threshold is required for load_and_process_performance_data(). "
+            "This value must come from slas.yaml — no hardcoded defaults are permitted."
+        )
+
     try:
         df = pd.read_csv(file_path)
         
@@ -627,8 +700,8 @@ def load_and_process_performance_data(file_path: Path) -> Optional[pd.DataFrame]
         required_cols = ['timestamp', 'elapsed', 'label', 'success']
         df = df[required_cols].copy()
         
-        # Add SLA compliance flag (vectorized)
-        df['sla_violation'] = df['elapsed'] > 5000  # Default SLA threshold (TODO: pull sla threshold from config.yaml)
+        # Add SLA compliance flag (vectorized) using threshold from slas.yaml
+        df['sla_violation'] = df['elapsed'] > sla_threshold
         
         return df
         

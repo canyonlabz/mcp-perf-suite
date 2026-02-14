@@ -256,3 +256,326 @@ def _validate_error_rate(value: Any, context: str) -> None:
         raise ValueError(
             f"'{context}.error_rate_threshold' must be a non-negative number, got: {value}"
         )
+
+
+# ===========================================================================
+# SLA Resolver (Task 1.3)
+# ===========================================================================
+
+def _classify_pattern_specificity(pattern: str) -> int:
+    """
+    Classify an api_override pattern into a specificity level.
+
+    Used to enforce the three-level pattern matching precedence:
+        1 = Most specific  (full JMeter label match)
+        2 = Medium          (TC#_TS# or TC#_S# prefix match)
+        3 = Broadest        (TC# prefix match)
+
+    Args:
+        pattern: The glob pattern string from api_overrides.
+
+    Returns:
+        Integer specificity level (1, 2, or 3).
+    """
+    # TC#_TS# or TC#_S# followed by a wildcard suffix → medium specificity
+    if re.match(r'^TC\d+_(TS|S)\d+[_\-]?\*$', pattern, re.IGNORECASE):
+        return 2
+
+    # TC# followed by a wildcard suffix → broadest
+    if re.match(r'^TC\d+[_\-]?\*$', pattern, re.IGNORECASE):
+        return 3
+
+    # Everything else → most specific (full label match)
+    return 1
+
+
+def _find_sla_profile(
+    config: Dict[str, Any], sla_id: str
+) -> Optional[Dict[str, Any]]:
+    """Look up an SLA profile by its id. Returns None if not found."""
+    for profile in config.get("slas", []):
+        if profile.get("id") == sla_id:
+            return profile
+    return None
+
+
+def _build_sla_result(
+    response_time_sla_ms: Any,
+    sla_unit: str,
+    error_rate_threshold: float,
+    source: str,
+    reason: Optional[str] = None,
+    pattern_matched: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Build a standardized SLA result dict.
+
+    This is the common return shape for get_sla_for_api().
+    """
+    result: Dict[str, Any] = {
+        "response_time_sla_ms": int(response_time_sla_ms),
+        "sla_unit": sla_unit,
+        "error_rate_threshold": float(error_rate_threshold),
+        "source": source,
+    }
+    if reason is not None:
+        result["reason"] = reason
+    if pattern_matched is not None:
+        result["pattern_matched"] = pattern_matched
+    return result
+
+
+def get_sla_for_api(sla_id: Optional[str], label: str) -> Dict[str, Any]:
+    """
+    Resolve the SLA threshold for a given API label.
+
+    Implements the configuration hierarchy:
+        1. API-specific override  (pattern match in api_overrides)
+        2. SLA profile default_sla
+        3. File-level default_sla
+
+    Pattern matching uses three-level specificity precedence:
+        1. Full JMeter label match  (most specific)
+        2. TC#_TS# or TC#_S# match  (medium specificity)
+        3. TC# match                 (broadest)
+
+    Within the same specificity level, the first match in YAML order wins.
+
+    Args:
+        sla_id: The SLA profile ID to look up. If None, the file-level
+                default_sla is used directly.
+        label:  The JMeter label string to match against api_overrides.
+
+    Returns:
+        Dict containing:
+            - response_time_sla_ms  (int)
+            - sla_unit              (str, e.g. "P90")
+            - error_rate_threshold  (float)
+            - source                (str describing provenance)
+            - reason                (str, only if from an api_override with a reason)
+            - pattern_matched       (str, only if an api_override matched)
+
+    Raises:
+        FileNotFoundError: If slas.yaml does not exist.
+        ValueError: If sla_id is provided but not found in slas.yaml.
+    """
+    config = load_sla_config()
+    file_default = config["default_sla"]
+
+    # ----- No sla_id → file-level default -----------------------------------
+    if sla_id is None:
+        return _build_sla_result(
+            response_time_sla_ms=file_default["response_time_sla_ms"],
+            sla_unit=file_default["sla_unit"],
+            error_rate_threshold=file_default["error_rate_threshold"],
+            source=f"{SLA_CONFIG_FILENAME}/default",
+        )
+
+    # ----- Look up the SLA profile ------------------------------------------
+    profile = _find_sla_profile(config, sla_id)
+    if profile is None:
+        available = [p.get("id") for p in config.get("slas", [])]
+        raise ValueError(
+            f"SLA profile '{sla_id}' not found in {SLA_CONFIG_FILENAME}. "
+            f"Available profiles: {available}"
+        )
+
+    profile_default = profile.get("default_sla", {})
+
+    # Helper: resolve a field through the inheritance chain
+    # (override → profile default → file default)
+    def _resolve(field: str, override: Optional[Dict] = None) -> Any:
+        if override and field in override:
+            return override[field]
+        if field in profile_default:
+            return profile_default[field]
+        return file_default[field]
+
+    # ----- Try to match against api_overrides (if any) ----------------------
+    overrides = profile.get("api_overrides", [])
+    if overrides and label:
+        # Classify each override by specificity
+        classified: List[tuple] = []
+        for idx, override in enumerate(overrides):
+            specificity = _classify_pattern_specificity(override["pattern"])
+            classified.append((specificity, idx, override))
+
+        # Sort: most specific first (level 1), then by YAML order within level
+        classified.sort(key=lambda x: (x[0], x[1]))
+
+        # Try matching in precedence order
+        for _specificity, _idx, override in classified:
+            if fnmatch.fnmatch(label, override["pattern"]):
+                return _build_sla_result(
+                    response_time_sla_ms=override["response_time_sla_ms"],
+                    sla_unit=_resolve("sla_unit", override),
+                    error_rate_threshold=_resolve("error_rate_threshold", override),
+                    source=f"{SLA_CONFIG_FILENAME}/{sla_id}/api_override",
+                    reason=override.get("reason"),
+                    pattern_matched=override["pattern"],
+                )
+
+    # ----- No override matched → profile default_sla ------------------------
+    if profile_default:
+        return _build_sla_result(
+            response_time_sla_ms=profile_default["response_time_sla_ms"],
+            sla_unit=_resolve("sla_unit"),
+            error_rate_threshold=_resolve("error_rate_threshold"),
+            source=f"{SLA_CONFIG_FILENAME}/{sla_id}/default",
+        )
+
+    # ----- Profile exists but has no default_sla → file-level default -------
+    return _build_sla_result(
+        response_time_sla_ms=file_default["response_time_sla_ms"],
+        sla_unit=file_default["sla_unit"],
+        error_rate_threshold=file_default["error_rate_threshold"],
+        source=f"{SLA_CONFIG_FILENAME}/default",
+    )
+
+
+def get_sla_for_labels(
+    sla_id: Optional[str], labels: List[str]
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Resolve SLAs for multiple labels at once.
+
+    Convenience wrapper around get_sla_for_api() for batch processing
+    (e.g., iterating over all APIs in an aggregate report).
+
+    Args:
+        sla_id: The SLA profile ID.
+        labels: List of JMeter label strings.
+
+    Returns:
+        Dict mapping each label to its resolved SLA result dict.
+    """
+    return {label: get_sla_for_api(sla_id, label) for label in labels}
+
+
+# ===========================================================================
+# SLA Validator (Task 1.4)
+# ===========================================================================
+
+async def validate_sla_patterns(
+    sla_id: str, labels: List[str], ctx: "Context"
+) -> Dict[str, Any]:
+    """
+    Validate that api_override patterns in an SLA profile match actual test
+    result labels.
+
+    This function checks every pattern defined in the profile's api_overrides
+    against the provided list of JMeter labels.  Unmatched patterns are
+    reported via ``ctx.info`` so the user (or an AI agent like Cursor) can
+    diagnose and fix pattern configuration issues, then re-run the analysis.
+
+    This is an informational check — it does NOT block analysis.
+
+    Args:
+        sla_id:  The SLA profile ID to validate.
+        labels:  List of unique JMeter labels from the test results.
+        ctx:     FastMCP Context for reporting informational messages.
+
+    Returns:
+        Dict containing:
+            - sla_id            (str)
+            - total_patterns    (int)
+            - matched_patterns  (list of dicts with pattern, count, samples)
+            - unmatched_patterns(list of dicts with pattern, reason, sla value)
+            - all_matched       (bool)
+    """
+    config = load_sla_config()
+    profile = _find_sla_profile(config, sla_id)
+
+    # Profile not found — report and return early
+    if profile is None:
+        available = [p.get("id") for p in config.get("slas", [])]
+        await ctx.info(
+            f"SLA Validation: Profile '{sla_id}' not found in {SLA_CONFIG_FILENAME}. "
+            f"Available profiles: {available}"
+        )
+        return {
+            "sla_id": sla_id,
+            "total_patterns": 0,
+            "matched_patterns": [],
+            "unmatched_patterns": [],
+            "all_matched": False,
+            "error": f"Profile '{sla_id}' not found",
+        }
+
+    overrides = profile.get("api_overrides", [])
+
+    # No overrides defined — nothing to validate
+    if not overrides:
+        return {
+            "sla_id": sla_id,
+            "total_patterns": 0,
+            "matched_patterns": [],
+            "unmatched_patterns": [],
+            "all_matched": True,
+        }
+
+    matched_patterns: List[Dict[str, Any]] = []
+    unmatched_patterns: List[Dict[str, Any]] = []
+
+    for override in overrides:
+        pattern = override["pattern"]
+        matching_labels = [lbl for lbl in labels if fnmatch.fnmatch(lbl, pattern)]
+
+        if matching_labels:
+            matched_patterns.append({
+                "pattern": pattern,
+                "matched_labels_count": len(matching_labels),
+                "sample_labels": matching_labels[:5],
+            })
+        else:
+            unmatched_patterns.append({
+                "pattern": pattern,
+                "reason": override.get("reason", ""),
+                "response_time_sla_ms": override.get("response_time_sla_ms"),
+            })
+
+    # ----- Report unmatched patterns ----------------------------------------
+    if unmatched_patterns:
+        pattern_lines = "\n".join(
+            f"  - Pattern: '{p['pattern']}' (SLA: {p['response_time_sla_ms']}ms)"
+            for p in unmatched_patterns
+        )
+        sample_labels = labels[:10]
+        label_lines = "\n".join(f"  - {lbl}" for lbl in sample_labels)
+        more_suffix = (
+            f"\n  ... and {len(labels) - 10} more"
+            if len(labels) > 10
+            else ""
+        )
+
+        await ctx.info(
+            f"SLA Validation: {len(unmatched_patterns)} of {len(overrides)} "
+            f"api_override pattern(s) in profile '{sla_id}' did not match "
+            f"any test result labels.\n"
+            f"The profile's default SLA will be used for unmatched APIs.\n\n"
+            f"Unmatched patterns:\n{pattern_lines}\n\n"
+            f"Sample labels from test results:\n{label_lines}{more_suffix}\n\n"
+            f"To fix: update the patterns in {SLA_CONFIG_FILENAME} to match "
+            f"your test labels, then re-run the analysis."
+        )
+
+    # ----- Report matched patterns ------------------------------------------
+    if matched_patterns:
+        matched_lines = "\n".join(
+            f"  - Pattern: '{p['pattern']}' matched {p['matched_labels_count']} label(s)"
+            for p in matched_patterns
+        )
+        await ctx.info(
+            f"SLA Validation: {len(matched_patterns)} of {len(overrides)} "
+            f"api_override pattern(s) in profile '{sla_id}' matched test "
+            f"result labels.\n\n"
+            f"Matched patterns:\n{matched_lines}"
+        )
+
+    return {
+        "sla_id": sla_id,
+        "total_patterns": len(overrides),
+        "matched_patterns": matched_patterns,
+        "unmatched_patterns": unmatched_patterns,
+        "all_matched": len(unmatched_patterns) == 0,
+    }

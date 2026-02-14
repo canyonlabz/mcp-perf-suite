@@ -28,6 +28,7 @@ from fastmcp import Context
 from dotenv import load_dotenv
 
 from utils.config import load_config
+from utils.sla_config import get_sla_for_api
 from utils.file_processor import (
     write_json_output,
     write_csv_output,
@@ -53,7 +54,7 @@ BN_DEFAULTS = {
     "latency_degrade_pct": 25.0,
     "error_rate_degrade_abs": 5.0,
     "throughput_plateau_pct": 5.0,
-    "sla_p90_ms": None,           # falls back to perf_analysis.response_time_sla
+    "sla_p90_ms": None,           # resolved dynamically from slas.yaml via _get_sla_threshold()
     "cpu_high_pct": None,         # falls back to resource_thresholds.cpu.high
     "memory_high_pct": None,      # falls back to resource_thresholds.memory.high
     "raw_metric_degrade_pct": 50.0,  # relative increase from baseline to flag when utilization % unavailable (no K8s limits)
@@ -65,9 +66,12 @@ def _get_bn_config() -> Dict[str, Any]:
     overrides = PA_CONFIG.get("bottleneck_analysis", {})
     cfg = {**BN_DEFAULTS, **{k: v for k, v in overrides.items() if v is not None}}
 
-    # Fall back to top-level perf_analysis values when bottleneck-specific keys are None
-    if cfg.get("sla_p90_ms") is None:
-        cfg["sla_p90_ms"] = PA_CONFIG.get("response_time_sla", 5000)
+    # SLA thresholds are now resolved from slas.yaml via _get_sla_threshold(),
+    # NOT from config.yaml. The sla_p90_ms key in BN_DEFAULTS / config.yaml is
+    # no longer used. Kept as None for backward compat of the config dict shape.
+    cfg["sla_p90_ms"] = None  # resolved dynamically by _get_sla_threshold()
+
+    # Resource thresholds remain in config.yaml (infrastructure, not SLA)
     if cfg.get("cpu_high_pct") is None:
         cfg["cpu_high_pct"] = PA_CONFIG.get("resource_thresholds", {}).get("cpu", {}).get("high", 80)
     if cfg.get("memory_high_pct") is None:
@@ -80,41 +84,30 @@ def _get_bn_config() -> Dict[str, Any]:
 # SLA THRESHOLD HELPER
 # ============================================================================
 
-def _get_sla_threshold(cfg: Dict, label: Optional[str] = None) -> float:
+def _get_sla_threshold(cfg: Dict, label: Optional[str] = None, sla_id: Optional[str] = None) -> float:
     """
-    Return the P90 SLA threshold (in ms) for a given endpoint label.
+    Return the SLA threshold (in ms) for a given endpoint label.
 
-    **Current behaviour (v0.2):**
-        Returns the global ``sla_p90_ms`` from the bottleneck config, ignoring
-        the ``label`` parameter.  All endpoints are evaluated against the same
-        SLA.
+    Resolves the SLA from slas.yaml using the three-level pattern matching
+    hierarchy (full label > TC#_TS# > TC#) with inheritance
+    (api_override > profile default > file default).
 
-    **Future behaviour (project-specific SLAs):**
-        When ``project_slas.yaml`` is implemented (see
-        ``docs/todo/TODO-project-specific-slas.md``), this function will be
-        updated to:
-
-        1. Look up per-API overrides by matching ``label`` against patterns
-           defined in ``project_slas.yaml > projects > <project> > api_overrides``.
-        2. Fall back to the project-level default SLA.
-        3. Fall back to the file-level default SLA.
-        4. Fall back to ``cfg["sla_p90_ms"]`` (the legacy global setting).
-
-        This is the **single place** where SLA resolution logic lives, so
-        downstream detection functions (latency SLA breach, multi-tier per-
-        endpoint analysis) will automatically pick up per-API SLAs without
-        code changes.
+    This is the single place where SLA resolution lives for the bottleneck
+    analyzer. All downstream detection functions (latency SLA breach,
+    infrastructure capacity risk, per-endpoint analysis) call this function.
 
     Args:
-        cfg:   Bottleneck analysis config dict (must contain ``sla_p90_ms``).
-        label: Optional JMeter sampler label / API endpoint name.  Unused
-               today but reserved for per-API SLA resolution.
+        cfg:    Bottleneck analysis config dict (kept for signature compat).
+        label:  JMeter sampler label / API endpoint name for per-API resolution.
+                If None or empty, the profile or file-level default is returned.
+        sla_id: SLA profile ID from slas.yaml. If None, the file-level
+                default_sla is used.
 
     Returns:
         SLA threshold in milliseconds (float).
     """
-    # -- v0.2: global SLA for all labels --
-    return float(cfg["sla_p90_ms"])
+    resolved = get_sla_for_api(sla_id, label or "")
+    return float(resolved["response_time_sla_ms"])
 
 
 # ============================================================================
@@ -125,6 +118,7 @@ async def analyze_bottlenecks(
     test_run_id: str,
     ctx: Context,
     baseline_run_id: Optional[str] = None,
+    sla_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Main entry point for bottleneck analysis.
@@ -213,7 +207,7 @@ async def analyze_bottlenecks(
         findings.extend(_detect_latency_degradation(buckets_df, baseline, cfg, test_run_id, test_start_time))
         findings.extend(_detect_error_rate_increase(buckets_df, baseline, cfg, test_run_id, test_start_time))
         findings.extend(_detect_throughput_plateau(buckets_df, baseline, cfg, test_run_id, test_start_time))
-        findings.extend(_detect_multi_tier_bottlenecks(jtl_df, cfg, test_run_id, test_start_time))
+        findings.extend(_detect_multi_tier_bottlenecks(jtl_df, cfg, test_run_id, test_start_time, sla_id=sla_id))
 
         phase1_count = len(findings)
         await ctx.info("Phase 1", f"Performance detection found {phase1_count} finding(s)")
@@ -253,6 +247,7 @@ async def analyze_bottlenecks(
             capacity_risks = _detect_capacity_risks(
                 buckets_df, baseline, cfg, test_run_id,
                 degradation_windows, test_start_time, infra_meta,
+                sla_id=sla_id,
             )
             if capacity_risks:
                 findings.extend(capacity_risks)
@@ -934,7 +929,7 @@ def _check_persistence(
 
 def _detect_latency_degradation(
     buckets_df: pd.DataFrame, baseline: Dict, cfg: Dict, test_run_id: str,
-    test_start_time=None,
+    test_start_time=None, sla_id: Optional[str] = None,
 ) -> List[Dict]:
     """Detect when P90 latency degrades beyond threshold relative to baseline.
 
@@ -1032,7 +1027,7 @@ def _detect_latency_degradation(
             break  # only report the first onset
 
     # --- SLA breach check (also with persistence) ---
-    sla = _get_sla_threshold(cfg)  # overall check uses global SLA
+    sla = _get_sla_threshold(cfg, sla_id=sla_id)  # profile/file-level default SLA
     sustained_count = 0
     onset_pos = None
     sla_outliers_skipped = 0
@@ -1749,6 +1744,7 @@ def _detect_capacity_risks(
     degradation_windows: List[Dict],
     test_start_time=None,
     infra_meta: Optional[Dict[str, Any]] = None,
+    sla_id: Optional[str] = None,
 ) -> List[Dict]:
     """Phase 2b: detect sustained infrastructure stress when performance is healthy.
 
@@ -1785,7 +1781,7 @@ def _detect_capacity_risks(
     cpu_threshold = cfg["cpu_high_pct"]
     mem_threshold = cfg["memory_high_pct"]
     raw_degrade_pct = cfg.get("raw_metric_degrade_pct", 50.0)
-    sla = _get_sla_threshold(cfg)
+    sla = _get_sla_threshold(cfg, sla_id=sla_id)  # profile/file-level default SLA
 
     active = buckets_df.iloc[warmup:].copy().reset_index(drop=True)
     if active.empty:
@@ -2080,7 +2076,7 @@ def _detect_capacity_risks(
 
 def _detect_multi_tier_bottlenecks(
     jtl_df: pd.DataFrame, cfg: Dict, test_run_id: str,
-    test_start_time=None,
+    test_start_time=None, sla_id: Optional[str] = None,
 ) -> List[Dict]:
     """
     Detect which endpoints degrade under load, distinguishing true
@@ -2114,7 +2110,7 @@ def _detect_multi_tier_bottlenecks(
     label_results: Dict[str, Dict[str, Any]] = {}
 
     for label in labels:
-        label_sla = _get_sla_threshold(cfg, label=label)
+        label_sla = _get_sla_threshold(cfg, label=label, sla_id=sla_id)
 
         label_df = jtl_df[jtl_df["label"] == label].copy()
         if len(label_df) < 10:
