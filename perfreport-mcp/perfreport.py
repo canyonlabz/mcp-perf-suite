@@ -186,7 +186,7 @@ async def create_comparison_chart(
     Args:
         comparison_id: Unique identifier for this comparison (from create_comparison_report)
         run_id_list: List of test run IDs to compare (2-5 recommended)
-        chart_id: Chart type specifier (CPU_CORE_COMPARISON_BAR, MEMORY_USAGE_COMPARISON_BAR)
+        chart_id: Chart type specifier (CPU_PEAK_CORE_COMPARISON_BAR, MEMORY_PEAK_USAGE_COMPARISON_BAR, CPU_AVG_CORE_COMPARISON_BAR, MEMORY_AVG_USAGE_COMPARISON_BAR)
         env_name: Optional environment name for resource filtering
         ctx: Workflow context
         

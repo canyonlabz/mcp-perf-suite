@@ -140,8 +140,10 @@ These are exposed for Cursor, agent, or CLI use:
 
 | Chart ID | Type | Description |
 | :-- | :-- | :-- |
-| `CPU_CORE_COMPARISON_BAR` | Vertical bar | Compare CPU usage across test runs |
-| `MEMORY_USAGE_COMPARISON_BAR` | Vertical bar | Compare memory usage across test runs |
+| `CPU_PEAK_CORE_COMPARISON_BAR` | Vertical bar | Compare peak CPU usage across test runs |
+| `CPU_AVG_CORE_COMPARISON_BAR` | Vertical bar | Compare average CPU usage across test runs |
+| `MEMORY_PEAK_USAGE_COMPARISON_BAR` | Vertical bar | Compare peak memory usage across test runs |
+| `MEMORY_AVG_USAGE_COMPARISON_BAR` | Vertical bar | Compare average memory usage across test runs |
 
 #### 🚧 Planned Charts (Not Yet Implemented)
 

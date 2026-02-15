@@ -262,7 +262,7 @@ def _parse_chart_file(file: Path, is_comparison: bool, comparison_id: Optional[s
     
     # Parse chart filename patterns:
     # Single-run: <chart_id>.png or <chart_id>-<resource>.png
-    # Comparison: <chart_id>-<resource>.png (e.g., CPU_CORE_COMPARISON_BAR-authentication2-svc.png)
+    # Comparison: <chart_id>-<resource>.png (e.g., CPU_PEAK_CORE_COMPARISON_BAR-authentication2-svc.png)
     
     chart_id = "unknown"
     resource_name = None

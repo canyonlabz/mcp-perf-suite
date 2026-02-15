@@ -82,18 +82,30 @@ Before generating the comparison report, validate that all required files exist:
 ### 2.2 Create Comparison Charts
 
 1. Use tool `list_chart_types` to see available comparison chart options.
-   - Look for chart IDs containing "COMPARISON" (e.g., `CPU_CORE_COMPARISON_BAR`, `MEMORY_USAGE_COMPARISON_BAR`)
+   - Look for chart IDs containing "COMPARISON" (e.g., `CPU_PEAK_CORE_COMPARISON_BAR`, `CPU_AVG_CORE_COMPARISON_BAR`, `MEMORY_PEAK_USAGE_COMPARISON_BAR`, `MEMORY_AVG_USAGE_COMPARISON_BAR`)
 
-2. Use tool `create_comparison_chart` to create CPU comparison chart:
+2. Use tool `create_comparison_chart` to create Peak CPU comparison chart:
    - comparison_id: The comparison_id from step 2.1
    - run_id_list: Same list of test run IDs
-   - chart_id: "CPU_CORE_COMPARISON_BAR"
+   - chart_id: "CPU_PEAK_CORE_COMPARISON_BAR"
    - env_name: (Optional) Environment name for filtering
 
-3. Use tool `create_comparison_chart` to create Memory comparison chart:
+3. Use tool `create_comparison_chart` to create Average CPU comparison chart:
    - comparison_id: The comparison_id from step 2.1
    - run_id_list: Same list of test run IDs
-   - chart_id: "MEMORY_USAGE_COMPARISON_BAR"
+   - chart_id: "CPU_AVG_CORE_COMPARISON_BAR"
+   - env_name: (Optional) Environment name for filtering
+
+4. Use tool `create_comparison_chart` to create Peak Memory comparison chart:
+   - comparison_id: The comparison_id from step 2.1
+   - run_id_list: Same list of test run IDs
+   - chart_id: "MEMORY_PEAK_USAGE_COMPARISON_BAR"
+   - env_name: (Optional) Environment name for filtering
+
+5. Use tool `create_comparison_chart` to create Average Memory comparison chart:
+   - comparison_id: The comparison_id from step 2.1
+   - run_id_list: Same list of test run IDs
+   - chart_id: "MEMORY_AVG_USAGE_COMPARISON_BAR"
    - env_name: (Optional) Environment name for filtering
 
 4. Charts are saved to: `artifacts/comparisons/{comparison_id}/charts/`
@@ -119,8 +131,10 @@ Before generating the comparison report, validate that all required files exist:
 Verify required files exist:
 - `artifacts/comparisons/{comparison_id}/comparison_report_{run_ids}.md`
 - `artifacts/comparisons/{comparison_id}/comparison_metadata_{run_ids}.json`
-- `artifacts/comparisons/{comparison_id}/charts/CPU_CORE_COMPARISON_BAR-*.png`
-- `artifacts/comparisons/{comparison_id}/charts/MEMORY_USAGE_COMPARISON_BAR-*.png`
+- `artifacts/comparisons/{comparison_id}/charts/CPU_PEAK_CORE_COMPARISON_BAR-*.png`
+- `artifacts/comparisons/{comparison_id}/charts/CPU_AVG_CORE_COMPARISON_BAR-*.png`
+- `artifacts/comparisons/{comparison_id}/charts/MEMORY_PEAK_USAGE_COMPARISON_BAR-*.png`
+- `artifacts/comparisons/{comparison_id}/charts/MEMORY_AVG_USAGE_COMPARISON_BAR-*.png`
 
 ---
 
@@ -197,7 +211,7 @@ Verify:
 - Page was created successfully (check for page_ref and URL in create_page response)
 - Images were attached (check attach_images status: "success" or "partial")
 - Placeholders were replaced (check update_page placeholders_replaced list)
-- Expected placeholders: `CPU_CORE_COMPARISON_BAR`, `MEMORY_USAGE_COMPARISON_BAR`
+- Expected placeholders: `CPU_PEAK_CORE_COMPARISON_BAR`, `CPU_AVG_CORE_COMPARISON_BAR`, `MEMORY_PEAK_USAGE_COMPARISON_BAR`, `MEMORY_AVG_USAGE_COMPARISON_BAR`
 
 ---
 
@@ -271,8 +285,10 @@ After the comparison workflow completes, provide a summary:
 
 | Chart ID | Description | Output Path |
 |----------|-------------|-------------|
-| CPU_CORE_COMPARISON_BAR | CPU core usage across runs | `artifacts/comparisons/{comparison_id}/charts/CPU_CORE_COMPARISON_BAR-{resource}.png` |
-| MEMORY_USAGE_COMPARISON_BAR | Memory usage across runs | `artifacts/comparisons/{comparison_id}/charts/MEMORY_USAGE_COMPARISON_BAR-{resource}.png` |
+| CPU_PEAK_CORE_COMPARISON_BAR | Peak CPU core usage across runs | `artifacts/comparisons/{comparison_id}/charts/CPU_PEAK_CORE_COMPARISON_BAR-{resource}.png` |
+| CPU_AVG_CORE_COMPARISON_BAR | Average CPU core usage across runs | `artifacts/comparisons/{comparison_id}/charts/CPU_AVG_CORE_COMPARISON_BAR-{resource}.png` |
+| MEMORY_PEAK_USAGE_COMPARISON_BAR | Peak memory usage across runs | `artifacts/comparisons/{comparison_id}/charts/MEMORY_PEAK_USAGE_COMPARISON_BAR-{resource}.png` |
+| MEMORY_AVG_USAGE_COMPARISON_BAR | Average memory usage across runs | `artifacts/comparisons/{comparison_id}/charts/MEMORY_AVG_USAGE_COMPARISON_BAR-{resource}.png` |
 
 ### 5.3 Confluence Publishing (if applicable)
 

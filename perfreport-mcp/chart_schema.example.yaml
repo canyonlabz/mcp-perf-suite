@@ -239,15 +239,22 @@ charts:
   # Used in comparison reports to visualize performance trends
   # X-axis: Test runs, Y-axis: Metric values
   
-  - id: "CPU_CORE_COMPARISON_BAR"
-    placeholder: "{{CHART_PLACEHOLDER: CPU_CORE_COMPARISON_BAR}}"
+  #
+  # Aggregation types:
+  #   "peak" - Maximum observed value during the test run (useful for capacity planning)
+  #   "avg"  - Average value across the test run (useful for steady-state trend comparison)
+  #   "p90"  - 90th percentile value (planned - requires PerfAnalysis enhancement)
+  
+  - id: "CPU_PEAK_CORE_COMPARISON_BAR"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_PEAK_CORE_COMPARISON_BAR}}"
     chart_type: "vertical_bar"
-    title: "CPU Core Usage Comparison - {resource_name}"
+    title: "Peak CPU Core Usage Comparison - {resource_name}"
     description: "Compare peak CPU core usage across test runs for a specific resource"
+    aggregation: "peak"  # Options: "peak", "avg", "p90" (future)
     x_axis:
       label: "Test Run"
     y_axis:
-      label: "CPU Usage (Millicores)"
+      label: "Peak CPU Usage (Millicores)"
     # Unit configuration: "cores" (default) or "millicores"
     unit:
       type: "millicores"  # Options: "cores", "millicores"
@@ -257,15 +264,54 @@ charts:
     include_legend: false
     show_value_labels: true  # Display values above bars
 
-  - id: "MEMORY_USAGE_COMPARISON_BAR"
-    placeholder: "{{CHART_PLACEHOLDER: MEMORY_USAGE_COMPARISON_BAR}}"
+  - id: "MEMORY_PEAK_USAGE_COMPARISON_BAR"
+    placeholder: "{{CHART_PLACEHOLDER: MEMORY_PEAK_USAGE_COMPARISON_BAR}}"
     chart_type: "vertical_bar"
-    title: "Memory Usage Comparison - {resource_name}"
+    title: "Peak Memory Usage Comparison - {resource_name}"
     description: "Compare peak memory usage across test runs for a specific resource"
+    aggregation: "peak"  # Options: "peak", "avg", "p90" (future)
     x_axis:
       label: "Test Run"
     y_axis:
-      label: "Memory Usage (MB)"
+      label: "Peak Memory Usage (MB)"
+    # Unit configuration: "gb" (default) or "mb"
+    unit:
+      type: "mb"  # Options: "gb", "mb"
+    # Colors: Uses 'comparison' palette from chart_colors.yaml (navy-blue gradient)
+    # To override, uncomment and specify: colors: ["warning", "info", "primary", "secondary", "error"]
+    show_grid: true
+    include_legend: false
+    show_value_labels: true  # Display values above bars
+
+  - id: "CPU_AVG_CORE_COMPARISON_BAR"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_AVG_CORE_COMPARISON_BAR}}"
+    chart_type: "vertical_bar"
+    title: "Average CPU Core Usage Comparison - {resource_name}"
+    description: "Compare average CPU core usage across test runs for a specific resource"
+    aggregation: "avg"  # Options: "peak", "avg", "p90" (future)
+    x_axis:
+      label: "Test Run"
+    y_axis:
+      label: "Avg CPU Usage (Millicores)"
+    # Unit configuration: "cores" (default) or "millicores"
+    unit:
+      type: "millicores"  # Options: "cores", "millicores"
+    # Colors: Uses 'comparison' palette from chart_colors.yaml (navy-blue gradient)
+    # To override, uncomment and specify: colors: ["primary", "secondary", ...]
+    show_grid: true
+    include_legend: false
+    show_value_labels: true  # Display values above bars
+
+  - id: "MEMORY_AVG_USAGE_COMPARISON_BAR"
+    placeholder: "{{CHART_PLACEHOLDER: MEMORY_AVG_USAGE_COMPARISON_BAR}}"
+    chart_type: "vertical_bar"
+    title: "Average Memory Usage Comparison - {resource_name}"
+    description: "Compare average memory usage across test runs for a specific resource"
+    aggregation: "avg"  # Options: "peak", "avg", "p90" (future)
+    x_axis:
+      label: "Test Run"
+    y_axis:
+      label: "Avg Memory Usage (MB)"
     # Unit configuration: "gb" (default) or "mb"
     unit:
       type: "mb"  # Options: "gb", "mb"

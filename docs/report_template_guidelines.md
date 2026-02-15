@@ -261,8 +261,10 @@ Chart placeholders are replaced with embedded images when publishing to Confluen
 
 | Placeholder | Chart Type | Description |
 | ----------- | ---------- | ----------- |
-| `{{CHART_PLACEHOLDER: CPU_CORE_COMPARISON_BAR}}` | Vertical bar | CPU core usage across test runs (uses navy-blue gradient) |
-| `{{CHART_PLACEHOLDER: MEMORY_USAGE_COMPARISON_BAR}}` | Vertical bar | Memory usage across test runs (uses navy-blue gradient) |
+| `{{CHART_PLACEHOLDER: CPU_PEAK_CORE_COMPARISON_BAR}}` | Vertical bar | Peak CPU core usage across test runs (uses navy-blue gradient) |
+| `{{CHART_PLACEHOLDER: CPU_AVG_CORE_COMPARISON_BAR}}` | Vertical bar | Average CPU core usage across test runs (uses navy-blue gradient) |
+| `{{CHART_PLACEHOLDER: MEMORY_PEAK_USAGE_COMPARISON_BAR}}` | Vertical bar | Peak memory usage across test runs (uses navy-blue gradient) |
+| `{{CHART_PLACEHOLDER: MEMORY_AVG_USAGE_COMPARISON_BAR}}` | Vertical bar | Average memory usage across test runs (uses navy-blue gradient) |
 
 **Chart Color Configuration:**
 - Multi-line charts use the `multi_line` palette from `chart_colors.yaml` (10 high-contrast colors)
@@ -379,8 +381,10 @@ These appear in `default_comparison_report_template.md` and comparison generator
 Chart placeholders for comparison reports (see section 5.11 for full chart reference):
 
 ```
-{{CHART_PLACEHOLDER: CPU_CORE_COMPARISON_BAR}}
-{{CHART_PLACEHOLDER: MEMORY_USAGE_COMPARISON_BAR}}
+{{CHART_PLACEHOLDER: CPU_PEAK_CORE_COMPARISON_BAR}}
+{{CHART_PLACEHOLDER: CPU_AVG_CORE_COMPARISON_BAR}}
+{{CHART_PLACEHOLDER: MEMORY_PEAK_USAGE_COMPARISON_BAR}}
+{{CHART_PLACEHOLDER: MEMORY_AVG_USAGE_COMPARISON_BAR}}
 ```
 
 **Notes:**

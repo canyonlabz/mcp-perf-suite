@@ -117,12 +117,24 @@ chart_map = {
         "metric_filter": "mem_util_pct",
     },
     # Comparison bar charts (for multi-run comparison reports)
-    "CPU_CORE_COMPARISON_BAR": {
+    # Peak aggregation - shows maximum observed values (useful for capacity planning)
+    "CPU_PEAK_CORE_COMPARISON_BAR": {
         "function": "generate_cpu_core_comparison_bar_chart",
         "module": "comparison_bar_charts",
         "data_source": "comparison_metadata",
     },
-    "MEMORY_USAGE_COMPARISON_BAR": {
+    "MEMORY_PEAK_USAGE_COMPARISON_BAR": {
+        "function": "generate_memory_usage_comparison_bar_chart",
+        "module": "comparison_bar_charts",
+        "data_source": "comparison_metadata",
+    },
+    # Average aggregation - shows mean values (useful for steady-state trend comparison)
+    "CPU_AVG_CORE_COMPARISON_BAR": {
+        "function": "generate_cpu_core_comparison_bar_chart",
+        "module": "comparison_bar_charts",
+        "data_source": "comparison_metadata",
+    },
+    "MEMORY_AVG_USAGE_COMPARISON_BAR": {
         "function": "generate_memory_usage_comparison_bar_chart",
         "module": "comparison_bar_charts",
         "data_source": "comparison_metadata",
@@ -311,14 +323,21 @@ async def generate_comparison_chart(
     Args:
         comparison_id: Unique identifier for this comparison (timestamp format)
         run_id_list: List of test run IDs to compare
-        chart_id: Must be CPU_CORE_COMPARISON_BAR or MEMORY_USAGE_COMPARISON_BAR
+        chart_id: Must be one of the comparison chart types:
+                  CPU_PEAK_CORE_COMPARISON_BAR, CPU_AVG_CORE_COMPARISON_BAR,
+                  MEMORY_PEAK_USAGE_COMPARISON_BAR, MEMORY_AVG_USAGE_COMPARISON_BAR
         env_name: Optional environment filter (not currently used)
         
     Returns:
         dict with comparison_id, run_id_list, chart_id, charts list, and errors
     """
     # Validate chart_id is a comparison chart type
-    valid_comparison_charts = ["CPU_CORE_COMPARISON_BAR", "MEMORY_USAGE_COMPARISON_BAR"]
+    valid_comparison_charts = [
+        "CPU_PEAK_CORE_COMPARISON_BAR",
+        "CPU_AVG_CORE_COMPARISON_BAR",
+        "MEMORY_PEAK_USAGE_COMPARISON_BAR",
+        "MEMORY_AVG_USAGE_COMPARISON_BAR",
+    ]
     if chart_id not in valid_comparison_charts:
         return {
             "error": f"Invalid comparison chart_id: {chart_id}. Must be one of: {valid_comparison_charts}",

@@ -288,8 +288,8 @@ def get_comparison_chart_output_path(comparison_id: str, chart_name: str) -> Pat
         Path: The absolute path to where the PNG file should be written.
     
     Example:
-        >>> get_comparison_chart_output_path("2026-01-21-10-30-00", "CPU_CORE_COMPARISON_BAR-auth-svc")
-        Path("artifacts/comparisons/2026-01-21-10-30-00/charts/CPU_CORE_COMPARISON_BAR-auth-svc.png")
+        >>> get_comparison_chart_output_path("2026-01-21-10-30-00", "CPU_PEAK_CORE_COMPARISON_BAR-auth-svc")
+        Path("artifacts/comparisons/2026-01-21-10-30-00/charts/CPU_PEAK_CORE_COMPARISON_BAR-auth-svc.png")
     """
     charts_dir = ARTIFACTS_PATH / "comparisons" / comparison_id / "charts"
     charts_dir.mkdir(parents=True, exist_ok=True)

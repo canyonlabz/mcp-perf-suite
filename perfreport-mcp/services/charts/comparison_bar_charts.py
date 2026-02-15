@@ -32,18 +32,24 @@ async def generate_cpu_core_comparison_bar_chart(
     usage values on the Y-axis. Makes it easy to visualize how CPU usage
     changed between runs for a specific resource.
     
+    Supports multiple aggregation types via the 'aggregation' property in
+    chart_spec (from chart_schema.yaml):
+      - "peak": Uses peak_cores (maximum observed value)
+      - "avg":  Uses avg_cores (average value across test run)
+    
     Args:
         run_data: List of dicts with keys:
                  - run_id: Test run identifier
                  - peak_cores: Peak CPU usage in cores
-                 - avg_cores: Average CPU usage in cores (optional)
+                 - avg_cores: Average CPU usage in cores
         resource_name: Name of the host/service being compared
-        chart_spec: Chart configuration from schema (chart_schema.yaml)
+        chart_spec: Chart configuration from schema (chart_schema.yaml).
+                    Must include 'aggregation' key ("peak" or "avg").
         comparison_id: Unique identifier for this comparison (e.g., timestamp)
     
     Returns:
         dict: {
-            "chart_id": "CPU_CORE_COMPARISON_BAR",
+            "chart_id": str (e.g., "CPU_PEAK_CORE_COMPARISON_BAR"),
             "resource": resource_name,
             "path": str (full path to generated PNG)
         }
@@ -58,7 +64,11 @@ async def generate_cpu_core_comparison_bar_chart(
             run_data, "api-service", spec, "20260117"
         )
     """
-    chart_id = "CPU_CORE_COMPARISON_BAR"
+    # Determine aggregation type from chart_spec (driven by chart_schema.yaml)
+    aggregation = chart_spec.get("aggregation", "peak")
+    
+    # Resolve chart_id from the spec (supports both peak and avg variants)
+    chart_id = chart_spec.get("id", f"CPU_{'PEAK' if aggregation == 'peak' else 'AVG'}_CORE_COMPARISON_BAR")
     
     if not run_data:
         return {"chart_id": chart_id, "resource": resource_name, "error": "No run data provided"}
@@ -77,9 +87,12 @@ async def generate_cpu_core_comparison_bar_chart(
         y_label = chart_spec.get("y_axis", {}).get("label", "CPU Usage (Cores)")
         value_format = "{:.3f}"
     
+    # Select data key based on aggregation type
+    data_key = "avg_cores" if aggregation == "avg" else "peak_cores"
+    
     # Extract and convert data
     run_labels = [f"Run\n{d['run_id']}" for d in run_data]
-    peak_values = [d.get('peak_cores', 0) * conversion_factor for d in run_data]
+    peak_values = [d.get(data_key, 0) * conversion_factor for d in run_data]
     
     # Chart configuration
     raw_title = chart_spec.get("title", f"CPU Core Usage Comparison - {resource_name}")
@@ -168,18 +181,24 @@ async def generate_memory_usage_comparison_bar_chart(
     usage values on the Y-axis. Makes it easy to visualize how memory usage
     changed between runs for a specific resource.
     
+    Supports multiple aggregation types via the 'aggregation' property in
+    chart_spec (from chart_schema.yaml):
+      - "peak": Uses peak_gb (maximum observed value)
+      - "avg":  Uses avg_gb (average value across test run)
+    
     Args:
         run_data: List of dicts with keys:
                  - run_id: Test run identifier
                  - peak_gb: Peak memory usage in GB
-                 - avg_gb: Average memory usage in GB (optional)
+                 - avg_gb: Average memory usage in GB
         resource_name: Name of the host/service being compared
-        chart_spec: Chart configuration from schema (chart_schema.yaml)
+        chart_spec: Chart configuration from schema (chart_schema.yaml).
+                    Must include 'aggregation' key ("peak" or "avg").
         comparison_id: Unique identifier for this comparison (e.g., timestamp)
     
     Returns:
         dict: {
-            "chart_id": "MEMORY_USAGE_COMPARISON_BAR",
+            "chart_id": str (e.g., "MEMORY_PEAK_USAGE_COMPARISON_BAR"),
             "resource": resource_name,
             "path": str (full path to generated PNG)
         }
@@ -194,7 +213,11 @@ async def generate_memory_usage_comparison_bar_chart(
             run_data, "api-service", spec, "20260117"
         )
     """
-    chart_id = "MEMORY_USAGE_COMPARISON_BAR"
+    # Determine aggregation type from chart_spec (driven by chart_schema.yaml)
+    aggregation = chart_spec.get("aggregation", "peak")
+    
+    # Resolve chart_id from the spec (supports both peak and avg variants)
+    chart_id = chart_spec.get("id", f"MEMORY_{'PEAK' if aggregation == 'peak' else 'AVG'}_USAGE_COMPARISON_BAR")
     
     if not run_data:
         return {"chart_id": chart_id, "resource": resource_name, "error": "No run data provided"}
@@ -213,9 +236,12 @@ async def generate_memory_usage_comparison_bar_chart(
         y_label = chart_spec.get("y_axis", {}).get("label", "Memory Usage (GB)")
         value_format = "{:.2f}"
     
+    # Select data key based on aggregation type
+    data_key = "avg_gb" if aggregation == "avg" else "peak_gb"
+    
     # Extract and convert data
     run_labels = [f"Run\n{d['run_id']}" for d in run_data]
-    peak_values = [d.get('peak_gb', 0) * conversion_factor for d in run_data]
+    peak_values = [d.get(data_key, 0) * conversion_factor for d in run_data]
     
     # Chart configuration
     raw_title = chart_spec.get("title", f"Memory Usage Comparison - {resource_name}")
