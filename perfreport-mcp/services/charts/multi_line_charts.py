@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
 from typing import List, Dict, Optional
-from utils.chart_utils import get_chart_output_path, get_multi_line_colors, resolve_colors
+from utils.chart_utils import get_chart_output_path, get_multi_line_colors, resolve_colors, apply_legend
 
 
 # -----------------------------------------------
@@ -106,9 +106,7 @@ async def generate_cpu_utilization_multiline_chart(
     if chart_spec.get("show_grid", True):
         ax.grid(True, linewidth=0.5, alpha=0.6)
     
-    if chart_spec.get("include_legend", True):
-        legend_loc = chart_spec.get("legend_location", "upper right")
-        ax.legend(loc=legend_loc, fontsize=8)
+    apply_legend(ax, chart_spec, num_series=len(resource_names))
     
     # Time axis formatting + label rotation
     locator = mdates.AutoDateLocator()
@@ -223,9 +221,7 @@ async def generate_memory_utilization_multiline_chart(
     if chart_spec.get("show_grid", True):
         ax.grid(True, linewidth=0.5, alpha=0.6)
     
-    if chart_spec.get("include_legend", True):
-        legend_loc = chart_spec.get("legend_location", "upper right")
-        ax.legend(loc=legend_loc, fontsize=8)
+    apply_legend(ax, chart_spec, num_series=len(resource_names))
     
     # Time axis formatting + label rotation
     locator = mdates.AutoDateLocator()

@@ -136,6 +136,23 @@ These are exposed for Cursor, agent, or CLI use:
 | `CPU_CORES_LINE` | Single-axis | CPU core usage (millicores) for a host/service |
 | `MEMORY_USAGE_LINE` | Single-axis | Memory usage (MB) for a host/service |
 
+#### Performance Charts (SLA & Errors)
+
+| Chart ID | Type | Description |
+| :-- | :-- | :-- |
+| `ERROR_RATE_LINE` | Single-axis | Error occurrences over time |
+| `THROUGHPUT_HITS_LINE` | Single-axis | Transaction throughput (req/sec) |
+| `TOP_SLOWEST_APIS_BAR` | Horizontal bar | Top API SLA violators by P90 response time |
+
+#### Infrastructure Charts (Stacked Area)
+
+| Chart ID | Type | Description |
+| :-- | :-- | :-- |
+| `CPU_UTILIZATION_STACKED` | Stacked area | Per-service CPU utilization (%) by container/pod (k8s only, requires limits) |
+| `MEM_UTILIZATION_STACKED` | Stacked area | Per-service Memory utilization (%) by container/pod (k8s only, requires limits) |
+| `CPU_USAGE_STACKED` | Stacked area | Per-service raw CPU usage (millicores/cores) by container/pod (k8s only, always available) |
+| `MEM_USAGE_STACKED` | Stacked area | Per-service raw Memory usage (MB/GB) by container/pod (k8s only, always available) |
+
 #### Comparison Charts (For Multi-Run Reports)
 
 | Chart ID | Type | Description |
@@ -144,17 +161,6 @@ These are exposed for Cursor, agent, or CLI use:
 | `CPU_AVG_CORE_COMPARISON_BAR` | Vertical bar | Compare average CPU usage across test runs |
 | `MEMORY_PEAK_USAGE_COMPARISON_BAR` | Vertical bar | Compare peak memory usage across test runs |
 | `MEMORY_AVG_USAGE_COMPARISON_BAR` | Vertical bar | Compare average memory usage across test runs |
-
-#### 🚧 Planned Charts (Not Yet Implemented)
-
-| Chart ID | Type | Description |
-| :-- | :-- | :-- |
-| `ERROR_RATE_LINE` | Single-axis | Error occurrences over time |
-| `THROUGHPUT_HITS_LINE` | Single-axis | Transaction throughput (req/sec) |
-| `TOP_SLOWEST_APIS_BAR` | Horizontal bar | Top API SLA violators |
-| `CPU_UTILIZATION_STACKED` | Stacked area | Cumulative CPU usage per service |
-| `MEM_UTILIZATION_STACKED` | Stacked area | Cumulative memory usage per service |
-| `CORR_HEATMAP_MATRIX` | Heatmap | Performance-infrastructure correlation matrix |
 
 ### 📁 Chart Filename Conventions
 

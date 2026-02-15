@@ -5,7 +5,8 @@ from typing import Dict, Optional
 from fastmcp import Context
 from utils.chart_utils import (
     get_chart_output_path,
-    interpolate_placeholders
+    interpolate_placeholders,
+    apply_legend,
 )
 from utils.config import load_chart_colors
 
@@ -82,6 +83,7 @@ async def generate_p90_vusers_chart(df: pd.DataFrame, chart_spec: dict, run_id: 
 
     # ---- 4) Plot left axis (P90 ms) ----------------------------------------
     ax_left.plot(p90_ms.index, p90_ms.values, color=left_color, linewidth=1.8, label=y_left_label)
+    ax_left.fill_between(p90_ms.index, p90_ms.values, alpha=0.1, color=left_color)
     ax_left.set_ylabel(y_left_label, color=left_color)
     ax_left.tick_params(axis="y", labelcolor=left_color)
     ax_left.set_xlabel(x_label)
@@ -111,7 +113,16 @@ async def generate_p90_vusers_chart(df: pd.DataFrame, chart_spec: dict, run_id: 
     if chart_spec.get("include_legend"):
         l1, lab1 = ax_left.get_legend_handles_labels()
         l2, lab2 = ax_right.get_legend_handles_labels()
-        ax_left.legend(l1 + l2, lab1 + lab2, loc="upper left")
+        location = chart_spec.get("legend_location", "upper left")
+        fontsize = chart_spec.get("legend_fontsize", 8)
+        if location in ("below", "above", "right"):
+            ncol = min(len(lab1) + len(lab2), 4)
+            anchor_map = {"below": ("upper center", (0.5, -0.18)), "above": ("lower center", (0.5, 1.05)), "right": ("center left", (1.02, 0.5))}
+            loc_val, bbox = anchor_map[location]
+            kw = {"ncol": ncol} if location != "right" else {}
+            ax_left.legend(l1 + l2, lab1 + lab2, loc=loc_val, bbox_to_anchor=bbox, fontsize=fontsize, frameon=True, **kw)
+        else:
+            ax_left.legend(l1 + l2, lab1 + lab2, loc=location, fontsize=fontsize)
 
     # Save with schema ID as filename (no hostname for performance charts)
     chart_id = "RESP_TIME_P90_VUSERS_DUALAXIS"
@@ -230,6 +241,7 @@ async def generate_cpu_utilization_vusers_chart(
     
     # Plot CPU utilization on left axis
     ax_left.plot(cpu_avg.index, cpu_avg.values, color=left_color, linewidth=1.8, label=y_left_label)
+    ax_left.fill_between(cpu_avg.index, cpu_avg.values, alpha=0.1, color=left_color)
     ax_left.set_ylabel(y_left_label, color=left_color)
     ax_left.tick_params(axis="y", labelcolor=left_color)
     ax_left.set_xlabel(x_label)
@@ -259,8 +271,16 @@ async def generate_cpu_utilization_vusers_chart(
     if chart_spec.get("include_legend", True):
         l1, lab1 = ax_left.get_legend_handles_labels()
         l2, lab2 = ax_right.get_legend_handles_labels()
-        legend_loc = chart_spec.get("legend_location", "upper left")
-        ax_left.legend(l1 + l2, lab1 + lab2, loc=legend_loc, fontsize=8)
+        location = chart_spec.get("legend_location", "upper left")
+        fontsize = chart_spec.get("legend_fontsize", 8)
+        if location in ("below", "above", "right"):
+            ncol = min(len(lab1) + len(lab2), 4)
+            anchor_map = {"below": ("upper center", (0.5, -0.18)), "above": ("lower center", (0.5, 1.05)), "right": ("center left", (1.02, 0.5))}
+            loc_val, bbox = anchor_map[location]
+            kw = {"ncol": ncol} if location != "right" else {}
+            ax_left.legend(l1 + l2, lab1 + lab2, loc=loc_val, bbox_to_anchor=bbox, fontsize=fontsize, frameon=True, **kw)
+        else:
+            ax_left.legend(l1 + l2, lab1 + lab2, loc=location, fontsize=fontsize)
     
     bbox = chart_spec.get("bbox_inches", "tight")
     chart_path = get_chart_output_path(run_id, chart_id)
@@ -377,6 +397,7 @@ async def generate_memory_utilization_vusers_chart(
     
     # Plot memory utilization on left axis
     ax_left.plot(mem_avg.index, mem_avg.values, color=left_color, linewidth=1.8, label=y_left_label)
+    ax_left.fill_between(mem_avg.index, mem_avg.values, alpha=0.1, color=left_color)
     ax_left.set_ylabel(y_left_label, color=left_color)
     ax_left.tick_params(axis="y", labelcolor=left_color)
     ax_left.set_xlabel(x_label)
@@ -406,8 +427,16 @@ async def generate_memory_utilization_vusers_chart(
     if chart_spec.get("include_legend", True):
         l1, lab1 = ax_left.get_legend_handles_labels()
         l2, lab2 = ax_right.get_legend_handles_labels()
-        legend_loc = chart_spec.get("legend_location", "upper left")
-        ax_left.legend(l1 + l2, lab1 + lab2, loc=legend_loc, fontsize=8)
+        location = chart_spec.get("legend_location", "upper left")
+        fontsize = chart_spec.get("legend_fontsize", 8)
+        if location in ("below", "above", "right"):
+            ncol = min(len(lab1) + len(lab2), 4)
+            anchor_map = {"below": ("upper center", (0.5, -0.18)), "above": ("lower center", (0.5, 1.05)), "right": ("center left", (1.02, 0.5))}
+            loc_val, bbox = anchor_map[location]
+            kw = {"ncol": ncol} if location != "right" else {}
+            ax_left.legend(l1 + l2, lab1 + lab2, loc=loc_val, bbox_to_anchor=bbox, fontsize=fontsize, frameon=True, **kw)
+        else:
+            ax_left.legend(l1 + l2, lab1 + lab2, loc=location, fontsize=fontsize)
     
     bbox = chart_spec.get("bbox_inches", "tight")
     chart_path = get_chart_output_path(run_id, chart_id)

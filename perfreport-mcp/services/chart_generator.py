@@ -28,7 +28,14 @@ from utils.chart_utils import (
 )
 
 # Import chart functions
-from services.charts import single_axis_charts, dual_axis_charts, multi_line_charts, comparison_bar_charts
+from services.charts import (
+    single_axis_charts,
+    dual_axis_charts,
+    multi_line_charts,
+    comparison_bar_charts,
+    stacked_area_charts,
+    horizontal_bar_charts
+)
 
 # Import comparison chart helpers
 from services.comparison_chart_generator import (
@@ -63,6 +70,8 @@ chart_module_registry = {
     "dual_axis_charts": dual_axis_charts,
     "multi_line_charts": multi_line_charts,
     "comparison_bar_charts": comparison_bar_charts,
+    "stacked_area_charts": stacked_area_charts,
+    "horizontal_bar_charts": horizontal_bar_charts,
 }
 
 chart_map = {
@@ -87,10 +96,25 @@ chart_map = {
         "module": "single_axis_charts",
         "data_source": "infrastructure",
     },
+    "ERROR_RATE_LINE": {
+        "function": "generate_error_rate_chart",
+        "module": "single_axis_charts",
+        "data_source": "performance",
+    },
+    "THROUGHPUT_HITS_LINE": {
+        "function": "generate_throughput_chart",
+        "module": "single_axis_charts",
+        "data_source": "performance",
+    },
     "RESP_TIME_P90_VUSERS_DUALAXIS": {
         "function": "generate_p90_vusers_chart",
         "module": "dual_axis_charts",
         "data_source": "performance",
+    },
+    "TOP_SLOWEST_APIS_BAR": {
+        "function": "generate_top_slowest_apis_chart",
+        "module": "horizontal_bar_charts",
+        "data_source": "performance_analysis",
     },
     # Multi-line charts (all hosts/services on single chart)
     "CPU_UTILIZATION_MULTILINE": {
@@ -102,6 +126,33 @@ chart_map = {
         "function": "generate_memory_utilization_multiline_chart",
         "module": "multi_line_charts",
         "data_source": "infrastructure_multi",
+    },
+    # Stacked area charts (per-service container/pod breakdown, k8s only)
+    # Percentage utilization (requires k8s limits to be set)
+    "CPU_UTILIZATION_STACKED": {
+        "function": "generate_cpu_utilization_stacked_chart",
+        "module": "stacked_area_charts",
+        "data_source": "infrastructure_stacked",
+        "metric_filter": "cpu_util_pct",
+    },
+    "MEM_UTILIZATION_STACKED": {
+        "function": "generate_memory_utilization_stacked_chart",
+        "module": "stacked_area_charts",
+        "data_source": "infrastructure_stacked",
+        "metric_filter": "mem_util_pct",
+    },
+    # Raw usage (always available, no limits required)
+    "CPU_USAGE_STACKED": {
+        "function": "generate_cpu_usage_stacked_chart",
+        "module": "stacked_area_charts",
+        "data_source": "infrastructure_stacked",
+        "metric_filter": "kubernetes.cpu.usage.total",
+    },
+    "MEM_USAGE_STACKED": {
+        "function": "generate_memory_usage_stacked_chart",
+        "module": "stacked_area_charts",
+        "data_source": "infrastructure_stacked",
+        "metric_filter": "kubernetes.memory.usage",
     },
     # Infrastructure vs VUsers dual-axis charts
     "CPU_UTILIZATION_VUSERS_DUALAXIS": {
@@ -239,6 +290,66 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
         else:
             errors.append({"error": "No valid data found for any resource"})
 
+    # Stacked area charts (per-service container/pod breakdown, k8s only)
+    elif data_source == "infrastructure_stacked":
+        env_info = await load_environment_details(run_id, env_name)
+        if not env_info:
+            return {"error": f"Missing environment info for: {env_name}"}
+        
+        env_type = env_info['env_type']
+        if env_type != "k8s":
+            return {"error": "Stacked area charts are only supported for Kubernetes environments. Host-based environments are not applicable."}
+        
+        resources = env_info["resources"]
+        metric_files = await get_metric_files(run_id, env_type, resources)
+        
+        # Get metric filter from chart mapping (e.g., "cpu_util_pct", "kubernetes.cpu.usage.total")
+        metric_filter = mapping.get("metric_filter")
+        is_utilization_pct = metric_filter in ("cpu_util_pct", "mem_util_pct")
+        
+        for resource, metric_file in zip(resources, metric_files):
+            try:
+                df = pd.read_csv(metric_file)
+                
+                # Filter for the specific metric type
+                if metric_filter and "metric" in df.columns:
+                    df = df[df["metric"] == metric_filter]
+                
+                # For utilization % charts, filter out -1 sentinel values (limits not set)
+                if is_utilization_pct and "value" in df.columns:
+                    df = df[df["value"] != -1]
+                    if df.empty:
+                        errors.append({
+                            "resource": resource,
+                            "error": f"No valid utilization data -- k8s limits are not set for '{resource}'. "
+                                     f"Use {'CPU_USAGE_STACKED' if 'cpu' in metric_filter else 'MEM_USAGE_STACKED'} instead."
+                        })
+                        continue
+                
+                if df.empty:
+                    errors.append({"resource": resource, "error": f"No data found for metric '{metric_filter}'"})
+                    continue
+                
+                # Group by container_or_pod to get all containers within this service
+                # (includes main container + sidecars)
+                container_dfs = {}
+                if "container_or_pod" in df.columns:
+                    for container_name, group_df in df.groupby("container_or_pod"):
+                        container_dfs[container_name] = group_df
+                else:
+                    # Fallback: use the resource name as the single container
+                    container_dfs[resource] = df
+                
+                if container_dfs:
+                    out = await chart_handler(container_dfs, chart_spec, run_id, resource_name=resource)
+                    results.append(out)
+                    
+            except Exception as e:
+                errors.append({"resource": resource, "error": str(e)})
+        
+        if not results and not errors:
+            errors.append({"error": "No valid data found for any resource"})
+
     # Infrastructure + Performance combined charts (dual-axis: infra metric vs vusers)
     elif data_source == "infrastructure_performance":
         # Load environment info for infrastructure data
@@ -291,6 +402,22 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
                 errors.append({"error": str(e)})
         elif not infra_dataframes:
             errors.append({"error": "No valid infrastructure data found for any resource"})
+
+    # Performance analysis JSON (for API-level charts like TOP_SLOWEST_APIS_BAR)
+    elif data_source == "performance_analysis":
+        analysis_path = ARTIFACTS_PATH / run_id / "analysis" / "performance_analysis.json"
+        if not analysis_path.exists():
+            return {"error": f"Missing performance_analysis.json for run: {run_id}"}
+        try:
+            with open(analysis_path, 'r') as f:
+                analysis_data = json.load(f)
+            api_data = analysis_data.get("api_analysis", {})
+            if not api_data:
+                return {"error": "No api_analysis data found in performance_analysis.json"}
+            out = await chart_handler(api_data, chart_spec, run_id)
+            results.append(out)
+        except Exception as e:
+            errors.append({"error": str(e)})
 
     else:
         return {"error": f"Unknown data source: {data_source}"}

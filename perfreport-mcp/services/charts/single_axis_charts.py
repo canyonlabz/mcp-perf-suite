@@ -4,7 +4,8 @@ import pandas as pd
 from fastmcp import Context
 from utils.chart_utils import (
     get_chart_output_path,
-    interpolate_placeholders
+    interpolate_placeholders,
+    apply_legend,
 )
 from utils.config import load_chart_colors
 
@@ -58,13 +59,13 @@ async def generate_cpu_utilization_chart(df, chart_spec, env_type, resource_name
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
     ax.plot(df_filtered["timestamp_utc"], df_filtered["value"], color=colors[0], linewidth=1.5)
+    ax.fill_between(df_filtered["timestamp_utc"], df_filtered["value"], alpha=0.1, color=colors[0])
     ax.set_title(title)
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     if chart_spec.get("show_grid", True):
         ax.grid(True, linewidth=0.5, alpha=0.6)
-    if chart_spec.get("include_legend"):
-        ax.legend([resource_name])
+    apply_legend(ax, chart_spec, num_series=1)
 
     # Time axis formatting + label rotation
     locator = mdates.AutoDateLocator()
@@ -127,13 +128,13 @@ async def generate_memory_utilization_chart(df, chart_spec, env_type, resource_n
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
     ax.plot(df_filtered["timestamp_utc"], df_filtered["value"], color=colors[0], linewidth=1.5)
+    ax.fill_between(df_filtered["timestamp_utc"], df_filtered["value"], alpha=0.1, color=colors[0])
     ax.set_title(title)
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     if chart_spec.get("show_grid", True):
         ax.grid(True, linewidth=0.5, alpha=0.6)
-    if chart_spec.get("include_legend"):
-        ax.legend([resource_name])
+    apply_legend(ax, chart_spec, num_series=1)
 
     # Time axis formatting + label rotation
     locator = mdates.AutoDateLocator()
@@ -225,13 +226,13 @@ async def generate_cpu_cores_chart(df, chart_spec, env_type, resource_name, run_
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
     ax.plot(df_filtered["timestamp_utc"], df_filtered["converted_value"], color=colors[0], linewidth=1.5)
+    ax.fill_between(df_filtered["timestamp_utc"], df_filtered["converted_value"], alpha=0.1, color=colors[0])
     ax.set_title(title)
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     if chart_spec.get("show_grid", True):
         ax.grid(True, linewidth=0.5, alpha=0.6)
-    if chart_spec.get("include_legend"):
-        ax.legend([resource_name])
+    apply_legend(ax, chart_spec, num_series=1)
 
     # Time axis formatting + label rotation
     locator = mdates.AutoDateLocator()
@@ -323,13 +324,13 @@ async def generate_memory_usage_chart(df, chart_spec, env_type, resource_name, r
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
     ax.plot(df_filtered["timestamp_utc"], df_filtered["converted_value"], color=colors[0], linewidth=1.5)
+    ax.fill_between(df_filtered["timestamp_utc"], df_filtered["converted_value"], alpha=0.1, color=colors[0])
     ax.set_title(title)
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     if chart_spec.get("show_grid", True):
         ax.grid(True, linewidth=0.5, alpha=0.6)
-    if chart_spec.get("include_legend"):
-        ax.legend([resource_name])
+    apply_legend(ax, chart_spec, num_series=1)
 
     # Time axis formatting + label rotation
     locator = mdates.AutoDateLocator()
@@ -352,19 +353,159 @@ async def generate_memory_usage_chart(df, chart_spec, env_type, resource_name, r
     return {"chart_id": chart_id, "resource": resource_name, "path": str(chart_path), "unit": unit_type}
 
 
-async def generate_error_rate_chart(df, chart_spec, ctx):
+async def generate_error_rate_chart(df: pd.DataFrame, chart_spec: dict, run_id: str):
     """
-    Generate and save an Error Rate line chart for a given resource.
+    Generate and save an Error Rate line chart from BlazeMeter/JMeter test results.
+
+    Shows the number of failed requests per minute over the duration of the test,
+    providing a clear view of when errors occurred and whether they were transient
+    or sustained.
 
     Args:
-        df (pd.DataFrame): Full CSV data for the resource (already loaded)
-        chart_spec (dict): Chart configuration from YAML/schema
-        ctx (Context): MCP context object
+        df (pd.DataFrame): test-results.csv (JTL) loaded as DataFrame.
+            Required columns: timeStamp (ms epoch), success (boolean string).
+        chart_spec (dict): Chart configuration from chart_schema.yaml.
+        run_id (str): Test run identifier for output path.
 
     Returns:
-        dict: { "resource": ..., "path": ... }
+        dict: { "chart_id": "ERROR_RATE_LINE", "path": <png path> }
     """
-    """Generate error rate chart from BlazeMeter data"""
+    chart_id = "ERROR_RATE_LINE"
 
-async def generate_throughput_chart(run_id, chart_spec, ctx):
-    """Generate throughput chart from BlazeMeter data"""
+    # Validate required columns
+    if "timeStamp" not in df.columns or "success" not in df.columns:
+        return {"chart_id": chart_id, "error": "Missing required columns: 'timeStamp' and/or 'success'."}
+
+    df = df.copy()
+    df["timeStamp"] = pd.to_datetime(df["timeStamp"], unit="ms", errors="coerce")
+    df = df.dropna(subset=["timeStamp"]).sort_values("timeStamp")
+
+    # Count errors per minute bucket
+    df["minute"] = df["timeStamp"].dt.floor("min")
+    # success column can be boolean or string "true"/"false"
+    df["is_error"] = df["success"].astype(str).str.lower() != "true"
+    error_counts = df.groupby("minute")["is_error"].sum()
+
+    if error_counts.empty:
+        return {"chart_id": chart_id, "error": "No data to plot after grouping."}
+
+    # Chart configuration
+    title = chart_spec.get("title", "Error Rate Over Time")
+    y_label = chart_spec.get("y_axis", {}).get("label", "Error Count")
+    x_label = chart_spec.get("x_axis", {}).get("label", "Time (hh:mm)")
+    color_names = chart_spec.get("colors", ["error"])
+    colors = [resolve_color(c) for c in color_names]
+
+    # Figure sizing
+    dpi = int(chart_spec.get("dpi", 144))
+    width_px = int(chart_spec.get("width_px", 1280))
+    height_px = int(chart_spec.get("height_px", 720))
+    figsize = (width_px / dpi, height_px / dpi)
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+
+    ax.plot(error_counts.index, error_counts.values, color=colors[0], linewidth=1.5)
+    ax.fill_between(error_counts.index, error_counts.values, alpha=0.15, color=colors[0])
+    ax.set_title(title)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_ylim(bottom=0)
+
+    if chart_spec.get("show_grid", True):
+        ax.grid(True, linewidth=0.5, alpha=0.6)
+
+    # Time axis formatting + label rotation
+    locator = mdates.AutoDateLocator()
+    formatter = mdates.DateFormatter("%H:%M")
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(formatter)
+
+    for label in ax.get_xticklabels():
+        label.set_rotation(45)
+        label.set_horizontalalignment("right")
+        label.set_rotation_mode("anchor")
+
+    bbox = chart_spec.get("bbox_inches", "tight")
+    chart_path = get_chart_output_path(run_id, chart_id)
+    fig.savefig(chart_path, dpi=dpi, bbox_inches=bbox, facecolor="white")
+    plt.close(fig)
+
+    return {"chart_id": chart_id, "path": str(chart_path)}
+
+
+async def generate_throughput_chart(df: pd.DataFrame, chart_spec: dict, run_id: str):
+    """
+    Generate and save a Throughput (requests/sec) line chart from BlazeMeter/JMeter results.
+
+    Shows the transaction throughput over the duration of the test, calculated as
+    the number of requests per minute divided by 60 to get requests per second.
+
+    Args:
+        df (pd.DataFrame): test-results.csv (JTL) loaded as DataFrame.
+            Required columns: timeStamp (ms epoch).
+        chart_spec (dict): Chart configuration from chart_schema.yaml.
+        run_id (str): Test run identifier for output path.
+
+    Returns:
+        dict: { "chart_id": "THROUGHPUT_HITS_LINE", "path": <png path> }
+    """
+    chart_id = "THROUGHPUT_HITS_LINE"
+
+    # Validate required columns
+    if "timeStamp" not in df.columns:
+        return {"chart_id": chart_id, "error": "Missing required column: 'timeStamp'."}
+
+    df = df.copy()
+    df["timeStamp"] = pd.to_datetime(df["timeStamp"], unit="ms", errors="coerce")
+    df = df.dropna(subset=["timeStamp"]).sort_values("timeStamp")
+
+    # Count requests per minute, convert to req/sec
+    df["minute"] = df["timeStamp"].dt.floor("min")
+    requests_per_min = df.groupby("minute").size()
+    throughput = requests_per_min / 60.0  # Convert to requests per second
+
+    if throughput.empty:
+        return {"chart_id": chart_id, "error": "No data to plot after grouping."}
+
+    # Chart configuration
+    title = chart_spec.get("title", "Throughput Over Time")
+    y_label = chart_spec.get("y_axis", {}).get("label", "Throughput (req/sec)")
+    x_label = chart_spec.get("x_axis", {}).get("label", "Time (hh:mm)")
+    color_names = chart_spec.get("colors", ["primary"])
+    colors = [resolve_color(c) for c in color_names]
+
+    # Figure sizing
+    dpi = int(chart_spec.get("dpi", 144))
+    width_px = int(chart_spec.get("width_px", 1280))
+    height_px = int(chart_spec.get("height_px", 720))
+    figsize = (width_px / dpi, height_px / dpi)
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+
+    ax.plot(throughput.index, throughput.values, color=colors[0], linewidth=1.5)
+    ax.fill_between(throughput.index, throughput.values, alpha=0.1, color=colors[0])
+    ax.set_title(title)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_ylim(bottom=0)
+
+    if chart_spec.get("show_grid", True):
+        ax.grid(True, linewidth=0.5, alpha=0.6)
+
+    # Time axis formatting + label rotation
+    locator = mdates.AutoDateLocator()
+    formatter = mdates.DateFormatter("%H:%M")
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(formatter)
+
+    for label in ax.get_xticklabels():
+        label.set_rotation(45)
+        label.set_horizontalalignment("right")
+        label.set_rotation_mode("anchor")
+
+    bbox = chart_spec.get("bbox_inches", "tight")
+    chart_path = get_chart_output_path(run_id, chart_id)
+    fig.savefig(chart_path, dpi=dpi, bbox_inches=bbox, facecolor="white")
+    plt.close(fig)
+
+    return {"chart_id": chart_id, "path": str(chart_path)}

@@ -336,3 +336,81 @@ def interpolate_placeholders(template: str, **kwargs) -> str:
         missing_key = str(e).strip("'")
         return re.sub(rf"{{{missing_key}}}", f"{{MISSING:{missing_key}}}", template)
 
+
+# -----------------------------------------------
+# Legend Helper
+# -----------------------------------------------
+
+def apply_legend(ax, chart_spec: dict, num_series: int = 1):
+    """
+    Apply legend settings to a matplotlib Axes based on chart_schema.yaml config.
+
+    Supports both standard matplotlib positions (inside the chart) and
+    custom outside-chart positions for cleaner visuals.
+
+    Args:
+        ax: Matplotlib Axes object to apply the legend to.
+        chart_spec (dict): Chart configuration from chart_schema.yaml.
+            Reads the following keys:
+            - include_legend (bool): Whether to show the legend. Default: False.
+            - legend_location (str): Where to place the legend. Default: "upper left".
+            - legend_fontsize (int): Font size for legend text. Default: 8.
+        num_series (int): Number of data series in the chart. Used to set
+            the number of columns for horizontal legend layouts.
+
+    Legend location options:
+        Inside chart (standard matplotlib loc values):
+            "upper left", "upper right", "lower left", "lower right",
+            "center left", "center right", "upper center", "lower center",
+            "center", "best"
+
+        Outside chart (custom positions):
+            "below"  - Centered below the chart, horizontal layout
+            "above"  - Centered above the chart, horizontal layout
+            "right"  - To the right of the chart, vertical layout
+
+    Example chart_schema.yaml usage:
+        include_legend: true
+        legend_location: "below"   # Places legend below the chart
+        legend_fontsize: 9         # Optional, defaults to 8
+
+    Note:
+        The outside-chart positions ("below", "above", "right") are
+        library-agnostic names that will map to any future charting
+        library (e.g., Altair, Plotly).
+    """
+    if not chart_spec.get("include_legend", False):
+        return
+
+    location = chart_spec.get("legend_location", "upper left")
+    fontsize = chart_spec.get("legend_fontsize", 8)
+
+    if location == "below":
+        ncol = min(num_series, 4)
+        ax.legend(
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.18),
+            ncol=ncol,
+            fontsize=fontsize,
+            frameon=True,
+        )
+    elif location == "above":
+        ncol = min(num_series, 4)
+        ax.legend(
+            loc="lower center",
+            bbox_to_anchor=(0.5, 1.05),
+            ncol=ncol,
+            fontsize=fontsize,
+            frameon=True,
+        )
+    elif location == "right":
+        ax.legend(
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
+            fontsize=fontsize,
+            frameon=True,
+        )
+    else:
+        # Standard matplotlib loc value (e.g., "upper left", "best")
+        ax.legend(loc=location, fontsize=fontsize)
+

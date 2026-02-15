@@ -24,6 +24,21 @@ defaults:
   confluence:
     image_height: 250  # Default height (px) for embedded images in Confluence
 
+# Legend placement reference (per-chart configurable via include_legend & legend_location):
+#   include_legend: true/false        - Whether to show the legend (default: false)
+#   legend_location: "<position>"     - Where to place the legend (default: "upper left")
+#   legend_fontsize: <int>            - Font size for legend text (default: 8)
+#
+# Standard positions (inside chart area):
+#   "upper left", "upper right", "lower left", "lower right",
+#   "center left", "center right", "upper center", "lower center",
+#   "center", "best"
+#
+# Outside-chart positions (avoids overlapping data):
+#   "below"  - Centered below the chart (horizontal layout)
+#   "above"  - Centered above the chart (horizontal layout)
+#   "right"  - To the right of the chart (vertical layout)
+
 charts:
   # ===== SECTION 2: SLA & ERRORS =====
   
@@ -74,13 +89,13 @@ charts:
     placeholder: "{{CHART_PLACEHOLDER: TOP_SLOWEST_APIS_BAR}}"
     chart_type: "horizontal_bar"
     title: "Top API SLA Violators"
-    description: "APIs with highest average response times exceeding SLA"
+    description: "APIs with highest P90 response times exceeding SLA"
     data_sources:
       primary: "performance_analysis.json"
       json_path: "api_analysis"
     x_axis:
-      label: "Average Response Time (ms)"
-      column: "avg_response_time"
+      label: "P90 Response Time (ms)"
+      column: "p90_response_time"
     y_axis:
       label: "API Name"
       column: "api_name"
@@ -322,78 +337,87 @@ charts:
     show_value_labels: true  # Display values above bars
 
   # ===== SECTION 5: INFRASTRUCTURE (STACKED AREA) =====
-  
+  # Stacked area charts show per-service container/pod breakdown (k8s only).
+  # Each band represents a container_or_pod (e.g., main container + sidecars).
+  # One chart is generated per service/pod filter.
+  #
+  # Utilization (%) charts require k8s limits to be set. If limits are not
+  # defined, cpu_util_pct/mem_util_pct will be -1 and the chart will return
+  # an error suggesting the raw usage variant instead.
+
+  # --- Percentage Utilization (requires k8s limits) ---
+
   - id: "CPU_UTILIZATION_STACKED"
     placeholder: "{{CHART_PLACEHOLDER: CPU_UTILIZATION_STACKED}}"
     chart_type: "stacked_area"
-    title: "CPU Utilization (%)"
-    description: "Cumulative CPU usage per service showing total resource consumption"
-    data_sources:
-      primary: "infrastructure_analysis.json"
-      json_path: "detailed_metrics"
-      service_types: ["kubernetes", "hosts"]  # Check both
-      metric_extraction: "cpu_samples"  # Time-series data location
+    title: "CPU Utilization (%) - {resource_name}"
+    description: "Per-service stacked area chart showing CPU utilization (%) breakdown by container/pod. Requires k8s CPU limits to be set. If limits are not defined, use CPU_USAGE_STACKED instead."
     x_axis:
-      label: "Time"
-      column: "timestamp"
-      format: "datetime"
+      label: "Time (hh:mm) UTC"
     y_axis:
       label: "CPU Utilization (%)"
-      column: "cpu_utilization_pct"
-      scale: "linear"
       max: 100
-    service_grouping: true  # One colored area per service
-    stack_cumulative: true  # Stacked, not overlaid
-    output_filename: "cpu_utilization_stacked_{run_id}.png"
     colors: ["primary", "secondary", "info", "warning"]
     show_grid: true
     include_legend: true
     legend_location: "upper left"
-    
+
   - id: "MEM_UTILIZATION_STACKED"
     placeholder: "{{CHART_PLACEHOLDER: MEM_UTILIZATION_STACKED}}"
     chart_type: "stacked_area"
-    title: "Memory Utilization (%)"
-    description: "Cumulative memory usage per service showing total resource consumption"
-    data_sources:
-      primary: "infrastructure_analysis.json"
-      json_path: "detailed_metrics"
-      service_types: ["kubernetes", "hosts"]
-      metric_extraction: "memory_samples"
+    title: "Memory Utilization (%) - {resource_name}"
+    description: "Per-service stacked area chart showing Memory utilization (%) breakdown by container/pod. Requires k8s Memory limits to be set. If limits are not defined, use MEM_USAGE_STACKED instead."
     x_axis:
-      label: "Time"
-      column: "timestamp"
-      format: "datetime"
+      label: "Time (hh:mm) UTC"
     y_axis:
       label: "Memory Utilization (%)"
-      column: "memory_utilization_pct"
-      scale: "linear"
       max: 100
-    service_grouping: true
-    stack_cumulative: true
-    output_filename: "memory_utilization_stacked_{run_id}.png"
+    colors: ["warning", "info", "secondary", "primary"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper left"
+
+  # --- Raw Usage (always available, no limits required) ---
+
+  - id: "CPU_USAGE_STACKED"
+    placeholder: "{{CHART_PLACEHOLDER: CPU_USAGE_STACKED}}"
+    chart_type: "stacked_area"
+    title: "CPU Usage ({unit_label}) - {resource_name}"
+    description: "Per-service stacked area chart showing raw CPU usage breakdown by container/pod. Always available regardless of k8s limits."
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "CPU Usage (Millicores)"
+    # Unit configuration: "cores" or "millicores" (default)
+    unit:
+      type: "millicores"  # Options: "cores", "millicores"
+    colors: ["primary", "secondary", "info", "warning"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper left"
+
+  - id: "MEM_USAGE_STACKED"
+    placeholder: "{{CHART_PLACEHOLDER: MEM_USAGE_STACKED}}"
+    chart_type: "stacked_area"
+    title: "Memory Usage ({unit_label}) - {resource_name}"
+    description: "Per-service stacked area chart showing raw Memory usage breakdown by container/pod. Always available regardless of k8s limits."
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "Memory Usage (MB)"
+    # Unit configuration: "gb" or "mb" (default)
+    unit:
+      type: "mb"  # Options: "gb", "mb"
     colors: ["warning", "info", "secondary", "primary"]
     show_grid: true
     include_legend: true
     legend_location: "upper left"
     
   # ===== SECTION 6: CORRELATION =====
-  
-  - id: "CORR_HEATMAP_MATRIX"
-    placeholder: "{{CHART_PLACEHOLDER: CORR_HEATMAP_MATRIX}}"
-    chart_type: "heatmap"
-    title: "Performance-Infrastructure Correlation Matrix"
-    description: "Heatmap showing correlation strength between metrics"
-    data_sources:
-      primary: "correlation_analysis.json"
-      json_path: "correlation_matrix"
-    colormap: "RdYlGn"  # Red-Yellow-Green diverging
-    annotations: true  # Show correlation coefficients
-    vmin: -1.0
-    vmax: 1.0
-    output_filename: "correlation_heatmap_{run_id}.png"
-    show_colorbar: true
-    colorbar_label: "Correlation Coefficient"
+  # CORR_HEATMAP_MATRIX has been deferred. The current correlation_analysis.json
+  # only stores 4 scalar values (not a full NxN matrix), and K8s environments
+  # without resource limits produce None for utilization percentages, making
+  # heatmap rendering unreliable. Can be revisited in the future.
     
 # Custom chart support
 custom_chart_naming:
@@ -404,7 +428,6 @@ custom_chart_naming:
     - "DUALAXIS"      # Dual-axis line chart
     - "BAR"           # Vertical bar chart (X-axis: categories, Y-axis: values)
     - "HBAR"          # Horizontal bar chart (Y-axis: categories, X-axis: values)
-    - "HEATMAP"       # Correlation heatmap
     - "STACKED"       # Stacked area chart
   examples:
     - "CUSTOM_LATENCY_P99_LINE"
