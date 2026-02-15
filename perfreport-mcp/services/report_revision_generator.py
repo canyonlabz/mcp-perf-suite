@@ -331,6 +331,8 @@ async def _revise_single_run_report(
         infra_summary_md = data["infra_summary_md"]
         corr_summary_md = data["corr_summary_md"]
         log_data = data["log_data"]
+        bottleneck_data = data["bottleneck_data"]
+        jmeter_log_analysis_data = data["jmeter_log_analysis_data"]
         apm_trace_summary = data["apm_trace_summary"]
         load_test_config = data["load_test_config"]
         load_test_public_report = data["load_test_public_report"]
@@ -352,7 +354,9 @@ async def _revise_single_run_report(
             corr_summary_md,
             log_data,
             apm_trace_summary,
-            load_test_config
+            load_test_config,
+            bottleneck_data,
+            jmeter_log_analysis_data
         )
         
         # Add load test public report link

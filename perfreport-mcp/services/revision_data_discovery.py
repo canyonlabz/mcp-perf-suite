@@ -441,6 +441,31 @@ def _get_section_guidelines(section_id: str) -> List[str]:
             "Include error rates and specific error messages if available",
             "Reference the affected APIs or endpoints"
         ],
+        "bottleneck_analysis": [
+            "Summarize the bottleneck analysis findings from bottleneck_analysis.json/md",
+            "Include the degradation threshold concurrency and optimal concurrency",
+            "Highlight critical and high severity bottlenecks with their types",
+            "Reference specific endpoints or services that are bottlenecks",
+            "Include baseline metrics for comparison context",
+            "Mention infrastructure correlations if available (CPU/memory saturation)",
+            "Provide the headline finding and key metric deltas"
+        ],
+        "jmeter_log_analysis": [
+            "Summarize the JMeter/BlazeMeter log analysis from blazemeter_log_analysis.json/md",
+            "Include total unique issues and total error occurrences",
+            "Break down errors by severity (Critical, High, Medium) and category",
+            "List the top affected APIs/endpoints with their error counts",
+            "Include JTL correlation summary if available",
+            "Reference specific error categories (HTTP 5xx, connection errors, timeouts, etc.)",
+            "Note the error timeline (first and last error timestamps)"
+        ],
+        "recommendations": [
+            "Provide actionable recommendations based on test results",
+            "Reference specific bottlenecks, errors, and SLA violations",
+            "Prioritize recommendations by impact and urgency",
+            "Include both short-term fixes and long-term improvements",
+            "Reference relevant data from bottleneck analysis and log analysis"
+        ],
         "key_findings": [
             "Summarize key findings from comparing multiple test runs",
             "Highlight trends (improving, degrading, stable)",
@@ -452,6 +477,27 @@ def _get_section_guidelines(section_id: str) -> List[str]:
             "Identify recurring issues vs one-time issues",
             "Note any issues that were resolved between runs",
             "Highlight the most critical issues requiring attention"
+        ],
+        "overall_trend_summary": [
+            "Provide a narrative overview of performance trends across compared test runs",
+            "Highlight whether key metrics (response time, throughput, error rate) are improving, degrading, or stable",
+            "Reference specific percentage changes between runs",
+            "Note any inflection points or significant shifts in performance",
+            "Keep the narrative concise (3-5 sentences) and suitable for leadership audiences"
+        ],
+        "correlation_insights_section": [
+            "Analyze performance-infrastructure correlations across compared test runs",
+            "Identify patterns between resource utilization changes and response time changes",
+            "Highlight runs where infrastructure metrics correlated with performance degradation",
+            "Note any resource contention or saturation that appeared across multiple runs",
+            "Reference specific services/hosts and their resource utilization trends"
+        ],
+        "correlation_key_observations": [
+            "List 3-5 key observations from the correlation analysis across runs",
+            "Use bullet points for clarity",
+            "Reference specific CPU/memory metrics and their impact on response times",
+            "Highlight any services with consistently high resource utilization across runs",
+            "Note whether scaling or optimization between runs improved correlations"
         ]
     }
     

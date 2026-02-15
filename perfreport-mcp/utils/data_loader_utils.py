@@ -50,6 +50,8 @@ async def load_report_data(run_id: str) -> Dict:
             - infra_summary_md: Infrastructure summary markdown (or None)
             - corr_summary_md: Correlation summary markdown (or None)
             - log_data: Log analysis JSON (or None)
+            - bottleneck_data: Bottleneck analysis JSON from PerfAnalysis identify_bottlenecks (or None)
+            - jmeter_log_analysis_data: BlazeMeter/JMeter log analysis JSON from JMeter MCP analyze_jmeter_log (or None)
             - apm_trace_summary: APM trace summary dict (or None)
             - load_test_config: Load test configuration (or None)
             - load_test_public_report: Load test public report URL (or None)
@@ -177,6 +179,26 @@ async def load_report_data(run_id: str) -> Dict:
         missing_sections
     )
     
+    # Load bottleneck analysis data (optional - from PerfAnalysis identify_bottlenecks)
+    bottleneck_data = await _load_json_safe(
+        analysis_path / "bottleneck_analysis.json",
+        "bottleneck_analysis",
+        source_files,
+        warnings,
+        []  # Don't add to missing_sections - this is optional
+    )
+    
+    # Load BlazeMeter/JMeter log analysis data (optional - from JMeter MCP analyze_jmeter_log)
+    # This is separate from PerfAnalysis log_analysis.json; it provides deeper JMeter-specific
+    # error analysis with request/response details, JTL correlation, and error categorization.
+    jmeter_log_analysis_data = await _load_json_safe(
+        analysis_path / "blazemeter_log_analysis.json",
+        "blazemeter_log_analysis",
+        source_files,
+        warnings,
+        []  # Don't add to missing_sections - this is optional
+    )
+    
     # Load APM trace data (optional)
     # TODO: Currently loads from Datadog-specific folder. Future schema-driven
     # architecture will support multiple APM tools.
@@ -221,6 +243,8 @@ async def load_report_data(run_id: str) -> Dict:
         "infra_data": infra_data,
         "corr_data": corr_data,
         "log_data": log_data,
+        "bottleneck_data": bottleneck_data,
+        "jmeter_log_analysis_data": jmeter_log_analysis_data,
         
         # Markdown summaries
         "perf_summary_md": perf_summary_md,

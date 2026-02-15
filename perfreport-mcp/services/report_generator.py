@@ -100,6 +100,8 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
         infra_summary_md = data["infra_summary_md"]
         corr_summary_md = data["corr_summary_md"]
         log_data = data["log_data"]
+        bottleneck_data = data["bottleneck_data"]
+        jmeter_log_analysis_data = data["jmeter_log_analysis_data"]
         apm_trace_summary = data["apm_trace_summary"]
         load_test_config = data["load_test_config"]
         load_test_public_report = data["load_test_public_report"]
@@ -134,7 +136,9 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             corr_summary_md,
             log_data,
             apm_trace_summary,
-            load_test_config
+            load_test_config,
+            bottleneck_data,
+            jmeter_log_analysis_data
         )
         
         # Add load test public report link to context
@@ -354,7 +358,9 @@ def _build_report_context(
     corr_md: Optional[str],
     log_data: Optional[Dict] = None,
     apm_trace_summary: Optional[Dict] = None,
-    load_test_config: Optional[Dict] = None
+    load_test_config: Optional[Dict] = None,
+    bottleneck_data: Optional[Dict] = None,
+    jmeter_log_analysis_data: Optional[Dict] = None
 ) -> Dict:
     """Build context dictionary for template rendering"""
     
@@ -497,13 +503,13 @@ def _build_report_context(
     context["EXECUTIVE_SUMMARY"] = _build_executive_summary(perf_data, infra_data, corr_data)
     context["KEY_OBSERVATIONS"] = _build_key_observations(perf_data, infra_data)
     context["ISSUES_TABLE"] = _build_issues_table(perf_data)
-    context["BOTTLENECK_ANALYSIS"] = _build_bottleneck_analysis(corr_data, infra_data)
+    context["BOTTLENECK_ANALYSIS"] = _build_bottleneck_analysis(corr_data, infra_data, bottleneck_data)
     context["RECOMMENDATIONS"] = _build_recommendations(perf_data, infra_data, corr_data)
     context["SOURCE_FILES_LIST"] = "See metadata JSON for complete source file list"
     
     # Log analysis sections
     context["LOG_ANALYSIS_SUMMARY"] = _build_log_analysis_summary(log_data)
-    context["JMETER_LOG_ANALYSIS"] = _build_jmeter_log_analysis(log_data)
+    context["JMETER_LOG_ANALYSIS"] = _build_jmeter_log_analysis(log_data, jmeter_log_analysis_data)
     context["DATADOG_LOG_ANALYSIS"] = _build_datadog_log_analysis(log_data)
     context["APM_TRACE_ANALYSIS"] = _build_apm_trace_analysis(apm_trace_summary)
     
@@ -1200,14 +1206,180 @@ def _build_correlation_details(corr_data: Dict) -> str:
     
     return "\n".join(lines)
 
-def _build_bottleneck_analysis(corr_data: Optional[Dict], infra_data: Optional[Dict]) -> str:
+def _build_bottleneck_analysis(
+    corr_data: Optional[Dict],
+    infra_data: Optional[Dict],
+    bottleneck_data: Optional[Dict] = None
+) -> str:
     """
     Build bottleneck identification section with properly formatted output.
     
-    Handles insights data that may be:
-    - A list of strings (direct from JSON)
-    - A string representation of a list (e.g., "['item1', 'item2']")
-    - A plain string
+    When bottleneck_data is available (from PerfAnalysis identify_bottlenecks),
+    uses the rich analysis with summary headline, threshold concurrency, severity
+    breakdown, and per-finding details. Falls back to correlation-based insights
+    when bottleneck_data is not available.
+    
+    Args:
+        corr_data: Correlation analysis data
+        infra_data: Infrastructure analysis data
+        bottleneck_data: Bottleneck analysis JSON from PerfAnalysis identify_bottlenecks (optional)
+        
+    Returns:
+        Formatted markdown string with bottleneck analysis
+    """
+    # Prefer rich bottleneck analysis data when available
+    if bottleneck_data:
+        return _build_rich_bottleneck_analysis(bottleneck_data)
+    
+    # Fallback to correlation-based insights
+    return _build_correlation_bottleneck_analysis(corr_data, infra_data)
+
+
+def _build_rich_bottleneck_analysis(bottleneck_data: Dict) -> str:
+    """
+    Build bottleneck section from PerfAnalysis identify_bottlenecks output.
+    
+    Uses the structured bottleneck_analysis.json which includes summary headline,
+    threshold concurrency, severity breakdown, baseline metrics, and detailed findings.
+    
+    Args:
+        bottleneck_data: Full bottleneck_analysis.json content
+        
+    Returns:
+        Formatted markdown string
+    """
+    lines = []
+    summary = bottleneck_data.get("summary", {})
+    findings = bottleneck_data.get("findings", [])
+    baseline = bottleneck_data.get("baseline_metrics", {})
+    
+    # Headline
+    headline = summary.get("headline", "")
+    if headline:
+        lines.append(f"**{headline}**")
+        lines.append("")
+    
+    # Key metrics summary
+    threshold = summary.get("threshold_concurrency")
+    max_concurrency = summary.get("max_concurrency_tested")
+    optimal_concurrency = summary.get("optimal_concurrency")
+    max_throughput = summary.get("max_throughput_rps")
+    total_bottlenecks = summary.get("total_bottlenecks", 0)
+    
+    metrics_lines = []
+    if threshold is not None:
+        metrics_lines.append(f"- **Degradation Threshold:** {threshold:.0f} virtual users")
+    if optimal_concurrency is not None:
+        metrics_lines.append(f"- **Optimal Concurrency:** {optimal_concurrency:.0f} virtual users")
+    if max_concurrency is not None:
+        metrics_lines.append(f"- **Max Concurrency Tested:** {max_concurrency:.0f} virtual users")
+    if max_throughput is not None:
+        metrics_lines.append(f"- **Peak Throughput:** {max_throughput:.2f} req/sec")
+    metrics_lines.append(f"- **Total Bottlenecks Detected:** {total_bottlenecks}")
+    
+    if metrics_lines:
+        lines.extend(metrics_lines)
+        lines.append("")
+    
+    # Baseline metrics
+    if baseline:
+        baseline_p90 = baseline.get("p90")
+        baseline_error = baseline.get("error_rate")
+        baseline_throughput = baseline.get("throughput_rps")
+        baseline_concurrency = baseline.get("concurrency")
+        
+        baseline_items = []
+        if baseline_concurrency is not None:
+            baseline_items.append(f"Concurrency: {baseline_concurrency:.0f}")
+        if baseline_p90 is not None:
+            baseline_items.append(f"P90: {baseline_p90:.2f} ms")
+        if baseline_error is not None:
+            baseline_items.append(f"Error Rate: {baseline_error:.2f}%")
+        if baseline_throughput is not None:
+            baseline_items.append(f"Throughput: {baseline_throughput:.2f} req/sec")
+        
+        if baseline_items:
+            lines.append(f"**Baseline:** {' | '.join(baseline_items)}")
+            lines.append("")
+    
+    # Severity breakdown
+    by_severity = summary.get("bottlenecks_by_severity", {})
+    severity_parts = []
+    for level in ["critical", "high", "medium", "low", "info"]:
+        count = by_severity.get(level, 0)
+        if count > 0:
+            severity_parts.append(f"{level.capitalize()}: {count}")
+    
+    if severity_parts:
+        lines.append(f"**By Severity:** {' | '.join(severity_parts)}")
+        lines.append("")
+    
+    # Bottleneck type breakdown
+    by_type = summary.get("bottlenecks_by_type", {})
+    type_parts = []
+    for btype, count in by_type.items():
+        if count > 0:
+            label = btype.replace("_", " ").title()
+            type_parts.append(f"{label}: {count}")
+    
+    if type_parts:
+        lines.append(f"**By Type:** {' | '.join(type_parts)}")
+        lines.append("")
+    
+    # Detailed findings table (top findings by severity)
+    if findings:
+        # Sort by severity order: critical > high > medium > low > info
+        severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+        sorted_findings = sorted(
+            findings,
+            key=lambda f: (severity_order.get(f.get("severity", "info"), 4), -abs(f.get("delta_pct", 0)))
+        )
+        
+        lines.append("#### Bottleneck Details")
+        lines.append("")
+        lines.append("| Severity | Type | Scope | Concurrency | Metric | Value | Baseline | Delta |")
+        lines.append("|----------|------|-------|-------------|--------|-------|----------|-------|")
+        
+        for finding in sorted_findings[:15]:  # Top 15 findings
+            severity = finding.get("severity", "info").capitalize()
+            btype = finding.get("bottleneck_type", "unknown").replace("_", " ").title()
+            scope = finding.get("scope_name", "global")
+            # Truncate long scope names for table readability
+            if len(scope) > 40:
+                scope = scope[:37] + "..."
+            concurrency = finding.get("concurrency")
+            concurrency_str = f"{concurrency:.0f}" if concurrency is not None else "N/A"
+            metric_name = finding.get("metric_name", "")
+            # Shorten common metric names for table readability
+            metric_display = metric_name.replace("_ms", "").replace("_", " ").replace("response time", "RT")
+            metric_value = finding.get("metric_value")
+            metric_str = f"{metric_value:.2f}" if metric_value is not None else "N/A"
+            baseline_val = finding.get("baseline_value")
+            baseline_str = f"{baseline_val:.2f}" if baseline_val is not None else "N/A"
+            delta_pct = finding.get("delta_pct")
+            delta_str = f"{delta_pct:+.1f}%" if delta_pct is not None else "N/A"
+            
+            lines.append(
+                f"| {severity} | {btype} | {scope} | {concurrency_str} | "
+                f"{metric_display} | {metric_str} | {baseline_str} | {delta_str} |"
+            )
+        
+        if len(findings) > 15:
+            lines.append("")
+            lines.append(f"*Showing top 15 of {len(findings)} findings. See bottleneck_analysis.json for full details.*")
+    
+    if not lines:
+        return "No bottleneck analysis data available."
+    
+    return "\n".join(lines)
+
+
+def _build_correlation_bottleneck_analysis(corr_data: Optional[Dict], infra_data: Optional[Dict]) -> str:
+    """
+    Build bottleneck section from correlation analysis insights (legacy fallback).
+    
+    Used when bottleneck_analysis.json is not available. Extracts insights
+    from correlation_analysis.json.
     
     Args:
         corr_data: Correlation analysis data
@@ -1399,8 +1571,165 @@ def _build_log_analysis_summary(log_data: Optional[Dict]) -> str:
     return "\n".join(lines)
 
 
-def _build_jmeter_log_analysis(log_data: Optional[Dict]) -> str:
-    """Build JMeter-specific log analysis section"""
+def _build_jmeter_log_analysis(
+    log_data: Optional[Dict],
+    jmeter_log_analysis_data: Optional[Dict] = None
+) -> str:
+    """
+    Build JMeter-specific log analysis section.
+    
+    When jmeter_log_analysis_data is available (from JMeter MCP analyze_jmeter_log),
+    uses the richer analysis with error categorization, severity breakdown, top affected
+    APIs, JTL correlation, and detailed issue table. Falls back to PerfAnalysis
+    log_analysis.json when jmeter_log_analysis_data is not available.
+    
+    Args:
+        log_data: Log analysis data from PerfAnalysis analyze_logs
+        jmeter_log_analysis_data: BlazeMeter log analysis JSON from JMeter MCP (optional)
+        
+    Returns:
+        Formatted markdown string
+    """
+    # Prefer rich JMeter log analysis data when available
+    if jmeter_log_analysis_data:
+        return _build_rich_jmeter_log_analysis(jmeter_log_analysis_data)
+    
+    # Fallback to PerfAnalysis log_data
+    return _build_perfanalysis_jmeter_log_analysis(log_data)
+
+
+def _build_rich_jmeter_log_analysis(jmeter_log_data: Dict) -> str:
+    """
+    Build JMeter log analysis section from JMeter MCP analyze_jmeter_log output.
+    
+    Uses the structured blazemeter_log_analysis.json which includes error categorization,
+    severity breakdown, top affected APIs, JTL correlation, and detailed issues.
+    
+    Args:
+        jmeter_log_data: Full blazemeter_log_analysis.json content
+        
+    Returns:
+        Formatted markdown string
+    """
+    lines = []
+    summary = jmeter_log_data.get("summary", {})
+    issues = jmeter_log_data.get("issues", [])
+    
+    total_issues = summary.get("total_unique_issues", 0)
+    total_occurrences = summary.get("total_occurrences", 0)
+    
+    if total_issues == 0:
+        return "No JMeter errors detected during test execution."
+    
+    lines.append(f"**Total Unique Issues:** {total_issues}")
+    lines.append(f"**Total Error Occurrences:** {total_occurrences}")
+    lines.append("")
+    
+    # Severity breakdown
+    by_severity = summary.get("issues_by_severity", {})
+    severity_parts = []
+    for level in ["Critical", "High", "Medium"]:
+        count = by_severity.get(level, 0)
+        if count > 0:
+            severity_parts.append(f"{level}: {count}")
+    
+    if severity_parts:
+        lines.append(f"**By Severity:** {' | '.join(severity_parts)}")
+        lines.append("")
+    
+    # Error category breakdown
+    by_category = summary.get("issues_by_category", {})
+    category_items = [(cat, cnt) for cat, cnt in by_category.items() if cnt > 0]
+    if category_items:
+        # Sort by count descending
+        category_items.sort(key=lambda x: x[1], reverse=True)
+        lines.append("#### Error Categories")
+        lines.append("")
+        lines.append("| Category | Count |")
+        lines.append("|----------|-------|")
+        for cat, cnt in category_items:
+            lines.append(f"| {cat} | {cnt} |")
+        lines.append("")
+    
+    # Top affected APIs
+    top_apis = summary.get("top_affected_apis", [])
+    if top_apis:
+        lines.append("#### Top Affected APIs")
+        lines.append("")
+        lines.append("| API Endpoint | Errors | Error Categories |")
+        lines.append("|-------------|--------|-----------------|")
+        for api_info in top_apis[:10]:
+            endpoint = api_info.get("api_endpoint", "Unknown")
+            if len(endpoint) > 60:
+                endpoint = endpoint[:57] + "..."
+            error_count = api_info.get("total_errors", 0)
+            categories = ", ".join(api_info.get("error_categories", []))
+            lines.append(f"| {endpoint} | {error_count} | {categories} |")
+        lines.append("")
+    
+    # Error timeline
+    timeline = summary.get("error_timeline", {})
+    first_error = timeline.get("first_error")
+    last_error = timeline.get("last_error")
+    if first_error and last_error:
+        lines.append(f"**Error Timeline:** {first_error} to {last_error}")
+        lines.append("")
+    
+    # JTL correlation summary
+    jtl_corr = summary.get("jtl_correlation", {})
+    matched = jtl_corr.get("log_errors_matched_to_jtl", 0)
+    jtl_only = jtl_corr.get("jtl_only_failures", 0)
+    unmatched = jtl_corr.get("unmatched_log_errors", 0)
+    if matched or jtl_only or unmatched:
+        lines.append("#### JTL Correlation")
+        lines.append("")
+        lines.append(f"- Errors matched to JTL: {matched}")
+        lines.append(f"- JTL-only failures: {jtl_only}")
+        lines.append(f"- Unmatched log errors: {unmatched}")
+        lines.append("")
+    
+    # Detailed issues table (top issues by severity)
+    if issues:
+        lines.append("#### Issue Details")
+        lines.append("")
+        lines.append("| ID | Severity | Category | Response Code | API Endpoint | Count |")
+        lines.append("|----|----------|----------|---------------|-------------|-------|")
+        
+        for issue in issues[:15]:  # Top 15 issues
+            error_id = issue.get("error_id", "")
+            severity = issue.get("severity", "Medium")
+            category = issue.get("error_category", "Unknown")
+            resp_code = issue.get("response_code", "N/A")
+            endpoint = issue.get("api_endpoint", "N/A")
+            if len(endpoint) > 45:
+                endpoint = endpoint[:42] + "..."
+            count = issue.get("error_count", 0)
+            
+            lines.append(
+                f"| {error_id} | {severity} | {category} | {resp_code} | "
+                f"{endpoint} | {count} |"
+            )
+        
+        if len(issues) > 15:
+            lines.append("")
+            lines.append(f"*Showing top 15 of {len(issues)} issues. See blazemeter_log_analysis.json for full details.*")
+    
+    return "\n".join(lines)
+
+
+def _build_perfanalysis_jmeter_log_analysis(log_data: Optional[Dict]) -> str:
+    """
+    Build JMeter log analysis section from PerfAnalysis log data (legacy fallback).
+    
+    Used when blazemeter_log_analysis.json is not available. Extracts JMeter-specific
+    errors from PerfAnalysis log_analysis.json.
+    
+    Args:
+        log_data: Log analysis data from PerfAnalysis analyze_logs
+        
+    Returns:
+        Formatted markdown string
+    """
     if not log_data:
         return "No JMeter log data available."
     

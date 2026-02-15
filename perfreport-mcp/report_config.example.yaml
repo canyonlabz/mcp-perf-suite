@@ -109,6 +109,26 @@ revisable_sections:
       ai_placeholder: "AI_ISSUES_TABLE"
       output_file: "AI_ISSUES_TABLE"
       description: "Table of issues and errors observed during test execution"
+    
+    # Section 6.2 - JMeter Log Analysis
+    # Current placeholder: {{JMETER_LOG_ANALYSIS}}
+    # AI placeholder: {{AI_JMETER_LOG_ANALYSIS}}
+    jmeter_log_analysis:
+      enabled: false
+      placeholder: "JMETER_LOG_ANALYSIS"
+      ai_placeholder: "AI_JMETER_LOG_ANALYSIS"
+      output_file: "AI_JMETER_LOG_ANALYSIS"
+      description: "JMeter/BlazeMeter log error analysis with categorization, affected APIs, and JTL correlation"
+    
+    # Section 7.0 - Bottleneck Identification
+    # Current placeholder: {{BOTTLENECK_ANALYSIS}}
+    # AI placeholder: {{AI_BOTTLENECK_ANALYSIS}}
+    bottleneck_analysis:
+      enabled: false
+      placeholder: "BOTTLENECK_ANALYSIS"
+      ai_placeholder: "AI_BOTTLENECK_ANALYSIS"
+      output_file: "AI_BOTTLENECK_ANALYSIS"
+      description: "Bottleneck identification with degradation thresholds, severity breakdown, and per-endpoint findings"
 
   # Comparison report sections
   # ===========================================================
@@ -136,6 +156,36 @@ revisable_sections:
       ai_placeholder: "AI_ISSUES_SUMMARY"
       output_file: "AI_ISSUES_SUMMARY"
       description: "Summary of issues across compared runs"
+    
+    # Section 1.2 - Overall Performance Trend
+    # Current placeholder: {{OVERALL_TREND_SUMMARY}}
+    # AI placeholder: {{AI_OVERALL_TREND_SUMMARY}}
+    overall_trend_summary:
+      enabled: false
+      placeholder: "OVERALL_TREND_SUMMARY"
+      ai_placeholder: "AI_OVERALL_TREND_SUMMARY"
+      output_file: "AI_OVERALL_TREND_SUMMARY"
+      description: "Overall performance trend narrative comparing key metrics across test runs"
+    
+    # Section 6.0 - Correlation Insights
+    # Current placeholder: {{CORRELATION_INSIGHTS_SECTION}}
+    # AI placeholder: {{AI_CORRELATION_INSIGHTS_SECTION}}
+    correlation_insights_section:
+      enabled: false
+      placeholder: "CORRELATION_INSIGHTS_SECTION"
+      ai_placeholder: "AI_CORRELATION_INSIGHTS_SECTION"
+      output_file: "AI_CORRELATION_INSIGHTS_SECTION"
+      description: "Performance-infrastructure correlation analysis across compared runs"
+    
+    # Section 6.0 - Correlation Key Observations
+    # Current placeholder: {{CORRELATION_KEY_OBSERVATIONS}}
+    # AI placeholder: {{AI_CORRELATION_KEY_OBSERVATIONS}}
+    correlation_key_observations:
+      enabled: false
+      placeholder: "CORRELATION_KEY_OBSERVATIONS"
+      ai_placeholder: "AI_CORRELATION_KEY_OBSERVATIONS"
+      output_file: "AI_CORRELATION_KEY_OBSERVATIONS"
+      description: "Key observations from performance-infrastructure correlations across runs"
 
 # Future configuration options (planned)
 # ======================================
