@@ -185,6 +185,8 @@ def build_infra_cpu_chart(datadog_dir: Path):
     frames = []
     for f in csv_files:
         df = pd.read_csv(f)
+        if "metric" not in df.columns:
+            continue
         cpu_df = df[df["metric"].str.contains("cpu", case=False)].copy()
         if cpu_df.empty:
             continue
@@ -212,6 +214,8 @@ def build_infra_memory_chart(datadog_dir: Path):
     frames = []
     for f in csv_files:
         df = pd.read_csv(f)
+        if "metric" not in df.columns:
+            continue
         mem_df = df[df["metric"].str.contains("memory", case=False)].copy()
         if mem_df.empty:
             continue
@@ -234,7 +238,10 @@ def _find_metric_csvs(datadog_dir: Path) -> list[Path]:
     """Find all metric CSV files in the Datadog directory."""
     if not datadog_dir.exists():
         return []
-    return list(datadog_dir.glob("*.csv"))
+    return (
+        list(datadog_dir.glob("host_metrics_*.csv"))
+        + list(datadog_dir.glob("k8s_metrics_*.csv"))
+    )
 
 
 # ---------------------------------------------------------------------------
