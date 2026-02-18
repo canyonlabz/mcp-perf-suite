@@ -4,7 +4,7 @@ Session state initialization and shared utility functions.
 Centralizes all session state setup to ensure consistent defaults
 across the application. Called once at app startup.
 """
-
+from pathlib import Path
 import streamlit as st
 
 from src.utils.state import (
@@ -22,6 +22,30 @@ from src.utils.state import (
     MigrationStatus,
 )
 
+
+# === Static Asset Helpers ===
+
+def get_logo_path() -> Path:
+    """
+    Resolve the path to the header logo image.
+
+    Assumes repo layout:
+    streamlit-ui/
+      app.py
+      src/ui/static/floating-robot.jpg
+    """
+    # This file lives at src/ui/page_utils.py → parent is ui, parent.parent is src
+    this_dir = Path(__file__).resolve().parent
+    project_root = this_dir.parent.parent  # .../streamlit-ui
+    return project_root / "src" / "ui" / "static" / "floating-robot.jpg"
+
+
+@st.cache_resource
+def get_logo_bytes() -> bytes:
+    """Return the logo image as bytes (cached)."""
+    return get_logo_path().read_bytes()
+
+# === Session State Initialization ===
 
 def initialize_session_state():
     """Initialize all session state variables with defaults."""

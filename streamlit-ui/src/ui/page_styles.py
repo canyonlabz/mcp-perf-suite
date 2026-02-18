@@ -40,8 +40,8 @@ def inject_page_header_styles():
         font-weight: 600;
     }
 
-    /* Clear Session button */
-    .st-key-clear_session button {
+    /* Clear Session and Exit App buttons */
+    .st-key-clear_session button, .st-key-exit_app button {
         background-color: transparent;
         border: 1.5px solid #c95000;
         border-radius: 20px;
@@ -49,25 +49,13 @@ def inject_page_header_styles():
         font-weight: 500;
         font-size: 0.78rem;
         padding: 4px 14px;
+        white-space: nowrap;  /* Prevent text wrapping */
     }
-    .st-key-clear_session button:hover {
-        background-color: #3d1f00;
-        color: #ffb880;
-    }
-
-    /* Exit App button */
-    .st-key-exit_app button {
-        background-color: transparent;
-        border: 1.5px solid #c95000;
-        border-radius: 20px;
-        color: #e8a06a;
-        font-weight: 500;
-        font-size: 0.78rem;
-        padding: 4px 14px;
-    }
-    .st-key-exit_app button:hover {
-        background-color: #3d1f00;
-        color: #ffb880;
+    .st-key-clear_session button:hover, .st-key-exit_app button:hover {
+        /* background-color: #3d1f00; */
+        /* color: #ffb880; */
+        background: #c95000;
+        color: #fff;
     }
     </style>""", unsafe_allow_html=True)
 
@@ -76,20 +64,20 @@ def inject_page_title_styles():
     """Inject CSS for page title and subtitle."""
     st.markdown("""<style>
     .page-title {
-        font-family: Georgia, 'Times New Roman', serif;
-        font-size: 2.0rem;
-        font-weight: 700;
-        color: #d0e8f5;
         text-align: center;
-        margin-bottom: 4px;
+        font-size: 2rem;
+        font-weight: 800;
+        font-family: 'Georgia', serif;
+        margin-top: -30px !important;
+        margin-bottom: 0.25rem;
+        color: #26355E; /* Dark blue-gray */
     }
     .page-subtitle {
-        font-family: Georgia, 'Times New Roman', serif;
-        font-size: 1.0rem;
-        font-weight: 400;
-        color: #8ab4d0;
         text-align: center;
-        margin-bottom: 20px;
+        font-size: 1.25rem;
+        font-weight: 400;
+        color: #3d2b1f; /* Dark brown */
+        margin-bottom: 2rem;
     }
     </style>""", unsafe_allow_html=True)
 

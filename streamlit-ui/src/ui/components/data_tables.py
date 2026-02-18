@@ -26,7 +26,10 @@ def render_styled_dataframe(
     if height is None:
         height = min(40 * len(df) + 40, 600)
 
-    st.dataframe(df, use_container_width=use_container_width, height=height)
+    # Map old flag to new width API
+    width = "stretch" if use_container_width else "content"
+
+    st.dataframe(df, width=width, height=height)
 
 
 def render_html_table(df: pd.DataFrame, max_rows: Optional[int] = None):

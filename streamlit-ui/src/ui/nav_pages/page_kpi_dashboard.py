@@ -167,7 +167,7 @@ def _render_summary_tab(run_id: str, config: dict, availability: dict):
                 return ""
 
             styled = sla_df.style.map(_color_sla, subset=["Compliant"])
-            st.dataframe(styled, use_container_width=True, hide_index=True,
+            st.dataframe(styled, width="stretch", hide_index=True,
                          height=min(40 * len(sla_df) + 40, 500))
 
             render_csv_download(sla_df, f"sla_compliance_{run_id}.csv", "Export SLA Table", f"dl_sla_{run_id}")
@@ -178,7 +178,7 @@ def _render_summary_tab(run_id: str, config: dict, availability: dict):
         st.markdown("#### Pass / Fail")
         donut = build_pass_fail_donut(perf_data)
         if donut:
-            st.altair_chart(donut, use_container_width=True)
+            st.altair_chart(donut, width="stretch")
         else:
             st.info("Not enough data for compliance chart.")
 
@@ -203,7 +203,7 @@ def _render_performance_tab(run_id: str, config: dict, availability: dict, run_p
     # ── Response Time vs VUsers ──
     chart_rt = build_response_time_chart(jtl_df)
     if chart_rt:
-        st.altair_chart(chart_rt, use_container_width=True)
+        st.altair_chart(chart_rt, width="stretch")
 
     # ── Throughput + Error Rate side by side ──
     col_tp, col_err = st.columns(2)
@@ -211,12 +211,12 @@ def _render_performance_tab(run_id: str, config: dict, availability: dict, run_p
     with col_tp:
         chart_tp = build_throughput_chart(jtl_df)
         if chart_tp:
-            st.altair_chart(chart_tp, use_container_width=True)
+            st.altair_chart(chart_tp, width="stretch")
 
     with col_err:
         chart_err = build_error_rate_chart(jtl_df)
         if chart_err:
-            st.altair_chart(chart_err, use_container_width=True)
+            st.altair_chart(chart_err, width="stretch")
 
     # ── Top Slowest APIs ──
     perf_data = load_json(run_id, "analysis/performance_analysis.json", config)
@@ -224,7 +224,7 @@ def _render_performance_tab(run_id: str, config: dict, availability: dict, run_p
         st.markdown("---")
         chart_slow = build_top_slowest_apis_chart(perf_data)
         if chart_slow:
-            st.altair_chart(chart_slow, use_container_width=True)
+            st.altair_chart(chart_slow, width="stretch")
 
     # ── Export ──
     st.markdown("---")
@@ -273,14 +273,14 @@ def _render_infrastructure_tab(run_id: str, config: dict, availability: dict, ru
     # ── CPU Chart ──
     cpu_chart = build_infra_cpu_chart(datadog_dir)
     if cpu_chart:
-        st.altair_chart(cpu_chart, use_container_width=True)
+        st.altair_chart(cpu_chart, width="stretch")
     else:
         st.info("No CPU metric data found in Datadog CSVs.")
 
     # ── Memory Chart ──
     mem_chart = build_infra_memory_chart(datadog_dir)
     if mem_chart:
-        st.altair_chart(mem_chart, use_container_width=True)
+        st.altair_chart(mem_chart, width="stretch")
     else:
         st.info("No Memory metric data found in Datadog CSVs.")
 
@@ -291,7 +291,7 @@ def _render_infrastructure_tab(run_id: str, config: dict, availability: dict, ru
             for f in metric_files:
                 st.markdown(f"- `{f.name}`")
                 df = pd.read_csv(f)
-                st.dataframe(df.head(50), use_container_width=True, height=200)
+                st.dataframe(df.head(50), width="stretch", height=200)
                 render_csv_download(df, f.name, f"Export {f.name}", f"dl_infra_{f.stem}")
 
 
@@ -333,14 +333,14 @@ def _render_bottlenecks_tab(run_id: str, config: dict, availability: dict):
     with col_sev:
         sev_chart = build_bottleneck_severity_chart(bottleneck_data)
         if sev_chart:
-            st.altair_chart(sev_chart, use_container_width=True)
+            st.altair_chart(sev_chart, width="stretch")
         else:
             st.info("No severity data to chart.")
 
     with col_type:
         type_chart = build_bottleneck_type_chart(bottleneck_data)
         if type_chart:
-            st.altair_chart(type_chart, use_container_width=True)
+            st.altair_chart(type_chart, width="stretch")
         else:
             st.info("No type data to chart.")
 
@@ -377,7 +377,7 @@ def _render_bottlenecks_tab(run_id: str, config: dict, availability: dict):
             return colors.get(val.lower(), "")
 
         styled = findings_df.style.map(_color_severity, subset=["Severity"])
-        st.dataframe(styled, use_container_width=True, hide_index=True,
+        st.dataframe(styled, width="stretch", hide_index=True,
                      height=min(40 * len(findings_df) + 40, 500))
 
         render_csv_download(findings_df, f"bottleneck_findings_{run_id}.csv",
@@ -440,12 +440,12 @@ def _render_log_analysis_tab(run_id: str, config: dict, availability: dict):
         with col_sev:
             sev_chart = build_log_severity_chart(log_data)
             if sev_chart:
-                st.altair_chart(sev_chart, use_container_width=True)
+                st.altair_chart(sev_chart, width="stretch")
 
         with col_cat:
             cat_chart = build_log_category_chart(log_data)
             if cat_chart:
-                st.altair_chart(cat_chart, use_container_width=True)
+                st.altair_chart(cat_chart, width="stretch")
 
         # ── Issues Table ──
         issues = log_data.get("issues", [])
@@ -474,7 +474,7 @@ def _render_log_analysis_tab(run_id: str, config: dict, availability: dict):
                 return colors.get(val, "")
 
             styled = issues_df.style.map(_color_severity, subset=["Severity"])
-            st.dataframe(styled, use_container_width=True, hide_index=True)
+            st.dataframe(styled, width="stretch", hide_index=True)
 
             render_csv_download(issues_df, f"log_issues_{run_id}.csv",
                                 "Export Issues", f"dl_log_{run_id}")
@@ -490,7 +490,7 @@ def _render_log_analysis_tab(run_id: str, config: dict, availability: dict):
                     "Total Errors": api.get("total_errors", 0),
                     "Error Categories": ", ".join(api.get("error_categories", [])),
                 })
-            st.dataframe(pd.DataFrame(api_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(api_rows), width="stretch", hide_index=True)
 
         # ── Error Timeline ──
         timeline = summary.get("error_timeline", {})

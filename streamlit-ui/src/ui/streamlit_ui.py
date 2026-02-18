@@ -29,6 +29,9 @@ initialize_session_state()
 
 # --- Render UI ---
 def render_ui():
+    """
+    Renders the Streamlit UI for the MCP Performance Suite.
+    """
     st.set_page_config(
         page_title=module_config.get("ui", {}).get("page_title", "MCP Performance Suite"),
         layout="wide",
@@ -36,26 +39,10 @@ def render_ui():
     )
 
     # Define pages
-    page_home = st.Page(
-        "nav_pages/page_homepage.py",
-        title="Home",
-        icon=":material/home:",
-    )
-    page_config_editor = st.Page(
-        "nav_pages/page_config_editor.py",
-        title="Config Editor",
-        icon=":material/settings:",
-    )
-    page_config_migrate = st.Page(
-        "nav_pages/page_config_migrate.py",
-        title="Config Migration",
-        icon=":material/sync:",
-    )
-    page_kpi_dashboard = st.Page(
-        "nav_pages/page_kpi_dashboard.py",
-        title="KPI Dashboard",
-        icon=":material/monitoring:",
-    )
+    page_home = st.Page("nav_pages/page_homepage.py", title="Home", icon="🏠")
+    page_config_editor = st.Page("nav_pages/page_config_editor.py", title="Config Editor", icon="⚙️")
+    page_config_migrate = st.Page("nav_pages/page_config_migrate.py", title="Config Migration", icon="🔁")
+    page_kpi_dashboard = st.Page("nav_pages/page_kpi_dashboard.py", title="KPI Dashboard", icon="📊")
 
     # Set up navigation
     pg = st.navigation(

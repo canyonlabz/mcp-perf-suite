@@ -9,6 +9,7 @@ import os
 import streamlit as st
 
 from src.ui.page_styles import inject_page_header_styles
+from src.ui.page_utils import get_logo_path
 
 
 def render_page_header():
@@ -18,11 +19,7 @@ def render_page_header():
     col_logo, col_nav, col_controls = st.columns([0.12, 0.68, 0.20])
 
     with col_logo:
-        st.markdown(
-            "<div style='font-size: 1.4rem; font-weight: 700; color: #5a9bc7; "
-            "padding-top: 6px;'>MCP Suite</div>",
-            unsafe_allow_html=True,
-        )
+        st.image(get_logo_path(), width=75)
 
     with col_nav:
         tab_cols = st.columns([0.18, 0.22, 0.25, 0.22, 0.13], border=False)
@@ -43,12 +40,12 @@ def render_page_header():
         ctrl_col1, ctrl_col2 = st.columns([0.5, 0.5], border=False)
 
         with ctrl_col1:
-            if st.button("Clear Session", key="clear_session"):
+            if st.button("🗑️ Clear Session", key="clear_session"):
                 st.session_state.clear()
                 st.rerun()
 
         with ctrl_col2:
-            if st.button("Exit App", key="exit_app"):
+            if st.button("🚪 Exit App", key="exit_app"):
                 st.write("Goodbye!")
                 os._exit(0)
 

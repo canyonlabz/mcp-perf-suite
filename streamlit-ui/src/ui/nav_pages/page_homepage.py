@@ -13,10 +13,7 @@ from src.utils.state import MCP_SERVERS
 
 def render_ui():
     render_page_header()
-    render_page_title(
-        "MCP Performance Suite",
-        "Unified configuration, analysis, and reporting for performance testing"
-    )
+    render_page_title("MCP Performance Suite", "Unified configuration, analysis, and reporting for performance testing.")
 
     config = load_config()
     mcp_root = get_mcp_suite_root()
