@@ -9,17 +9,12 @@ general:
   enable_debug: False   # Enable/disable debug mode
   enable_logging: True  # Enable/disable logging
 
-logging:
-  log_level: "INFO"     # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  verbose_mode: False   # Enable verbose logging for debugging
-  log_path: "/path_to_log/tmp/logs"  # Update with the actual path
-
 artifacts:
   # Dynamically resolved to {repo_root}/artifacts when left empty.
   # Set an explicit absolute path here only if you need a custom location.
   artifacts_path: ""
 
-# Performance Analysis Settings  
+# Performance Analysis Settings
 perf_analysis:
   # DEPRECATED: response_time_sla is no longer used.
   # SLA thresholds are now defined in slas.yaml (per-profile, per-API).
@@ -63,12 +58,6 @@ perf_analysis:
     memory_high_pct: null       # Memory saturation threshold. null = use resource_thresholds.memory.high
     raw_metric_degrade_pct: 50.0 # Relative increase from baseline to flag when utilization % unavailable (no K8s limits)
 
-# OpenAI Integration
-openai:
-  model: "gpt-4o-mini"  # Cost-effective option
-  max_tokens: 2000
-  temperature: 0.3
-  
 # Output Settings
 output:
   default_format: "json"

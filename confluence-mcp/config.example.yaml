@@ -9,11 +9,6 @@ general:
   enable_debug: False   # Enable/disable debug mode
   enable_logging: True  # Enable/disable logging
 
-logging:
-  log_level: "INFO"     # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  verbose_mode: False   # Enable verbose logging for debugging
-  log_path: "C:\\<path_to_project_folder>\\mcp-perf-suite\\tmp\\logs"  # Update with the actual path
-
 artifacts:
   # Dynamically resolved to {repo_root}/artifacts when left empty.
   # Set an explicit absolute path here only if you need a custom location.
