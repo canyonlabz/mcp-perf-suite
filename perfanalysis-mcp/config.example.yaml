@@ -15,7 +15,9 @@ logging:
   log_path: "/path_to_log/tmp/logs"  # Update with the actual path
 
 artifacts:
-  artifacts_path: "/path_to_root/mcp-perf-suite/artifacts"  # Path for artifacts
+  # Dynamically resolved to {repo_root}/artifacts when left empty.
+  # Set an explicit absolute path here only if you need a custom location.
+  artifacts_path: ""
 
 # Performance Analysis Settings  
 perf_analysis:

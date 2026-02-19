@@ -15,7 +15,9 @@ logging:
   log_path: "C:\\<path_to_repo>\\mcp-perf-suite\\tmp\\logs"  # Update with the actual path
 
 artifacts:
-  artifacts_path: "C:\\<path_to_repo>\\mcp-perf-suite\\artifacts"  # Path for artifacts
+  # Dynamically resolved to {repo_root}/artifacts when left empty.
+  # Set an explicit absolute path here only if you need a custom location.
+  artifacts_path: ""
 
 perf_report:
   time_zone: "America/New_York"  # Set the time zone
