@@ -54,7 +54,9 @@ This workflow supports both `single_run` reports and `comparison` reports.
 
 When `report_type="comparison"`, the revision workflow has key differences from single-run reports:
 
-### Comparison-Specific Sections
+### Example Comparison-Specific Sections
+
+- **NOTE:** Other sections are available but will be auto-loaded via the MCP tool and returned with the full list automatically.
 
 | Section ID | Placeholder | Description |
 |------------|-------------|-------------|
@@ -179,8 +181,11 @@ Based on the `data_sources` from discovery, read the relevant files to build con
 2. `artifacts/{run_id}/analysis/performance_summary.md` - Human-readable summary
 3. `artifacts/{run_id}/analysis/infrastructure_analysis.json` - Infrastructure metrics
 4. `artifacts/{run_id}/analysis/correlation_analysis.json` - Correlations
-5. `artifacts/{run_id}/blazemeter/test_config.json` - Test configuration
-6. `artifacts/{run_id}/reports/performance_report_{run_id}.md` - Current report
+5. `artifacts/{run_id}/analysis/bottleneck_analysis.json` - Bottleneck analysis findings
+6. `artifacts/{run_id}/analysis/<source>_log_analysis.json` - Source is either "jmeter" or "blazemeter"
+7. `artifacts/{run_id}/analysis/log_analysis.json` - High-level log analysis, including Datadog
+8. `artifacts/{run_id}/blazemeter/test_config.json` - Test configuration
+9. `artifacts/{run_id}/reports/performance_report_{run_id}.md` - Current report
 
 **Priority files for comparison reports:**
 1. `artifacts/comparisons/{comparison_id}/comparison_metadata_*.json` - Run IDs and config
