@@ -48,6 +48,13 @@ def load_config():
             Path(_get_mcp_suite_root()) / "artifacts"
         )
 
+    # Dynamically resolve templates_path if not explicitly set
+    if not config.get("perf_report", {}).get("templates_path"):
+        config.setdefault("perf_report", {})
+        config["perf_report"]["templates_path"] = str(
+            Path(_get_mcp_suite_root()) / "perfreport-mcp" / "templates"
+        )
+
     return config
 
 def load_chart_colors() -> Dict:

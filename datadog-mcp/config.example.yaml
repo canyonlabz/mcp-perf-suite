@@ -17,7 +17,11 @@ artifacts:
 datadog:
   ssl_verification: "disabled"     # Options: "ca_bundle" (use certs from env vars) or "disabled" (skip verification)
   time_zone: "America/New_York"  # Set the time zone
-  environments_json_path: "/path_to_root/mcp-perf-suite/datadog-mcp/environments.json"
-  custom_queries_json_path: "/path_to_root/mcp-perf-suite/datadog-mcp/custom_queries.json"
+  # Dynamically resolved to {repo_root}/datadog-mcp/environments.json when left empty.
+  # Set an explicit absolute path here only if you need a custom location.
+  environments_json_path: ""
+  # Dynamically resolved to {repo_root}/datadog-mcp/custom_queries.json when left empty.
+  # Set an explicit absolute path here only if you need a custom location.
+  custom_queries_json_path: ""
   log_page_limit: 100  # Number of log entries to fetch per page
   apm_page_limit: 100  # Number of APM traces to fetch per page

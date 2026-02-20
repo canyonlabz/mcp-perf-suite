@@ -46,6 +46,20 @@ def load_config():
             Path(_get_mcp_suite_root()) / "artifacts"
         )
 
+    # Dynamically resolve environments_json_path if not explicitly set
+    if not config.get("datadog", {}).get("environments_json_path"):
+        config.setdefault("datadog", {})
+        config["datadog"]["environments_json_path"] = str(
+            Path(_get_mcp_suite_root()) / "datadog-mcp" / "environments.json"
+        )
+
+    # Dynamically resolve custom_queries_json_path if not explicitly set
+    if not config.get("datadog", {}).get("custom_queries_json_path"):
+        config.setdefault("datadog", {})
+        config["datadog"]["custom_queries_json_path"] = str(
+            Path(_get_mcp_suite_root()) / "datadog-mcp" / "custom_queries.json"
+        )
+
     return config
 
 if __name__ == '__main__':

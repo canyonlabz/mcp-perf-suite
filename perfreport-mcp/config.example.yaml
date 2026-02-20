@@ -17,4 +17,6 @@ artifacts:
 perf_report:
   time_zone: "America/New_York"  # Set the time zone
   apm_tool: "datadog"  # Options: datadog, newrelic, appdynamics, dynatrace
-  templates_path: "C:\\<path_to_repo>\\mcp-perf-suite\\perfreport-mcp\\templates"  # Path to report templates
+  # Dynamically resolved to {repo_root}/perfreport-mcp/templates when left empty.
+  # Set an explicit absolute path here only if you need a custom location.
+  templates_path: ""
