@@ -16,3 +16,6 @@ altair>=5.0.0
 
 # Config Migration (diff computation)
 deepdiff>=8.0.0
+
+# Image Processing (for file formats e.g. PNG, JPEG)
+pillow>=12.0.0
