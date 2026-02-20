@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, Optional, List
 
 # Import config at module level
-from utils.config import load_config, load_chart_colors
+from utils.config import load_config, load_chart_colors, _get_mcp_suite_root
 
 # Load configuration
 CONFIG = load_config()
@@ -165,7 +165,7 @@ async def load_environment_details(run_id: str, env_name: str) -> Optional[Dict]
         >>> print(result["resources"])
         ['nga-ai-autogen-app-api', 'nga-ai-plan-service']
     """
-    env_path = Path("../datadog-mcp") / "environments.json"
+    env_path = Path(_get_mcp_suite_root()) / "datadog-mcp" / "environments.json"
     if not env_path.exists():
         return None
 
