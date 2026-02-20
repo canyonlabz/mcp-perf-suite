@@ -63,9 +63,9 @@ Copy the example configuration and customize for your environment:
 cp config.example.yaml config.yaml
 
 # Edit config.yaml with your paths:
-# - artifacts_path: where test outputs are stored
-# - jmeter_home: path to your JMeter installation
-# - jmeter_bin_path: path to JMeter bin directory
+# - artifacts_path: auto-resolved; leave empty unless you need a custom location
+# - jmeter_home: path to your JMeter installation (required)
+# - jmeter_bin_path: path to JMeter bin directory (required)
 ```
 
 ### 3. Set Up Python Environment
@@ -111,13 +111,9 @@ general:
   enable_debug: False
   enable_logging: True
 
-logging:
-  log_level: "INFO"
-  verbose_mode: False
-  log_path: "C:\\path\\to\\logs"
-
 artifacts:
-  artifacts_path: "C:\\path\\to\\mcp-perf-suite\\artifacts"
+  # Dynamically resolved to {repo_root}/artifacts when left empty.
+  artifacts_path: ""
 
 jmeter:
   jmeter_home: "C:\\path\\to\\apache-jmeter"

@@ -80,46 +80,38 @@ Create an `environments.json` file defining your environments, hosts, and Kubern
     "QA": {
       "env_tag": "qa",
       "metadata": {
-        "platform": "Windows Server 2019",
+        "platform": "Windows Server 2025",
         "description": "QA environment for web/app/db tier"
       },
       "tags": ["team:qa"],
       "services": [
-        {"service_name": "serviceA", "type": "web", "cpus": 4, "memory": "8GB"},
-        {"service_name": "serviceB", "type": "app", "cpus": 4, "memory": "16GB"}
+        {"service_name": "serviceA", "type": "web"},
+        {"service_name": "serviceB", "type": "app"}
       ],
       "hosts": [
-        {"hostname": "qa-web-01", "description": "webserver", "cpus": "4 cores", "memory": "4GB"},
-        {"hostname": "qa-app-01", "description": "application server", "cpus": "4.05 cores", "memory": "8GB"},
+        {"hostname": "qa-web-01", "description": "webserver"},
+        {"hostname": "qa-app-01", "description": "application server"},
         {"hostname": "qa-db-01", "description": "database"}
       ],
       "kubernetes": {
         "services": [
           {
             "service_filter": "*products*",
-            "description": "Products microservices",
-            "cpus": "4.05 cores",
-            "memory": "16GiB"
+            "description": "Products microservices"
           },
           {
             "service_filter": "*auth*", 
-            "description": "Authentication services",
-            "cpus": "4.05 cores",
-            "memory": "8GiB"
+            "description": "Authentication services"
           }
         ],
         "pods": [
           {
             "pod_filter": "app-web*",
-            "description": "App Web Pod",
-            "cpus": "4.05 cores",
-            "memory": "16 GiB"
+            "description": "App Web Pod"
           },
           {
             "pod_filter": "app-worker*",
-            "description": "App Worker Pod",
-            "cpus": "1.5 cores",
-            "memory": "8 GiB"
+            "description": "App Worker Pod"
           }
         ]
       }
@@ -287,13 +279,17 @@ datadog-mcp/
 
 ```yaml
 artifacts:
-  artifacts_path: "artifacts"
+  # Dynamically resolved to {repo_root}/artifacts when left empty.
+  artifacts_path: ""
 
 datadog:
-  environments_json_path: "/path-to-root/mcp-perf-suite/datadog-mcp/environments.json"
+  # Dynamically resolved to {repo_root}/datadog-mcp/environments.json when left empty.
+  environments_json_path: ""
   time_zone: "America/New_York"
   log_page_limit: 1000    # Number of log entries to fetch per page
 ```
+
+> **Note:** Path settings (`artifacts_path`, `environments_json_path`, `custom_queries_json_path`) are dynamically resolved at startup. Leave them empty to use the defaults, or set an explicit absolute path for a custom location.
 
 
 ### Environment Schema

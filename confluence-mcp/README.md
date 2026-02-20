@@ -205,9 +205,11 @@ search_pages(query="QA Testing", mode="onprem", space_ref="MYQA")
 
 ### config.yaml
 
-```
+```yaml
 artifacts:
-  artifacts_path: "./artifacts"  # Base path for reports and charts
+  # Dynamically resolved to {repo_root}/artifacts when left empty.
+  # Set an explicit absolute path here only if you need a custom location.
+  artifacts_path: ""
 
 confluence:
   ssl_verification: "ca_bundle"  # Options: ca_bundle, disabled, system
@@ -215,12 +217,11 @@ confluence:
 
 ### OS-Specific Overrides
 
-Create `config.windows.yaml` or `config.mac.yaml` for platform-specific paths:
+Create `config.windows.yaml` or `config.mac.yaml` for platform-specific settings:
 
-```
+```yaml
 artifacts:
-  artifacts_path: "C:\\Users\\YourName\\mcp-perf-suite\\artifacts"  # Windows
-  # artifacts_path: "/Users/yourname/mcp-perf-suite/artifacts"      # macOS
+  artifacts_path: ""  # Auto-resolved; set only for a custom location
 ```
 
 ## 🔐 Authentication
