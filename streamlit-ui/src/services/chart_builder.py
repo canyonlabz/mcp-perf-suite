@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.ui.components.charts import (
+    create_area_time_series,
     create_dual_axis_time_series,
     create_single_axis_time_series,
     create_multi_line_time_series,
@@ -176,62 +177,181 @@ def build_pass_fail_donut(perf_analysis: dict):
 # Infrastructure Tab Charts
 # ---------------------------------------------------------------------------
 
-def build_infra_cpu_chart(datadog_dir: Path):
-    """Multi-line chart: CPU utilization over time per service/host."""
+def _detect_environment_type(df: pd.DataFrame) -> str:
+    """Detect whether the CSV data is K8s-based or Host-based."""
+    if "metric" not in df.columns:
+        return "unknown"
+    metrics = df["metric"].unique()
+    if any("kubernetes." in m for m in metrics):
+        return "k8s"
+    if any(m in ("cpu_util_pct", "mem_util_pct") for m in metrics):
+        return "host"
+    return "unknown"
+
+
+def _get_service_label(df: pd.DataFrame) -> str:
+    """Extract a service/host label from the DataFrame."""
+    if "container_or_pod" in df.columns:
+        vals = df["container_or_pod"].dropna().unique()
+        if len(vals) > 0 and str(vals[0]) != "N/A":
+            return str(vals[0])
+    if "filter" in df.columns:
+        vals = df["filter"].dropna().unique()
+        if len(vals) > 0:
+            return str(vals[0]).rstrip("*")
+    if "hostname" in df.columns:
+        vals = df["hostname"].dropna().unique()
+        if len(vals) > 0 and str(vals[0]) != "N/A":
+            return str(vals[0])
+    return "service"
+
+
+def build_infra_cpu_chart(datadog_dir: Path, cpu_unit: str = "millicores") -> Optional[dict]:
+    """
+    Area chart: CPU usage over time with optional limit line.
+
+    Args:
+        datadog_dir: Path to the datadog/ artifact directory.
+        cpu_unit: "millicores" or "cores" (only applies to K8s data).
+
+    Returns:
+        dict with keys: chart, is_k8s, service_label
+        or None if no data.
+    """
     csv_files = _find_metric_csvs(datadog_dir)
     if not csv_files:
         return None
 
-    frames = []
     for f in csv_files:
         df = pd.read_csv(f)
         if "metric" not in df.columns:
             continue
-        cpu_df = df[df["metric"].str.contains("cpu", case=False)].copy()
-        if cpu_df.empty:
-            continue
-        cpu_df["timestamp"] = pd.to_datetime(cpu_df["timestamp_utc"])
-        service = cpu_df["container_or_pod"].iloc[0] if "container_or_pod" in cpu_df.columns else f.stem
-        cpu_df["service"] = service
-        frames.append(cpu_df[["timestamp", "value", "service"]])
 
-    if not frames:
-        return None
+        env_type = _detect_environment_type(df)
+        service_label = _get_service_label(df)
 
-    combined = pd.concat(frames, ignore_index=True)
-    return create_multi_line_time_series(
-        df=combined, x_col="timestamp", y_col="value", color_col="service",
-        y_title="CPU Usage", title="CPU Utilization Over Time",
-    )
+        if env_type == "k8s":
+            usage_df = df[df["metric"] == "kubernetes.cpu.usage.total"].copy()
+            if usage_df.empty:
+                continue
+            usage_df["timestamp"] = pd.to_datetime(usage_df["timestamp_utc"])
+
+            if cpu_unit == "cores":
+                usage_df["display_value"] = usage_df["value"] / 1e9
+                y_title = "CPU Usage (Cores)"
+            else:
+                usage_df["display_value"] = usage_df["value"] / 1e6
+                y_title = "CPU Usage (Millicores)"
+
+            # Check for limits
+            limit_value = None
+            limits_df = df[df["metric"] == "kubernetes.cpu.limits"]
+            if not limits_df.empty:
+                raw_limit = limits_df["value"].mean()
+                if raw_limit > 0:
+                    if cpu_unit == "cores":
+                        limit_value = raw_limit
+                    else:
+                        limit_value = raw_limit * 1000
+
+            chart = create_area_time_series(
+                df=usage_df, x_col="timestamp", y_col="display_value",
+                y_title=y_title, color="#5276A7",
+                title=f"CPU Usage - {service_label}",
+                limit_value=limit_value,
+                limit_label=f"CPU Limit ({cpu_unit.title()})",
+            )
+            return {"chart": chart, "is_k8s": True, "service_label": service_label}
+
+        elif env_type == "host":
+            usage_df = df[df["metric"] == "cpu_util_pct"].copy()
+            if usage_df.empty:
+                continue
+            usage_df["timestamp"] = pd.to_datetime(usage_df["timestamp_utc"])
+            usage_df["display_value"] = usage_df["value"]
+
+            chart = create_area_time_series(
+                df=usage_df, x_col="timestamp", y_col="display_value",
+                y_title="CPU Utilization (%)", color="#5276A7",
+                title=f"CPU Utilization - {service_label}",
+            )
+            return {"chart": chart, "is_k8s": False, "service_label": service_label}
+
+    return None
 
 
-def build_infra_memory_chart(datadog_dir: Path):
-    """Multi-line chart: Memory utilization over time per service/host."""
+def build_infra_memory_chart(datadog_dir: Path, mem_unit: str = "mb") -> Optional[dict]:
+    """
+    Area chart: Memory usage over time with optional limit line.
+
+    Args:
+        datadog_dir: Path to the datadog/ artifact directory.
+        mem_unit: "mb" or "gb" (only applies to K8s data).
+
+    Returns:
+        dict with keys: chart, is_k8s, service_label
+        or None if no data.
+    """
     csv_files = _find_metric_csvs(datadog_dir)
     if not csv_files:
         return None
 
-    frames = []
     for f in csv_files:
         df = pd.read_csv(f)
         if "metric" not in df.columns:
             continue
-        mem_df = df[df["metric"].str.contains("memory", case=False)].copy()
-        if mem_df.empty:
-            continue
-        mem_df["timestamp"] = pd.to_datetime(mem_df["timestamp_utc"])
-        service = mem_df["container_or_pod"].iloc[0] if "container_or_pod" in mem_df.columns else f.stem
-        mem_df["service"] = service
-        frames.append(mem_df[["timestamp", "value", "service"]])
 
-    if not frames:
-        return None
+        env_type = _detect_environment_type(df)
+        service_label = _get_service_label(df)
 
-    combined = pd.concat(frames, ignore_index=True)
-    return create_multi_line_time_series(
-        df=combined, x_col="timestamp", y_col="value", color_col="service",
-        y_title="Memory Usage", title="Memory Utilization Over Time",
-    )
+        if env_type == "k8s":
+            usage_df = df[df["metric"] == "kubernetes.memory.usage"].copy()
+            if usage_df.empty:
+                continue
+            usage_df["timestamp"] = pd.to_datetime(usage_df["timestamp_utc"])
+
+            if mem_unit == "gb":
+                usage_df["display_value"] = usage_df["value"] / 1e9
+                y_title = "Memory Usage (GB)"
+            else:
+                usage_df["display_value"] = usage_df["value"] / 1e6
+                y_title = "Memory Usage (MB)"
+
+            # Check for limits
+            limit_value = None
+            limits_df = df[df["metric"] == "kubernetes.memory.limits"]
+            if not limits_df.empty:
+                raw_limit = limits_df["value"].mean()
+                if raw_limit > 0:
+                    if mem_unit == "gb":
+                        limit_value = raw_limit / 1e9
+                    else:
+                        limit_value = raw_limit / 1e6
+
+            chart = create_area_time_series(
+                df=usage_df, x_col="timestamp", y_col="display_value",
+                y_title=y_title, color="#F18727",
+                title=f"Memory Usage - {service_label}",
+                limit_value=limit_value,
+                limit_label=f"Memory Limit ({mem_unit.upper()})",
+            )
+            return {"chart": chart, "is_k8s": True, "service_label": service_label}
+
+        elif env_type == "host":
+            usage_df = df[df["metric"] == "mem_util_pct"].copy()
+            if usage_df.empty:
+                continue
+            usage_df["timestamp"] = pd.to_datetime(usage_df["timestamp_utc"])
+            usage_df["display_value"] = usage_df["value"]
+
+            chart = create_area_time_series(
+                df=usage_df, x_col="timestamp", y_col="display_value",
+                y_title="Memory Utilization (%)", color="#F18727",
+                title=f"Memory Utilization - {service_label}",
+            )
+            return {"chart": chart, "is_k8s": False, "service_label": service_label}
+
+    return None
 
 
 def _find_metric_csvs(datadog_dir: Path) -> list[Path]:

@@ -270,17 +270,62 @@ def _render_infrastructure_tab(run_id: str, config: dict, availability: dict, ru
 
     st.markdown("---")
 
+    # ── Unit Toggle Switches ──
+    # Build CPU chart first with defaults to detect environment type
+    cpu_result = build_infra_cpu_chart(datadog_dir, cpu_unit="millicores")
+    mem_result = build_infra_memory_chart(datadog_dir, mem_unit="mb")
+
+    is_k8s = (cpu_result and cpu_result["is_k8s"]) or (mem_result and mem_result["is_k8s"])
+
+    toggle_col1, toggle_col2, toggle_spacer = st.columns([0.25, 0.25, 0.5])
+
+    with toggle_col1:
+        if is_k8s:
+            cpu_unit = st.radio(
+                "CPU Unit", ["Millicores", "Cores"],
+                horizontal=True, key="infra_cpu_unit",
+            )
+        else:
+            cpu_unit = st.radio(
+                "CPU Unit", ["—"],
+                horizontal=True, key="infra_cpu_unit", disabled=True,
+                label_visibility="collapsed",
+            )
+            cpu_unit = None
+
+    with toggle_col2:
+        if is_k8s:
+            mem_unit = st.radio(
+                "Memory Unit", ["MB", "GB"],
+                horizontal=True, key="infra_mem_unit",
+            )
+        else:
+            mem_unit = st.radio(
+                "Memory Unit", ["—"],
+                horizontal=True, key="infra_mem_unit", disabled=True,
+                label_visibility="collapsed",
+            )
+            mem_unit = None
+
+    # Rebuild charts with selected units if they changed from defaults
+    if is_k8s:
+        selected_cpu = cpu_unit.lower() if cpu_unit else "millicores"
+        selected_mem = mem_unit.lower() if mem_unit else "mb"
+
+        if selected_cpu != "millicores":
+            cpu_result = build_infra_cpu_chart(datadog_dir, cpu_unit=selected_cpu)
+        if selected_mem != "mb":
+            mem_result = build_infra_memory_chart(datadog_dir, mem_unit=selected_mem)
+
     # ── CPU Chart ──
-    cpu_chart = build_infra_cpu_chart(datadog_dir)
-    if cpu_chart:
-        st.altair_chart(cpu_chart, width="stretch")
+    if cpu_result:
+        st.altair_chart(cpu_result["chart"], use_container_width=True)
     else:
         st.info("No CPU metric data found in Datadog CSVs.")
 
     # ── Memory Chart ──
-    mem_chart = build_infra_memory_chart(datadog_dir)
-    if mem_chart:
-        st.altair_chart(mem_chart, width="stretch")
+    if mem_result:
+        st.altair_chart(mem_result["chart"], use_container_width=True)
     else:
         st.info("No Memory metric data found in Datadog CSVs.")
 
@@ -291,7 +336,7 @@ def _render_infrastructure_tab(run_id: str, config: dict, availability: dict, ru
             for f in metric_files:
                 st.markdown(f"- `{f.name}`")
                 df = pd.read_csv(f)
-                st.dataframe(df.head(50), width="stretch", height=200)
+                st.dataframe(df.head(50), use_container_width=True, height=200)
                 render_csv_download(df, f.name, f"Export {f.name}", f"dl_infra_{f.stem}")
 
 

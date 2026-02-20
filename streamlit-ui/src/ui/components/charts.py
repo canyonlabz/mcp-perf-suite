@@ -198,6 +198,69 @@ def create_donut_chart(
     return chart
 
 
+def create_area_time_series(
+    df: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    y_title: str = "Value",
+    color: str = "#5276A7",
+    title: str = "",
+    height: int = 400,
+    limit_value: Optional[float] = None,
+    limit_label: str = "Limit",
+) -> alt.LayerChart:
+    """
+    Create a filled area chart with a line overlay for infrastructure metrics.
+
+    Args:
+        df: DataFrame with time series data (must be sorted by x_col).
+        x_col: Column name for x-axis (timestamp).
+        y_col: Column name for y-axis metric.
+        y_title: Y-axis title.
+        color: Fill and line color.
+        title: Chart title.
+        height: Chart height in pixels.
+        limit_value: If provided, draws a horizontal dashed orange rule at this value.
+        limit_label: Label for the limit line in the tooltip/legend.
+    """
+    base = alt.Chart(df.sort_values(x_col))
+
+    area = base.mark_area(
+        opacity=0.3,
+        color=color,
+        line={"color": color, "strokeWidth": 2},
+    ).encode(
+        x=alt.X(f"{x_col}:T", axis=alt.Axis(format="%H:%M", labelAngle=45, title="Time (hh:mm) UTC")),
+        y=alt.Y(f"{y_col}:Q", axis=alt.Axis(title=y_title)),
+        tooltip=[
+            alt.Tooltip(f"{x_col}:T", title="Time", format="%H:%M:%S"),
+            alt.Tooltip(f"{y_col}:Q", title=y_title, format=",.2f"),
+        ],
+    )
+
+    layers = [area]
+
+    if limit_value is not None and limit_value > 0:
+        limit_line = alt.Chart(
+            pd.DataFrame({"limit": [limit_value]})
+        ).mark_rule(
+            color="#F18727",
+            strokeDash=[6, 4],
+            strokeWidth=2,
+        ).encode(
+            y="limit:Q",
+            tooltip=[alt.Tooltip("limit:Q", title=limit_label, format=",.2f")],
+        )
+        layers.append(limit_line)
+
+    chart = alt.layer(*layers).properties(
+        title=title,
+        height=height,
+    ).interactive()
+
+    return chart
+
+
 def create_severity_bar(
     df: pd.DataFrame,
     count_col: str = "count",
