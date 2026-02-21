@@ -268,7 +268,9 @@ jmeter-mcp/jmeter_config.yaml
 jmeter-mcp/test-specs/*
 !jmeter-mcp/test-specs/README.md
 !jmeter-mcp/test-specs/web-flows/blazedemo_product_purchase.md
+!jmeter-mcp/test-specs/azure-devops/
 !jmeter-mcp/test-specs/azure-devops/README.md
+!jmeter-mcp/test-specs/jira/
 !jmeter-mcp/test-specs/jira/README.md
 
 # Ignore local Datadog environments and custom queries files
