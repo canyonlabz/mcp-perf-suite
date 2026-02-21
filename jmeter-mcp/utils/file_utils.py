@@ -6,6 +6,7 @@ End-users and developers can extend or modify these functions independently
 of the core JMeter component utilities.
 """
 import csv
+import re
 import xml.etree.ElementTree as ET
 import datetime
 import json
@@ -13,6 +14,10 @@ import os
 import urllib.parse
 from typing import Any, Dict, List
 from xml.dom import minidom
+
+_INVALID_XML_CHARS = re.compile(
+    r'[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]'
+)
 
 from utils.config import load_config
 
@@ -50,8 +55,9 @@ def save_jmx_file(root_element: ET.Element, run_id: str) -> str:
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = os.path.join(output_dir, f"ai-generated_script_{timestamp}.jmx")
 
-    xml_string = ET.tostring(root_element, encoding="utf-8")
-    pretty_xml = minidom.parseString(xml_string).toprettyxml(indent="  ")
+    xml_bytes = ET.tostring(root_element, encoding="utf-8")
+    xml_cleaned = _INVALID_XML_CHARS.sub('', xml_bytes.decode("utf-8"))
+    pretty_xml = minidom.parseString(xml_cleaned.encode("utf-8")).toprettyxml(indent="  ")
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(pretty_xml)
