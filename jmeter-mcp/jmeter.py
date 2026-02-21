@@ -25,6 +25,13 @@ from services.playwright_adapter import archive_existing_traces
 from services.correlations import analyze_traffic  # New modular package (v0.2.0)
 from services.jmeter_log_analyzer import analyze_logs as run_jmeter_log_analysis
 
+# Lazy import: HAR adapter is optional — server must start even if it fails to load (safeguard #1)
+try:
+    from services.har_adapter import convert_har_to_capture as _har_convert, validate_har_file as _har_validate
+    _HAR_ADAPTER_AVAILABLE = True
+except Exception:
+    _HAR_ADAPTER_AVAILABLE = False
+
 # ----------------------------------------------------------
 # Browser Automation Helper Tools
 # ----------------------------------------------------------
@@ -167,6 +174,88 @@ async def capture_network_traffic(test_run_id: str, spec_file: str, ctx: Context
             "spec_file": spec_file,
             "output_path": None,
             "error": str(e)
+        }
+
+@mcp.tool()
+async def convert_har_to_capture(
+    test_run_id: str,
+    har_path: str,
+    ctx: Context,
+    step_strategy: str = "auto",
+    time_gap_threshold_ms: int = 3000,
+) -> dict:
+    """
+    Convert a HAR (HTTP Archive) file to network capture JSON format.
+
+    Use this instead of capture_network_traffic when you have a HAR file
+    from Chrome DevTools, a proxy tool (Charles, Fiddler, mitmproxy),
+    or Postman. The output JSON feeds directly into analyze_network_traffic
+    and generate_jmeter_script.
+
+    Args:
+        test_run_id (str): Unique identifier for the test run.
+        har_path (str): Full path to the HAR file.
+        ctx (Context): FastMCP context for logging.
+        step_strategy (str): How to group entries into steps
+            (auto/page/time_gap/single_step). Default: auto.
+        time_gap_threshold_ms (int): Gap threshold for time_gap strategy.
+            Default: 3000ms.
+
+    Returns:
+        dict: {
+            "status": "OK" | "ERROR",
+            "message": str,
+            "test_run_id": str,
+            "network_capture_path": str | None,
+            "error": str | None
+        }
+    """
+    _ = ctx  # reserved for future context usage
+    if not _HAR_ADAPTER_AVAILABLE:
+        return {
+            "status": "ERROR",
+            "message": "HAR adapter is not available. Check server logs for import errors.",
+            "test_run_id": test_run_id,
+            "network_capture_path": None,
+            "error": "HAR adapter failed to load",
+        }
+    try:
+        output_path = _har_convert(
+            har_path=har_path,
+            test_run_id=test_run_id,
+            step_strategy=step_strategy,
+            time_gap_threshold_ms=time_gap_threshold_ms,
+        )
+        return {
+            "status": "OK",
+            "message": f"HAR file converted. Network capture saved to: {output_path}",
+            "test_run_id": test_run_id,
+            "network_capture_path": output_path,
+            "error": None,
+        }
+    except FileNotFoundError as e:
+        return {
+            "status": "ERROR",
+            "message": str(e),
+            "test_run_id": test_run_id,
+            "network_capture_path": None,
+            "error": str(e),
+        }
+    except ValueError as e:
+        return {
+            "status": "ERROR",
+            "message": str(e),
+            "test_run_id": test_run_id,
+            "network_capture_path": None,
+            "error": str(e),
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "message": f"Unexpected error converting HAR file: {e}",
+            "test_run_id": test_run_id,
+            "network_capture_path": None,
+            "error": str(e),
         }
 
 @mcp.tool()

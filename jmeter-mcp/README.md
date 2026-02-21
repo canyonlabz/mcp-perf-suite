@@ -18,13 +18,14 @@ This is a Python-based MCP server built with **FastMCP 2.0** that partners with 
 * **⏹️ Stop active JMeter tests**: Gracefully terminate test executions in progress.
 * **📊 Aggregate post-test results**: Parse JMeter JTL output to generate JMeter/BlazeMeter-style summary reports and KPIs.
 * **🔬 Deep log analysis**: Analyze JMeter/BlazeMeter log files — group errors by type, API, and root cause with first-occurrence request/response details and JTL correlation.
+* **📂 HAR file input adapter**: Convert HAR files from Chrome DevTools, proxy tools (Charles, Fiddler, mitmproxy), or Postman into network capture JSON — an alternative on-ramp to the existing pipeline.
 
 
 🧩 Future tools under consideration:
 
 * **OAuth 2.0 / PKCE correlation support** — Authentication flow correlation (Phase 2)
 * **HITL tools** — Human-in-the-loop tools to add/edit JMeter elements (e.g., samplers, extractors, assertions) as needed
-* **Input adapters** — HAR file adapter and Swagger/OpenAPI adapter to convert those files into the well-structured network capture JSON for JMX generation
+* **Swagger/OpenAPI adapter** — Convert API specifications into synthetic network capture JSON for JMX generation
 
 ---
 
@@ -271,6 +272,7 @@ The JMeter MCP server exposes the following tools for agents, Cursor, or automat
 | `get_test_specs`            | Discovers available Markdown browser automation specs in `test-specs/`     |
 | `get_browser_steps`         | Loads a given Markdown file and parses browser automation test steps       |
 | `capture_network_traffic`   | Parses Playwright network traces and maps them to test steps from a spec file |
+| `convert_har_to_capture`    | Convert a HAR (HTTP Archive) file to network capture JSON for JMeter script generation |
 | `analyze_network_traffic`   | Analyzes network traffic to identify correlations, dynamic values, and orphan IDs |
 
 ### JMeter Script Generation & Execution
@@ -377,6 +379,7 @@ jmeter-mcp/
 │   ├── jmeter_log_analyzer.py    # Deep JMeter/BlazeMeter log analysis service
 │   ├── jmeter_runner.py          # Handles JMeter execution, control, and reporting
 │   ├── network_capture.py        # URL filtering and capture configuration logic
+│   ├── har_adapter.py            # Converts HAR files into step-aware network capture
 │   ├── playwright_adapter.py     # Parses Playwright traces into step-aware network capture
 │   ├── script_generator.py       # Generates JMX scripts from network capture JSON
 │   ├── spec_parser.py            # Parses Markdown specs into structured steps
@@ -412,7 +415,8 @@ artifacts/
 └── <test_run_id>/
     ├── jmeter/
     │   ├── network-capture/
-    │   │   └── network_capture_<timestamp>.json
+    │   │   ├── network_capture_<timestamp>.json
+    │   │   └── capture_manifest.json       # Source provenance (HAR adapter)
     │   ├── correlation_spec.json        # Correlation analysis output
     │   ├── correlation_naming.json      # Variable naming (via Cursor Rules)
     │   ├── <test_run_id>.jmx            # Generated JMeter script
@@ -484,9 +488,8 @@ The correlation analyzer (v0.2.0) performs the following:
 ## 🚧 Future Enhancements
 
 ### Input Adapters
-* **HAR file adapter** — Convert browser-recorded or proxy-captured HAR files into network capture JSON for JMX generation (Phase 1)
+* ~~**HAR file adapter**~~ — ✅ Implemented (`convert_har_to_capture`)
 * **Swagger/OpenAPI adapter** — Convert API specifications into synthetic network capture JSON for JMX generation (Phase 2)
-* Both adapters reuse the existing correlation analysis and JMX generation pipeline
 
 ### Script Generation & Editing
 * **OAuth 2.0 / PKCE correlation support** for authentication flows
