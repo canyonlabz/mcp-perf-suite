@@ -31,7 +31,22 @@ A detailed guide explaining how to create custom Markdown templates for performa
 
 ---
 
-### ⚙️ **2. MCP Configuration References (Coming Soon)**
+### 📂 **2. HAR Adapter Guide (`har_adapter_guide.md`)**
+
+A practical guide for Performance Test Engineers on converting HAR files into JMeter scripts using the `convert_har_to_capture` tool, including:
+
+* When to use the HAR adapter vs. Playwright or Swagger inputs
+* Configuration prerequisites (domain filtering, pseudo-header stripping)
+* Step-by-step usage with parameter reference
+* Step strategy selection (auto, page, time_gap, single_step)
+* Output structure and capture manifest
+* Troubleshooting common issues
+
+➡️ *Use this if you have a HAR file and want to generate a JMeter script from it.*
+
+---
+
+### ⚙️ **3. MCP Configuration References (Coming Soon)**
 
 Planned documents:
 
@@ -101,7 +116,8 @@ Potential documents coming later:
 ```
 docs/
 │
-├── README.md                  ← You are here
+├── README.md                         ← You are here
+├── har_adapter_guide.md              ← HAR-to-JMeter conversion guide
 ├── report_template_guidelines.md     ← Performance report template rules
 │
 ├── config_reference.md        ← (Planned)
