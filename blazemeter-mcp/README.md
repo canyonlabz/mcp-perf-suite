@@ -136,10 +136,18 @@ Your MCP server exposes these primary tools for Cursor, agents, or other MCP cli
 | `list_test_runs` | List past runs (masters) for a test within a time range, with session IDs |
 | `get_artifacts_path` | Return the configured local path for storing all test artifacts |
 | `get_artifact_file_list` | Get downloadable artifact/log files for a specific session |
-| `download_artifacts_zip` | Download `artifacts.zip` for a run and store in correct folder |
-| `extract_artifact_zip` | Unpack the ZIP file and list all extracted files for analysis |
-| `process_extracted_files` | Move/rename key files (especially `kpi.jtl` to `test-results.csv`) |
+| `process_session_artifacts` | Downloads, extracts, and processes artifact ZIPs for all sessions of a run. Handles single and multi-session runs, with built-in retry and idempotent design |
 | `get_run_results` | Fetch summary metrics and key performance indicators for a test run |
+
+#### Deprecated Tools (disabled by default)
+
+The following tools have been replaced by `process_session_artifacts` and are disabled by default. They can be re-enabled by setting `enabled=True` on their `@mcp.tool()` decorator if needed for backwards compatibility.
+
+| Tool | Description |
+| :-- | :-- |
+| `download_artifacts_zip` | Download `artifacts.zip` for a single session |
+| `extract_artifact_zip` | Unpack the ZIP file and list all extracted files |
+| `process_extracted_files` | Move/rename key files (e.g. `kpi.jtl` to `test-results.csv`) |
 
 ---
 
@@ -151,17 +159,17 @@ A standard BlazeMeter MCP workflow uses these tools in sequence for automated, r
     - `start_test`: Initiate a new BlazeMeter load test run.
 2. **Poll for Status**
     - `check_test_status`: Monitor the test status until it completes or ends.
-3. **Get Public Report URL (optional)**
-    - `get_public_report_url`: Generate a shareable report link for stakeholders once the test finishes.
-4. **List Past Runs (optional for analytics/history)**
+3. **Get Test Run Results**
+    - `get_run_results`: Fetch summary metrics, session IDs, and key performance indicators for the run.
+4. **Retrieve and Process Test Artifacts**
+    - `process_session_artifacts`: Pass the `run_id` and `sessions_id` list from step 3. This single tool handles downloading, extracting, and processing all session artifacts.
+      - **Single-session runs**: Produces `test-results.csv` and `jmeter.log`.
+      - **Multi-session runs**: Combines JTL files into a single `test-results.csv` and produces numbered logs (`jmeter-1.log` through `jmeter-N.log`).
+      - Built-in retry (up to 3 attempts per download) and idempotent — re-run with the same parameters to retry only failed sessions.
+5. **Get Public Report URL (optional)**
+    - `get_public_report_url`: Generate a shareable report link for stakeholders.
+6. **List Past Runs (optional)**
     - `list_test_runs`: View previous completed runs for a given test within a time range.
-5. **Retrieve and Process Test Artifacts**
-    - `get_artifact_file_list`: Get artifact and log download URLs for the completed test session.
-    - `download_artifacts_zip`: Download the results archive for the run.
-    - `extract_artifact_zip`: Unpack and list extracted files (CSV, logs, config, etc.).
-    - `process_extracted_files`: Move/rename essential files (e.g. convert `kpi.jtl` to `test-results.csv`).
-6. **Analyze Results**
-    - `get_run_results`: Return key performance metrics, errors, response time statistics, and summary fields for the run.
 
 ---
 

@@ -173,7 +173,7 @@ async def process_session_artifacts(run_id: str, sessions_id: list, ctx: Context
     """
     return await session_artifact_processor(run_id, sessions_id, ctx)
 
-@mcp.tool()
+@mcp.tool(enabled=False)
 async def download_artifacts_zip(artifact_zip_url: str, run_id: str, ctx: Context) -> str:
     """
     [DEPRECATED] Use process_session_artifacts instead.
@@ -201,7 +201,7 @@ async def download_artifacts_zip(artifact_zip_url: str, run_id: str, ctx: Contex
     """
     return await download_artifact_zip_file(artifact_zip_url, run_id, ctx)
 
-@mcp.tool()
+@mcp.tool(enabled=False)
 async def extract_artifact_zip(local_zip_path: str, run_id: str, ctx: Context) -> list:
     """
     [DEPRECATED] Use process_session_artifacts instead.
@@ -219,7 +219,7 @@ async def extract_artifact_zip(local_zip_path: str, run_id: str, ctx: Context) -
     """
     return await extract_artifact_zip_file(local_zip_path, run_id, ctx)
 
-@mcp.tool()
+@mcp.tool(enabled=False)
 def process_extracted_files(run_id: str, extracted_files: list, ctx: Context) -> dict:
     """
     [DEPRECATED] Use process_session_artifacts instead.
