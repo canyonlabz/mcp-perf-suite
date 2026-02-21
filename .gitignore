@@ -237,6 +237,7 @@ datadog-mcp/uv.lock
 perfanalysis-mcp/.env
 perfanalysis-mcp/uv.lock
 confluence-mcp/.env
+msgraph-mcp/.env
 
 # ignore performance test results and logs
 artifacts/*
@@ -262,27 +263,31 @@ docs/*
 # Re-include everything inside changelogs
 !docs/changelogs/**
 
-# Ignore JMeter configuration files all custom JMeter MCP test-spec files
+# Ignore local JMeter configuration files and all custom JMeter MCP test-spec files
 jmeter-mcp/jmeter_config.yaml
 jmeter-mcp/test-specs/*
 !jmeter-mcp/test-specs/README.md
 !jmeter-mcp/test-specs/web-flows/blazedemo_product_purchase.md
+!jmeter-mcp/test-specs/azure-devops/README.md
+!jmeter-mcp/test-specs/jira/README.md
 
-# Ignore Datadog environments and custom queries files
+# Ignore local Datadog environments and custom queries files
 datadog-mcp/environments.json
 datadog-mcp/custom_queries.json
+
+# Ignore local config YAML files for perfanalysis-mcp
+perfanalysis-mcp/slas.yaml
 
 # Ignore all files in perfreport-mcp/templates except the default templates
 perfreport-mcp/templates/*
 !perfreport-mcp/templates/default_*.md
-# Ignore config YAML files for perfreport-mcp
+# Ignore local config YAML files for perfreport-mcp
 perfreport-mcp/config.yaml
 perfreport-mcp/report_config.yaml
 perfreport-mcp/chart_schema.yaml
 perfreport-mcp/chart_colors.yaml
 
-# Ignore test folders and scripts in perfanalysis-mcp and perfreport-mcp
-perfanalysis-mcp/slas.yaml
+# Ignore all test files in perfanalysis-mcp and perfreport-mcp
 perfanalysis-mcp/test/**
 perfanalysis-mcp/tests/**
 perfreport-mcp/test/**
@@ -298,6 +303,7 @@ perfreport-mcp/tests/**
 !.cursor/rules/performance-testing-workflow.mdc
 !.cursor/rules/comparison-report-workflow.mdc
 !.cursor/rules/report-revision-workflow.mdc
+!.cursor/rules/ado-to-jmeter-automation-conversion.mdc
 
 # Temp test files
 test_datadog.py
