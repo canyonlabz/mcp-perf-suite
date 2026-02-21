@@ -1,0 +1,179 @@
+---
+description: Convert Azure DevOps (ADO) QA Functional test cases into JMeter MCP browser automation Markdown specs
+globs:
+  - "jmeter-mcp/test-specs/**"
+alwaysApply: false
+---
+
+# ADO to JMeter MCP Browser Automation Conversion
+
+## Purpose
+
+Convert QA Functional test cases from Azure DevOps (ADO) into Markdown files that the JMeter MCP `get_browser_steps` tool can parse. This bridges the gap between QA Functional (Playwright-based testing) and QA Performance (JMeter script generation) teams.
+
+## Workflow
+
+1. **Source**: Pull test case steps from ADO (via ADO MCP or manual copy) and save as a `.txt` file in `jmeter-mcp/test-specs/azure-devops/`
+2. **Convert**: Read the `.txt` file from `test-specs/azure-devops/` and apply the rules below
+3. **Output**: Save the converted Markdown file to `jmeter-mcp/test-specs/web-flows/<app-name>-<flow-name>.md`
+
+## Target Format Requirements
+
+The JMeter MCP spec parser requires:
+
+- **Step labels** (case-insensitive, at line start): `Step`, `TC`, `TS`, `Test Case`, `Test Step`
+- **Terminal keyword** (required, at end): `END TASK`, `TERMINATE`, `END FLOW`, or `END`
+- **Continuation lines**: Indented sub-bullets with `-` are kept as part of the current step
+- **No metadata/headers**: Optional titles are ignored; no structured frontmatter needed
+
+### Recommended label: `Step N:`
+
+Use `Step 1:`, `Step 2:`, etc. for consistency across all specs.
+
+## Conversion Rules
+
+### 1. Remove ADO Formatting Artifacts
+
+Strip section comment blocks, dividers, and blank padding lines:
+
+```
+// ============================================
+// SECTION 1: Login & Initial Setup
+// ============================================
+```
+
+These serve no purpose in the output. If section context is needed, fold it into the step's natural language.
+
+### 2. Renumber Steps Sequentially
+
+ADO test cases often have non-sequential numbering (gaps from skipped or deleted steps). Renumber to a clean `Step 1` through `Step N` sequence.
+
+| ADO Source | Converted |
+|------------|-----------|
+| `1.`, `2.`, `10.`, `15.`, `17.` | `Step 1:`, `Step 2:`, `Step 3:`, `Step 4:`, `Step 5:` |
+
+### 3. Replace Placeholder Variables with Real Test Data
+
+ADO test cases often use `{{placeholder}}` syntax for test data. Replace these with actual values the performance tester provides. If no values are provided, prompt the user before converting.
+
+| ADO Placeholder | Example Replacement |
+|-----------------|---------------------|
+| `{{Product Name}}` | `MacBook Pro` |
+| `{{Username}}` | `testuser@example.com` |
+| `{{Order Date}}` | `12/25/2026` |
+
+If the same placeholder appears in multiple steps (e.g., `{{Item Name}}` referencing something created earlier), use the same concrete value in all occurrences.
+
+### 4. Expand the Login/Authentication Step
+
+ADO steps often assume authentication is handled separately. The JMeter MCP spec must include an explicit login step since the browser automation starts from scratch. Adapt the pattern to match the application's authentication method:
+
+- **SSO**: Note that no password is required
+- **Standard login**: Include both username and password fields
+- **No auth**: If the application is public-facing, skip this pattern
+
+**Pattern (SSO):**
+```
+Step 1: Navigate to <URL>. If redirected to a login page, enter the email `<user email>` and click 'Next'. The site uses SSO so no password is required. Else, skip this step.
+```
+
+**Pattern (Standard login):**
+```
+Step 1: Navigate to <URL>. If redirected to a login page, enter `<username>` and `<password>`, then click 'Sign in'. Else, skip this step.
+```
+
+### 5. Write Steps as Natural Language for Playwright
+
+Steps are executed by an AI agent using Playwright browser tools. Write them as clear instructions a person would follow:
+
+**Example:**
+
+- **Navigate**: "Navigate to https://demoblaze.com/"
+- **Click**: "Click on 'Laptops' under the 'Categories' menu"
+- **Type/Fill**: "Type 'MacBook Pro' into the 'Search' textbox"
+- **Select dropdown**: "Select 'United States' from the 'Country' dropdown"
+- **Verify**: "Verify the text 'Order placed' is displayed"
+- **Conditional**: "If a pop-up appears, click 'Ok' to proceed; otherwise continue to the next step"
+- **Form fill**: Use sub-bullets for multiple fields (see Rule 7)
+
+### 6. Preserve Shadow-Root References
+
+If ADO steps mention "inside shadow-root", keep this context — it tells the Playwright agent that elements may be inside shadow DOM and require special handling.
+
+### 7. Use Sub-Bullets for Multi-Item Steps
+
+When a step involves multiple related actions (e.g., filling a form or selecting several dropdowns), use indented `-` sub-bullets:
+
+```
+Step 7: Fill in the form with the following details:
+    - Name: John Wick
+    - Country: United States
+    - City: New York
+    - Credit card: 4111111111111111
+    - Month: 12
+    - Year: 2029
+After filling out form details click on 'Purchase' to complete the order.
+```
+
+### 8. Add Standard Closing Pattern
+
+The final step must include the browser-open directive and end with a terminal keyword:
+
+```
+Step N: <final verification step>.
+    - Confirm the flow is completed and notify the user that the browser will remain open for manual inspection.
+    - Do not close the browser.
+END TASK
+```
+
+### 9. File Naming Convention
+
+Use kebab-case or snake_case: `<application>-<workflow-description>.md`
+
+Examples: `blazedemo_product_purchase.md`, `myapp-user-registration.md`, `portal-create-order.md`
+
+## Before / After Example
+
+**ADO Source** (saved in `test-specs/azure-devops/demoblaze-purchase.txt`):
+```
+// SECTION 1: Browse Products
+1. Navigate to https://demoblaze.com/
+2. Click on 'Laptops' under Categories
+3. Select 'MacBook Pro' and add to cart
+
+// SECTION 2: Checkout
+10. Go to the Cart
+12. Place the order
+15. Fill in checkout form with {{Customer Name}}, {{Country}}, {{City}}, {{Credit Card}}
+16. Complete the purchase
+```
+
+**Converted Output** (saved in `test-specs/web-flows/blazedemo-product-purchase.md`):
+```
+Step 1: Navigate to https://demoblaze.com/.
+Step 2: Click on 'Laptops' under the 'Categories' menu.
+Step 3: Select 'MacBook Pro' and click on 'Add to cart'.
+Step 4: If a pop-up appears, click 'Ok' to proceed; otherwise continue to the next step.
+Step 5: Click on 'Cart' from the top menu.
+Step 6: On the 'Products' page, click on 'Place Order'.
+Step 7: Fill in the form with the following details:
+    - Name: John Wick
+    - Country: United States
+    - City: New York
+    - Credit card: 4111111111111111
+    - Month: 12
+    - Year: 2029
+After filling out form details click on 'Purchase' to complete the order and wait for confirmation. After confirmation, click 'Ok' button.
+Step 8: User will be redirected to the main 'Product Store' page.
+    - Confirm the flow is completed and notify the user that the browser will remain open for manual inspection.
+    - Do not close the browser.
+END TASK
+```
+
+## Tips and Lessons Learned
+
+- **Date formats**: If a step references a datepicker, note the expected input format (e.g., `MM/dd/yyyy`) when known. The Playwright agent needs this to fill the field correctly.
+- **Combobox vs dropdown**: ADO steps may say "select from dropdown" when the UI is actually a combobox (type-to-search). Preserve the original UI component reference if specified.
+- **Authentication**: Adapt the login step to the application's auth method (SSO, standard, OAuth, etc.). Always include explicit credentials or note when they are not required.
+- **Think time**: The browser automation rules handle think time separately (default 5 seconds). Do not encode think time or wait durations into the spec steps.
+- **Pop-ups and dialogs**: ADO steps may not account for confirmation dialogs or alerts. Add conditional handling (e.g., "If a pop-up appears, click 'Ok'") when the application is known to produce them.
