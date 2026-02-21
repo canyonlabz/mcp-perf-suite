@@ -9,6 +9,9 @@ Welcome to the Datadog MCP Server! 🎉 This is a Python-based MCP server built 
 - **Environment-based configuration**: Load host and Kubernetes service definitions from `environments.json` for organized metric collection.
 - **Host metrics collection**: Retrieve CPU and memory metrics for traditional hosts using Datadog's v1 API.
 - **Kubernetes metrics collection**: Fetch container-level CPU metrics for microservices using Datadog's v2 timeseries API.
+- **Log search**: Query Datadog logs using built-in templates, environment-aware dynamic queries, or reusable custom queries.
+- **APM trace collection**: Retrieve APM traces from Datadog with the same flexible query system—built-in templates, environment-driven queries, and custom query support.
+- **Custom query templates**: Define reusable project-level log and APM queries in `custom_queries.json` for consistent, shareable query definitions across your team.
 - **Performance testing integration**: Output structured CSV files for downstream analysis and correlation with BlazeMeter test results.
 - **Flexible environment schema**: Support both traditional hosts and Kubernetes clusters in a single environment configuration.
 - **Robust error handling**: Comprehensive validation and context-aware error reporting throughout the workflow.
@@ -184,10 +187,11 @@ Your MCP server exposes these primary tools for Cursor, agents, or other MCP cli
 
 | Tool | Description |
 | :-- | :-- |
-| `load_environment` | Load environment configuration from environments.json and store in context |
+| `load_environment` | Load environment configuration from `environments.json` and store in context |
 | `get_host_metrics` | Retrieve CPU and memory metrics for all hosts in the current environment |
 | `get_kubernetes_metrics` | Fetch CPU metrics for Kubernetes containers/services in the current environment |
-| `get_logs` | Search the Datadog logs using custom queries or predefined query templates |
+| `get_logs` | Search Datadog logs using built-in templates, environment-aware queries, or custom queries from `custom_queries.json` |
+| `get_apm_traces` | Retrieve APM traces from Datadog using built-in templates, environment-aware queries, or custom queries from `custom_queries.json` |
 
 
 ***
@@ -201,9 +205,15 @@ A standard Datadog MCP workflow for performance testing correlation:
 2. **Collect Infrastructure Metrics**
     - `get_host_metrics`: Retrieve CPU and memory metrics for traditional hosts during your performance test window.
     - **OR** `get_kubernetes_metrics`: Collect container-level CPU metrics for microservices during the test.
-3. **Analyze Results**
+3. **Collect Logs**
+    - `get_logs`: Query Datadog logs for the test window using built-in templates (e.g., `http_errors`, `all_errors`) or custom queries defined in `custom_queries.json`.
+4. **Collect APM Traces**
+    - `get_apm_traces`: Retrieve APM traces for the test window using built-in templates (e.g., `http_errors`, `slow_requests`) or custom queries defined in `custom_queries.json`.
+5. **Analyze Results**
     - CSV artifacts are automatically saved to `artifacts/{run_id}/datadog/` for downstream analysis.
-    - Correlate infrastructure metrics with BlazeMeter performance test results.
+    - Correlate infrastructure metrics, logs, and APM traces with BlazeMeter performance test results.
+
+> **Note:** Both `get_logs` and `get_apm_traces` support a flexible query system with built-in templates, environment-aware dynamic queries, and reusable custom queries via `custom_queries.json`. See [Custom Query Configuration](#-custom-query-configuration-custom_queriesjson) below and the full [Datadog Query Guide](../docs/datadog_query_guide.md) for details.
 
 ***
 
@@ -252,22 +262,72 @@ This approach gives you individual service-level metrics that are easier to anal
 
 ***
 
+## 🔍 Custom Query Configuration (`custom_queries.json`)
+
+The `get_logs` and `get_apm_traces` tools support reusable custom query templates defined in a `custom_queries.json` file. This is the recommended way to define project-level queries that your team can share and reuse.
+
+### Setup
+
+Copy the provided example file to create your own configuration:
+
+```bash
+cp custom_queries.example.json custom_queries.json
+```
+
+Then edit `custom_queries.json` to define your project-specific queries:
+
+```json
+{
+  "schema_version": "1.0",
+  "apm_queries": {
+    "app_500_errors": {
+      "description": "Application Services - HTTP 500 errors",
+      "query": "service:(service.app.web OR service.worker.web) env:west.qa @http.status_code:500"
+    },
+    "app_slow_requests": {
+      "description": "Application Services - Slow requests (>5s)",
+      "query": "service:(service.app.web OR service.worker.web) env:west.qa @duration:>5000000000"
+    }
+  },
+  "log_queries": {
+    "app_error_logs": {
+      "description": "Application Services - Application error logs",
+      "query": "service:service.app.web status:error"
+    },
+    "app_exception_logs": {
+      "description": "Application Services - Logs with stack traces",
+      "query": "service:service.app.web \"Exception\""
+    }
+  }
+}
+```
+
+Custom query types are referenced by name when calling the tools (e.g., `query_type="app_500_errors"`).
+
+> **📘 Full documentation:** See the [Datadog APM & Log Query Guide](../docs/datadog_query_guide.md) for a complete reference on query resolution order, built-in templates, environment-based dynamic queries, and custom query best practices.
+
+***
+
 ## 📁 Project Structure
 
 ```
 datadog-mcp/
-├── datadog.py                     # MCP server entrypoint (FastMCP)
+├── datadog.py                        # MCP server entrypoint (FastMCP)
 ├── services/
-│   ├── datadog_api.py             # Datadog API & helper functions
-│   └── datadog_logs.py            # Datadog Search logs & helper functions
+│   ├── datadog_api.py                # Datadog metrics API & helper functions
+│   ├── datadog_logs.py               # Datadog log search & helper functions
+│   └── datadog_apm.py                # Datadog APM trace collection & helper functions
 ├── utils/
-│   └── config.py                  # Utility for loading config.yaml
-├── environments.json              # Environment/infrastructure definitions
-├── config.yaml                    # Centralized, environment-agnostic config
-├── pyproject.toml                 # Modern Python project metadata & dependencies
-├── requirements.txt               # Dependencies
-├── README.md                      # This file
-└── .env                           # Local environment variables (API keys)
+│   ├── config.py                     # Utility for loading config.yaml
+│   └── datadog_config_loader.py      # Loader for environments.json & custom_queries.json
+├── environments.json                 # Environment/infrastructure definitions
+├── custom_queries.json               # Custom log & APM query templates (copy from .example.json)
+├── custom_queries.example.json       # Example custom queries file
+├── config.yaml                       # Centralized, environment-agnostic config
+├── pyproject.toml                    # Modern Python project metadata & dependencies
+├── requirements.txt                  # Dependencies
+├── README.md                         # This file
+└── .env                              # Local environment variables (API keys)
 ```
 
 
@@ -285,6 +345,8 @@ artifacts:
 datadog:
   # Dynamically resolved to {repo_root}/datadog-mcp/environments.json when left empty.
   environments_json_path: ""
+  # Dynamically resolved to {repo_root}/datadog-mcp/custom_queries.json when left empty.
+  custom_queries_json_path: ""
   time_zone: "America/New_York"
   log_page_limit: 1000    # Number of log entries to fetch per page
 ```
@@ -304,7 +366,6 @@ datadog:
 ## 🚧 Future Enhancements
 
 - **Custom metric support**: Allow arbitrary Datadog metric queries
-- **Enhanced Log Queries**: Ability for end-users to create custom log queries and store them as templates.
 
 ***
 
@@ -312,10 +373,11 @@ datadog:
 
 This MCP server is designed to work alongside the **BlazeMeter MCP Server** for complete performance testing workflows:
 
-1. **Start BlazeMeter test** → Get `run_id`
+1. **Start BlazeMeter test** → Get `run_id`, start/end times
 2. **Load Datadog environment** → Configure infrastructure monitoring
-3. **Collect metrics during test** → Host or Kubernetes metrics
-4. **Analyze correlation** → Compare infrastructure load with performance results
+3. **Collect infrastructure metrics** → Host or Kubernetes CPU/memory metrics
+4. **Collect logs & APM traces** → Error logs, slow requests, HTTP failures
+5. **Analyze correlation** → Compare infrastructure load, logs, and traces with performance results
 
 ***
 
