@@ -64,6 +64,16 @@ network_capture:
     - sumologic.com
     - lightstep.io
     
+    # Cookies / Consent Management
+    - cookieconsent.com
+    - geolocation.onetrust.com
+    - consent.trustarc.com
+    - cdn.cookielaw.org
+
+    # Privacy / Consent Management
+    - privacy-center.org
+    - privacyportal-eu.onetrust.com
+
     # Analytics / Tracking
     - google-analytics.com
     - googletagmanager.com
@@ -77,6 +87,8 @@ network_capture:
     - clarity.ms
     - mouseflow.com
     - crazyegg.com
+    - data.pendo.io
+    - pendo-static-*.storage.googleapis.com
     
     # Advertising / Pixels
     - doubleclick.net
