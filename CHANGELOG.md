@@ -6,46 +6,68 @@ This document summarizes the enhancements and new features added to the MCP Perf
 
 ## Table of Contents
 
-- [1. Centralized SLA Configuration](#1-centralized-sla-configuration)
-  - [1.1 Overview](#11-overview)
-  - [1.2 SLA Configuration File (slas.yaml)](#12-sla-configuration-file-slasyaml)
-  - [1.3 Three-Level Pattern Matching](#13-three-level-pattern-matching)
-  - [1.4 SLA Compliance Fix (Average → Percentile)](#14-sla-compliance-fix-average--percentile)
-  - [1.5 MCP Tool Changes](#15-mcp-tool-changes)
-  - [1.6 SLA Pattern Validator](#16-sla-pattern-validator)
-  - [1.7 Legacy Config Deprecation](#17-legacy-config-deprecation)
-  - [1.8 Files Created/Modified](#18-files-createdmodified)
-- [2. JMeter Log Analysis Tool](#2-jmeter-log-analysis-tool)
+- [1. HAR File Input Adapter (February 21, 2026)](#1-har-file-input-adapter-february-21-2026)
+- [2. Centralized SLA Configuration](#2-centralized-sla-configuration)
   - [2.1 Overview](#21-overview)
-  - [2.2 New MCP Tool](#22-new-mcp-tool)
-  - [2.3 Configuration](#23-configuration)
-  - [2.4 Output Files](#24-output-files)
-  - [2.5 Key Capabilities](#25-key-capabilities)
-  - [2.6 Files Created/Modified](#26-files-createdmodified)
-- [3. Bottleneck Analyzer v0.2](#3-bottleneck-analyzer-v02)
+  - [2.2 SLA Configuration File (slas.yaml)](#22-sla-configuration-file-slasyaml)
+  - [2.3 Three-Level Pattern Matching](#23-three-level-pattern-matching)
+  - [2.4 SLA Compliance Fix (Average → Percentile)](#24-sla-compliance-fix-average--percentile)
+  - [2.5 MCP Tool Changes](#25-mcp-tool-changes)
+  - [2.6 SLA Pattern Validator](#26-sla-pattern-validator)
+  - [2.7 Legacy Config Deprecation](#27-legacy-config-deprecation)
+  - [2.8 Files Created/Modified](#28-files-createdmodified)
+- [3. JMeter Log Analysis Tool](#3-jmeter-log-analysis-tool)
   - [3.1 Overview](#31-overview)
-  - [3.2 MCP Tool](#32-mcp-tool)
-  - [3.3 What It Does](#33-what-it-does)
-  - [3.4 Key Capabilities (v0.2)](#34-key-capabilities-v02)
-  - [3.5 Two-Phase Analysis Architecture](#35-two-phase-analysis-architecture)
-  - [3.6 Finding Classifications](#36-finding-classifications)
-  - [3.7 Raw Metrics Fallback (Missing K8s Limits)](#37-raw-metrics-fallback-missing-k8s-limits)
-  - [3.8 Configuration](#38-configuration)
-  - [3.9 Output Files](#39-output-files)
-  - [3.10 Files Created/Modified](#310-files-createdmodified)
-- [4. Multi-Session Artifact Handling](#4-multi-session-artifact-handling)
+  - [3.2 New MCP Tool](#32-new-mcp-tool)
+  - [3.3 Configuration](#33-configuration)
+  - [3.4 Output Files](#34-output-files)
+  - [3.5 Key Capabilities](#35-key-capabilities)
+  - [3.6 Files Created/Modified](#36-files-createdmodified)
+- [4. Bottleneck Analyzer v0.2](#4-bottleneck-analyzer-v02)
   - [4.1 Overview](#41-overview)
-  - [4.2 New MCP Tool](#42-new-mcp-tool)
-  - [4.3 Design](#43-design)
-  - [4.4 Configuration](#44-configuration)
-  - [4.5 Files Created/Modified](#45-files-createdmodified)
+  - [4.2 MCP Tool](#42-mcp-tool)
+  - [4.3 What It Does](#43-what-it-does)
+  - [4.4 Key Capabilities (v0.2)](#44-key-capabilities-v02)
+  - [4.5 Two-Phase Analysis Architecture](#45-two-phase-analysis-architecture)
+  - [4.6 Finding Classifications](#46-finding-classifications)
+  - [4.7 Raw Metrics Fallback (Missing K8s Limits)](#47-raw-metrics-fallback-missing-k8s-limits)
+  - [4.8 Configuration](#48-configuration)
+  - [4.9 Output Files](#49-output-files)
+  - [4.10 Files Created/Modified](#410-files-createdmodified)
+- [5. Multi-Session Artifact Handling](#5-multi-session-artifact-handling)
+  - [5.1 Overview](#51-overview)
+  - [5.2 New MCP Tool](#52-new-mcp-tool)
+  - [5.3 Design](#53-design)
+  - [5.4 Configuration](#54-configuration)
+  - [5.5 Files Created/Modified](#55-files-createdmodified)
 - [Previous Changelogs](#previous-changelogs)
 
 ---
 
-## 1. Centralized SLA Configuration
+## 1. HAR File Input Adapter (February 21, 2026)
 
-### 1.1 Overview
+A new input adapter for the JMeter MCP server enables conversion of HAR (HTTP Archive) files into JMeter test scripts. The adapter reads standard HAR 1.2 files and converts them into the canonical, step-aware network capture JSON format — providing an alternative on-ramp to the existing Playwright-based capture workflow.
+
+**New MCP tool:** `convert_har_to_capture`
+
+**Key highlights:**
+- Converts HAR files from Chrome DevTools, proxy tools (Charles, Fiddler, mitmproxy), or Postman
+- Four step grouping strategies: `auto`, `page`, `time_gap`, `single_step`
+- Reuses existing `config.yaml` domain filtering and exclusion rules
+- Configurable HTTP/2 pseudo-header stripping
+- Generates `capture_manifest.json` for provenance tracking
+- File size safeguards, schema validation, and lazy import for safe integration
+
+**Files created:** `jmeter-mcp/services/har_adapter.py`, `docs/har_adapter_guide.md`
+**Files modified:** `jmeter-mcp/jmeter.py`, `jmeter-mcp/README.md`, `docs/README.md`
+
+> See the [detailed changelog](docs/changelogs/CHANGELOG-2026-02.md) and the [HAR Adapter Guide](docs/har_adapter_guide.md) for full documentation.
+
+---
+
+## 2. Centralized SLA Configuration
+
+### 2.1 Overview
 
 All SLA (Service Level Agreement) thresholds are now defined in a single YAML file (`slas.yaml`) instead of being scattered across `config.yaml` settings and hardcoded values in Python code. This refactoring introduces per-profile defaults, per-API overrides via pattern matching, configurable percentile metrics (P90/P95/P99), and configurable error rate thresholds at every level.
 
@@ -65,7 +87,7 @@ All SLA (Service Level Agreement) thresholds are now defined in a single YAML fi
 
 ---
 
-### 1.2 SLA Configuration File (slas.yaml)
+### 2.2 SLA Configuration File (slas.yaml)
 
 The configuration supports a file-level default and multiple named SLA profiles:
 
@@ -102,7 +124,7 @@ slas:
 
 ---
 
-### 1.3 Three-Level Pattern Matching
+### 2.3 Three-Level Pattern Matching
 
 API overrides use glob-style patterns evaluated in most-specific-first order:
 
@@ -116,7 +138,7 @@ Within the same specificity level, the first match in file order wins.
 
 ---
 
-### 1.4 SLA Compliance Fix (Average → Percentile)
+### 2.4 SLA Compliance Fix (Average → Percentile)
 
 **Before:** SLA compliance was evaluated against *average* response time, which masks tail latency issues. An API could have P90 = 8000ms but average = 3000ms, passing a 5000ms SLA check incorrectly.
 
@@ -130,7 +152,7 @@ This fix applies to:
 
 ---
 
-### 1.5 MCP Tool Changes
+### 2.5 MCP Tool Changes
 
 Three PerfAnalysis MCP tools now accept an optional `sla_id` parameter:
 
@@ -144,7 +166,7 @@ All are backward compatible — omitting `sla_id` uses the file-level `default_s
 
 ---
 
-### 1.6 SLA Pattern Validator
+### 2.6 SLA Pattern Validator
 
 When `sla_id` is provided, the system automatically validates that all `api_override` patterns match at least one label in the test results. Unmatched patterns are reported via `ctx.info` messages with actionable guidance:
 
@@ -158,7 +180,7 @@ This is informational only — it does not block analysis.
 
 ---
 
-### 1.7 Legacy Config Deprecation
+### 2.7 Legacy Config Deprecation
 
 The following settings in `config.yaml` are **deprecated** and no longer used:
 
@@ -170,7 +192,7 @@ The following settings in `config.yaml` are **deprecated** and no longer used:
 
 ---
 
-### 1.8 Files Created/Modified
+### 2.8 Files Created/Modified
 
 #### Files Created
 
@@ -197,9 +219,9 @@ The following settings in `config.yaml` are **deprecated** and no longer used:
 
 ---
 
-## 2. JMeter Log Analysis Tool
+## 3. JMeter Log Analysis Tool
 
-### 2.1 Overview
+### 3.1 Overview
 
 A new `analyze_jmeter_log` tool has been added to the JMeter MCP server. This tool performs deep analysis of JMeter and BlazeMeter log files, providing granular error grouping, first-occurrence request/response details, and optional JTL correlation — designed to help performance test engineers quickly identify issues and perform root cause analysis.
 
@@ -207,7 +229,7 @@ This is a more thorough, JMeter-specific alternative to the existing `analyze_lo
 
 ---
 
-### 2.2 New MCP Tool
+### 3.2 New MCP Tool
 
 | Tool | Purpose |
 |------|---------|
@@ -232,7 +254,7 @@ analyze_jmeter_log(
 
 ---
 
-### 2.3 Configuration
+### 3.3 Configuration
 
 A new `jmeter_log` section was added to `config.yaml` / `config.example.yaml`:
 
@@ -251,7 +273,7 @@ jmeter_log:
 
 ---
 
-### 2.4 Output Files
+### 3.4 Output Files
 
 All outputs are written to `artifacts/<test_run_id>/analysis/`:
 
@@ -275,7 +297,7 @@ Where `<source>` is `jmeter` or `blazemeter` depending on the `log_source` param
 
 ---
 
-### 2.5 Key Capabilities
+### 3.5 Key Capabilities
 
 - **Multi-line block parsing**: Handles JSR223 Post-Processor verbose output, including `Request=[...]` and `Response=[...]` boundary detection
 - **Granular error grouping**: Groups by composite signature (error category + response code + API endpoint + normalized message hash), so different root causes on the same API are tracked separately
@@ -287,7 +309,7 @@ Where `<source>` is `jmeter` or `blazemeter` depending on the `log_source` param
 
 ---
 
-### 2.6 Files Created/Modified
+### 3.6 Files Created/Modified
 
 #### Files Created
 | File | Purpose |
@@ -305,9 +327,9 @@ Where `<source>` is `jmeter` or `blazemeter` depending on the `log_source` param
 
 ---
 
-## 3. Bottleneck Analyzer v0.2
+## 4. Bottleneck Analyzer v0.2
 
-### 3.1 Overview
+### 4.1 Overview
 
 The `identify_bottlenecks` tool in the PerfAnalysis MCP Server has been significantly upgraded (v0.2) to deliver accurate, actionable bottleneck detection with dramatically reduced false positives. The v0.1 implementation flagged transient spikes and inherently slow endpoints as bottlenecks, lacked temporal context, and reported 0% infrastructure utilization when Kubernetes resource limits were not defined. v0.2 addresses all of these issues through 8 targeted improvements.
 
@@ -319,7 +341,7 @@ The `identify_bottlenecks` tool in the PerfAnalysis MCP Server has been signific
 
 ---
 
-### 3.2 MCP Tool
+### 4.2 MCP Tool
 
 | Tool | Purpose |
 |------|---------|
@@ -341,7 +363,7 @@ identify_bottlenecks(
 
 ---
 
-### 3.3 What It Does
+### 4.3 What It Does
 
 The tool detects six categories of performance degradation:
 
@@ -356,7 +378,7 @@ The tool detects six categories of performance degradation:
 
 ---
 
-### 3.4 Key Capabilities (v0.2)
+### 4.4 Key Capabilities (v0.2)
 
 The following 8 improvements were implemented:
 
@@ -410,19 +432,19 @@ Composite scoring (0-7): critical (>= 7), high (>= 5), medium (>= 3), low (< 3).
 
 #### Improvement 6: Two-Phase Analysis Architecture
 
-See [3.5 Two-Phase Analysis Architecture](#35-two-phase-analysis-architecture) below.
+See [4.5 Two-Phase Analysis Architecture](#45-two-phase-analysis-architecture) below.
 
 #### Improvement 7: Capacity Risk Detection
 
-See [3.5 Two-Phase Analysis Architecture](#35-two-phase-analysis-architecture) (Phase 2b).
+See [4.5 Two-Phase Analysis Architecture](#45-two-phase-analysis-architecture) (Phase 2b).
 
 #### Improvement 8: Raw Metrics Fallback (Missing K8s Limits)
 
-See [3.7 Raw Metrics Fallback](#37-raw-metrics-fallback-missing-k8s-limits) below.
+See [4.7 Raw Metrics Fallback](#47-raw-metrics-fallback-missing-k8s-limits) below.
 
 ---
 
-### 3.5 Two-Phase Analysis Architecture
+### 4.5 Two-Phase Analysis Architecture
 
 The analysis follows the same mental model a performance test engineer uses: first identify **when** degradation happened, then examine infrastructure for **that specific time window** to understand **why**.
 
@@ -477,7 +499,7 @@ Detects infrastructure stress that has NOT yet caused performance degradation �
 
 ---
 
-### 3.6 Finding Classifications
+### 4.6 Finding Classifications
 
 Every finding is assigned one of four classifications:
 
@@ -496,7 +518,7 @@ The headline and threshold concurrency exclude transient spikes, known-slow endp
 
 ---
 
-### 3.7 Raw Metrics Fallback (Missing K8s Limits)
+### 4.7 Raw Metrics Fallback (Missing K8s Limits)
 
 In Kubernetes environments where CPU/Memory limits are not defined, Datadog reports raw usage (nanocores, bytes) but cannot compute utilization percentages. The v0.1 tool would report 0.0% for all infrastructure metrics in this scenario.
 
@@ -529,7 +551,7 @@ In Kubernetes environments where CPU/Memory limits are not defined, Datadog repo
 
 ---
 
-### 3.8 Configuration
+### 4.8 Configuration
 
 All parameters are configurable under the `bottleneck_analysis` section of `config.yaml`:
 
@@ -551,7 +573,7 @@ bottleneck_analysis:
 
 ---
 
-### 3.9 Output Files
+### 4.9 Output Files
 
 All outputs are written to `artifacts/<test_run_id>/analysis/`:
 
@@ -573,7 +595,7 @@ All outputs are written to `artifacts/<test_run_id>/analysis/`:
 
 ---
 
-### 3.10 Files Created/Modified
+### 4.10 Files Created/Modified
 
 #### Files Created
 | File | Purpose |
@@ -588,9 +610,9 @@ All outputs are written to `artifacts/<test_run_id>/analysis/`:
 
 ---
 
-## 4. Multi-Session Artifact Handling
+## 5. Multi-Session Artifact Handling
 
-### 4.1 Overview
+### 5.1 Overview
 
 When a BlazeMeter test run uses multiple load generators (engines), each engine produces its own `artifacts.zip` file containing a `kpi.jtl` and `jmeter.log`. Previously, the BlazeMeter MCP tools processed one session at a time, and each subsequent download/extract/process cycle **overwrote** the previous session's files. This meant only the last session's JTL and log data was retained locally, causing incomplete data for downstream analysis tools like `identify_bottlenecks` and `correlate_test_results`.
 
@@ -598,7 +620,7 @@ This enhancement introduces a unified session-based artifact processing model th
 
 ---
 
-### 4.2 New MCP Tool
+### 5.2 New MCP Tool
 
 | Tool | Purpose |
 |------|---------|
@@ -634,7 +656,7 @@ process_session_artifacts(
 
 ---
 
-### 4.3 Design
+### 5.3 Design
 
 **Directory Structure (all runs):**
 
@@ -666,7 +688,7 @@ artifacts/{run_id}/blazemeter/
 
 ---
 
-### 4.4 Configuration
+### 5.4 Configuration
 
 New settings added to `blazemeter-mcp/config.example.yaml` under the `blazemeter` section:
 
@@ -679,7 +701,7 @@ blazemeter:
 
 ---
 
-### 4.5 Files Created/Modified
+### 5.5 Files Created/Modified
 
 #### Files Created
 
@@ -705,8 +727,9 @@ blazemeter:
 
 | Month | File | Highlights |
 |-------|------|------------|
+| February 2026 | [CHANGELOG-2026-02.md](docs/changelogs/CHANGELOG-2026-02.md) | HAR File Input Adapter |
 | January 2026 | [CHANGELOG-2026-01.md](docs/changelogs/CHANGELOG-2026-01.md) | AI-Assisted Report Revision, Datadog Dynamic Limits, Report Enhancements, New Charts |
 
 ---
 
-*Last Updated: February 12, 2026*
+*Last Updated: February 21, 2026*
