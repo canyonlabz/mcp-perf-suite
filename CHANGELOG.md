@@ -6,45 +6,80 @@ This document summarizes the enhancements and new features added to the MCP Perf
 
 ## Table of Contents
 
-- [1. HAR File Input Adapter (February 21, 2026)](#1-har-file-input-adapter-february-21-2026)
-- [2. Centralized SLA Configuration](#2-centralized-sla-configuration)
-  - [2.1 Overview](#21-overview)
-  - [2.2 SLA Configuration File (slas.yaml)](#22-sla-configuration-file-slasyaml)
-  - [2.3 Three-Level Pattern Matching](#23-three-level-pattern-matching)
-  - [2.4 SLA Compliance Fix (Average → Percentile)](#24-sla-compliance-fix-average--percentile)
-  - [2.5 MCP Tool Changes](#25-mcp-tool-changes)
-  - [2.6 SLA Pattern Validator](#26-sla-pattern-validator)
-  - [2.7 Legacy Config Deprecation](#27-legacy-config-deprecation)
-  - [2.8 Files Created/Modified](#28-files-createdmodified)
-- [3. JMeter Log Analysis Tool](#3-jmeter-log-analysis-tool)
+- [1. Swagger/OpenAPI Input Adapter (February 21, 2026)](#1-swaggeropenapi-input-adapter-february-21-2026)
+- [2. HAR File Input Adapter (February 21, 2026)](#2-har-file-input-adapter-february-21-2026)
+- [3. Centralized SLA Configuration](#3-centralized-sla-configuration)
   - [3.1 Overview](#31-overview)
-  - [3.2 New MCP Tool](#32-new-mcp-tool)
-  - [3.3 Configuration](#33-configuration)
-  - [3.4 Output Files](#34-output-files)
-  - [3.5 Key Capabilities](#35-key-capabilities)
-  - [3.6 Files Created/Modified](#36-files-createdmodified)
-- [4. Bottleneck Analyzer v0.2](#4-bottleneck-analyzer-v02)
+  - [3.2 SLA Configuration File (slas.yaml)](#32-sla-configuration-file-slasyaml)
+  - [3.3 Three-Level Pattern Matching](#33-three-level-pattern-matching)
+  - [3.4 SLA Compliance Fix (Average → Percentile)](#34-sla-compliance-fix-average--percentile)
+  - [3.5 MCP Tool Changes](#35-mcp-tool-changes)
+  - [3.6 SLA Pattern Validator](#36-sla-pattern-validator)
+  - [3.7 Legacy Config Deprecation](#37-legacy-config-deprecation)
+  - [3.8 Files Created/Modified](#38-files-createdmodified)
+- [4. JMeter Log Analysis Tool](#4-jmeter-log-analysis-tool)
   - [4.1 Overview](#41-overview)
-  - [4.2 MCP Tool](#42-mcp-tool)
-  - [4.3 What It Does](#43-what-it-does)
-  - [4.4 Key Capabilities (v0.2)](#44-key-capabilities-v02)
-  - [4.5 Two-Phase Analysis Architecture](#45-two-phase-analysis-architecture)
-  - [4.6 Finding Classifications](#46-finding-classifications)
-  - [4.7 Raw Metrics Fallback (Missing K8s Limits)](#47-raw-metrics-fallback-missing-k8s-limits)
-  - [4.8 Configuration](#48-configuration)
-  - [4.9 Output Files](#49-output-files)
-  - [4.10 Files Created/Modified](#410-files-createdmodified)
-- [5. Multi-Session Artifact Handling](#5-multi-session-artifact-handling)
+  - [4.2 New MCP Tool](#42-new-mcp-tool)
+  - [4.3 Configuration](#43-configuration)
+  - [4.4 Output Files](#44-output-files)
+  - [4.5 Key Capabilities](#45-key-capabilities)
+  - [4.6 Files Created/Modified](#46-files-createdmodified)
+- [5. Bottleneck Analyzer v0.2](#5-bottleneck-analyzer-v02)
   - [5.1 Overview](#51-overview)
-  - [5.2 New MCP Tool](#52-new-mcp-tool)
-  - [5.3 Design](#53-design)
-  - [5.4 Configuration](#54-configuration)
-  - [5.5 Files Created/Modified](#55-files-createdmodified)
+  - [5.2 MCP Tool](#52-mcp-tool)
+  - [5.3 What It Does](#53-what-it-does)
+  - [5.4 Key Capabilities (v0.2)](#54-key-capabilities-v02)
+  - [5.5 Two-Phase Analysis Architecture](#55-two-phase-analysis-architecture)
+  - [5.6 Finding Classifications](#56-finding-classifications)
+  - [5.7 Raw Metrics Fallback (Missing K8s Limits)](#57-raw-metrics-fallback-missing-k8s-limits)
+  - [5.8 Configuration](#58-configuration)
+  - [5.9 Output Files](#59-output-files)
+  - [5.10 Files Created/Modified](#510-files-createdmodified)
+- [6. Multi-Session Artifact Handling](#6-multi-session-artifact-handling)
+  - [6.1 Overview](#61-overview)
+  - [6.2 New MCP Tool](#62-new-mcp-tool)
+  - [6.3 Design](#63-design)
+  - [6.4 Configuration](#64-configuration)
+  - [6.5 Files Created/Modified](#65-files-createdmodified)
 - [Previous Changelogs](#previous-changelogs)
 
 ---
 
-## 1. HAR File Input Adapter (February 21, 2026)
+## 1. Swagger/OpenAPI Input Adapter (February 21, 2026)
+
+A new input adapter for the JMeter MCP server enables conversion of Swagger 2.x / OpenAPI 3.x API specification files into JMeter test scripts. The adapter reads spec files (JSON or YAML), generates synthetic request/response bodies from JSON Schema definitions, and outputs the canonical, step-aware network capture JSON format — providing a spec-first on-ramp to the JMeter pipeline when no recorded traffic is available.
+
+**Key Features:**
+- Supports both OpenAPI 3.x and Swagger 2.x (auto-normalized to 3.x internally)
+- Recursive `$ref` resolution with circular reference detection
+- Synthetic sample data generation from JSON Schema (type, format, enum, example)
+- Configurable step grouping: `tag` (default), `path`, `single_step`
+- Handles relative server URLs via `base_url` parameter
+- Deprecated endpoint filtering (configurable)
+- Optional `faker` dependency for realistic sample data (graceful fallback)
+- Lazy import safeguard — server starts even if adapter fails to load
+- Capture manifest with `source_type: "openapi"` for provenance tracking
+
+**New MCP Tool:** `convert_swagger_to_capture`
+
+**Pipeline Position:**
+```
+Swagger/OpenAPI spec (.json / .yaml)
+  └─→ convert_swagger_to_capture          ← New tool
+        └─→ network_capture.json
+              └─→ analyze_network_traffic     (existing)
+                    └─→ generate_jmeter_script  (existing)
+                          └─→ .jmx file
+```
+
+**Files Created:** `jmeter-mcp/services/swagger_adapter.py`
+**Files Modified:** `jmeter-mcp/jmeter.py`, `jmeter-mcp/README.md`
+
+For detailed changelog, see [docs/changelogs/CHANGELOG-2026-02.md](docs/changelogs/CHANGELOG-2026-02.md).
+
+---
+
+## 2. HAR File Input Adapter (February 21, 2026)
 
 A new input adapter for the JMeter MCP server enables conversion of HAR (HTTP Archive) files into JMeter test scripts. The adapter reads standard HAR 1.2 files and converts them into the canonical, step-aware network capture JSON format — providing an alternative on-ramp to the existing Playwright-based capture workflow.
 

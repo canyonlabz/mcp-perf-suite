@@ -32,6 +32,13 @@ try:
 except Exception:
     _HAR_ADAPTER_AVAILABLE = False
 
+# Lazy import: Swagger/OpenAPI adapter is optional — same safeguard pattern
+try:
+    from services.swagger_adapter import convert_swagger_to_capture as _swagger_convert, validate_spec_file as _swagger_validate
+    _SWAGGER_ADAPTER_AVAILABLE = True
+except Exception:
+    _SWAGGER_ADAPTER_AVAILABLE = False
+
 # ----------------------------------------------------------
 # Browser Automation Helper Tools
 # ----------------------------------------------------------
@@ -253,6 +260,92 @@ async def convert_har_to_capture(
         return {
             "status": "ERROR",
             "message": f"Unexpected error converting HAR file: {e}",
+            "test_run_id": test_run_id,
+            "network_capture_path": None,
+            "error": str(e),
+        }
+
+@mcp.tool()
+async def convert_swagger_to_capture(
+    test_run_id: str,
+    spec_path: str,
+    ctx: Context,
+    base_url: str = "",
+    step_strategy: str = "tag",
+    include_deprecated: bool = False,
+) -> dict:
+    """
+    Convert a Swagger 2.x / OpenAPI 3.x spec file to network capture JSON format.
+
+    Use this when you have an API specification file (JSON or YAML) and want
+    to generate a synthetic network capture for JMeter script generation.
+    The output JSON feeds directly into analyze_network_traffic and
+    generate_jmeter_script.
+
+    Args:
+        test_run_id (str): Unique identifier for the test run.
+        spec_path (str): Full path to the Swagger/OpenAPI spec file.
+        ctx (Context): FastMCP context for logging.
+        base_url (str): Base URL for the API. Required when the spec has
+            a relative server URL (e.g., 'https://api.example.com/file-svc').
+        step_strategy (str): How to group endpoints into steps
+            (tag/path/single_step). Default: tag.
+        include_deprecated (bool): Whether to include deprecated endpoints.
+            Default: False.
+
+    Returns:
+        dict: {
+            "status": "OK" | "ERROR",
+            "message": str,
+            "test_run_id": str,
+            "network_capture_path": str | None,
+            "error": str | None
+        }
+    """
+    _ = ctx  # reserved for future context usage
+    if not _SWAGGER_ADAPTER_AVAILABLE:
+        return {
+            "status": "ERROR",
+            "message": "Swagger adapter is not available. Check server logs for import errors.",
+            "test_run_id": test_run_id,
+            "network_capture_path": None,
+            "error": "Swagger adapter failed to load",
+        }
+    try:
+        output_path = _swagger_convert(
+            spec_path=spec_path,
+            test_run_id=test_run_id,
+            base_url=base_url,
+            step_strategy=step_strategy,
+            include_deprecated=include_deprecated,
+        )
+        return {
+            "status": "OK",
+            "message": f"OpenAPI spec converted. Network capture saved to: {output_path}",
+            "test_run_id": test_run_id,
+            "network_capture_path": output_path,
+            "error": None,
+        }
+    except FileNotFoundError as e:
+        return {
+            "status": "ERROR",
+            "message": str(e),
+            "test_run_id": test_run_id,
+            "network_capture_path": None,
+            "error": str(e),
+        }
+    except ValueError as e:
+        return {
+            "status": "ERROR",
+            "message": str(e),
+            "test_run_id": test_run_id,
+            "network_capture_path": None,
+            "error": str(e),
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "message": f"Unexpected error converting spec file: {e}",
             "test_run_id": test_run_id,
             "network_capture_path": None,
             "error": str(e),
