@@ -146,7 +146,7 @@ Each conversion generates a `capture_manifest.json` alongside the network captur
   "operations_deprecated_skipped": 1,
   "operations_captured": 29,
   "spec_version": "3.0.1",
-  "spec_title": "PwC.NGA.DocumentFileService.WebSvc",
+  "spec_title": "Example.DocumentFileService.WebSvc",
   "base_url": "https://example.com/file-svc"
 }
 ```
@@ -361,16 +361,6 @@ artifacts/<test_run_id>/jmeter/
 │   └── capture_manifest.json               # Provenance metadata
 └── ai-generated_script_<timestamp>.jmx     # After generate_jmeter_script
 ```
-
----
-
-### Smoke Test Results
-
-| Test | HAR File | Entries Total | Filtered | Captured | Steps | JMX Generated |
-|------|----------|---------------|----------|----------|-------|---------------|
-| har-smoke-01 | `central-acquisitionhub-uat.pwc.com.har` (2.5 MB) | 42 | 0 | 42 | 8 | Yes (270 KB) |
-| har-smoke-02 | `nga-perf.pwcglb.com-WITH-MJS.har` (6.0 MB) | 61 | 41 | 20 | 1 | Yes |
-| har-smoke-03 | `nga-perf.pwcglb.com-WITH-MJS.har` (after config update) | 61 | 45 | 16 | 1 | Yes |
 
 ---
 
