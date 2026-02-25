@@ -271,6 +271,11 @@ def _normalize_timestamp(timestamp: str) -> str:
     # If all parsing attempts fail, return as-is (may cause API error, but preserves original behavior)
     return timestamp
 
+def _iso_to_epoch_ms(iso_timestamp: str) -> str:
+    """Convert ISO 8601 timestamp to epoch milliseconds string for POST search API."""
+    dt = datetime.fromisoformat(iso_timestamp.replace('Z', '+00:00'))
+    return str(int(dt.timestamp() * 1000))
+
 # -----------------------------------------------
 # Logs (v2) API - Search Logs
 # -----------------------------------------------
