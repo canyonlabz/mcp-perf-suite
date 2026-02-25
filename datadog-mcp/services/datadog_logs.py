@@ -276,6 +276,21 @@ def _iso_to_epoch_ms(iso_timestamp: str) -> str:
     dt = datetime.fromisoformat(iso_timestamp.replace('Z', '+00:00'))
     return str(int(dt.timestamp() * 1000))
 
+async def _is_custom_query(query_type: str, custom_query: Optional[str] = None) -> bool:
+    """
+    Determine if a query type is a custom query (eligible for POST search fallback).
+
+    Custom queries include:
+    - Explicit custom queries (query_type == 'custom' with a custom_query string)
+    - Named custom queries from custom_queries.json log_queries section
+    """
+    if query_type == 'custom' and custom_query:
+        return True
+
+    custom_queries_config = await load_custom_queries_json()
+    log_queries = (custom_queries_config or {}).get("log_queries", {}) or {}
+    return query_type in log_queries
+
 # -----------------------------------------------
 # Logs (v2) API - Search Logs
 # -----------------------------------------------
