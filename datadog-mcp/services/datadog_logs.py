@@ -291,6 +291,82 @@ async def _is_custom_query(query_type: str, custom_query: Optional[str] = None) 
     log_queries = (custom_queries_config or {}).get("log_queries", {}) or {}
     return query_type in log_queries
 
+async def _post_search_logs(
+    query: str,
+    start_iso: str,
+    end_iso: str,
+    headers: dict,
+    ctx: Context,
+    verify_ssl,
+) -> Tuple[List[dict], int]:
+    """
+    Execute a POST search against /api/v2/logs/events/search.
+
+    Used as a fallback for custom queries when the GET endpoint returns
+    incomplete results. Handles pagination via cursor in the JSON body.
+
+    Args:
+        query: Datadog log query string.
+        start_iso: Start timestamp in ISO 8601 format (converted to epoch ms internally).
+        end_iso: End timestamp in ISO 8601 format (converted to epoch ms internally).
+        headers: HTTP headers dict with DD API/APP keys.
+        ctx: Workflow context for logging.
+        verify_ssl: SSL verification setting (bool or path string).
+
+    Returns:
+        Tuple of (logs_list, pages_fetched). Returns empty list on failure
+        so the caller can fall back to GET-only results.
+    """
+    start_ms = _iso_to_epoch_ms(start_iso)
+    end_ms = _iso_to_epoch_ms(end_iso)
+
+    body = {
+        "filter": {
+            "query": query,
+            "from": start_ms,
+            "to": end_ms,
+        },
+        "sort": "-timestamp",
+        "page": {
+            "limit": min(log_page_limit, 1000),
+        },
+    }
+
+    all_logs: List[dict] = []
+    page_count = 0
+
+    timeout_config = httpx.Timeout(30.0, connect=10.0)
+    async with httpx.AsyncClient(verify=verify_ssl, timeout=timeout_config) as client:
+        while len(all_logs) < log_page_limit and page_count < 10:
+            page_count += 1
+            await ctx.info(f"POST search — fetching page {page_count}...")
+
+            try:
+                response = await client.post(
+                    V2_LOGS_SEARCH_URL, headers=headers, json=body
+                )
+                response.raise_for_status()
+                response_json = response.json()
+
+                logs, next_cursor = _parse_logs_response(response_json)
+                all_logs.extend(logs)
+
+                if not next_cursor:
+                    break
+
+                body["page"]["cursor"] = next_cursor
+
+            except httpx.HTTPStatusError as e:
+                await ctx.error(
+                    f"POST search HTTP error: {e.response.status_code} — {e.response.text}"
+                )
+                break
+            except httpx.RequestError as e:
+                await ctx.error(f"POST search request failed: {str(e)}")
+                break
+
+    return all_logs, page_count
+
 # -----------------------------------------------
 # Logs (v2) API - Search Logs
 # -----------------------------------------------
