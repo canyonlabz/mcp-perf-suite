@@ -823,8 +823,8 @@ def svc_cpu_with_limits_query(env_tag: str, svc_filter: str) -> Tuple[str, str]:
     Return tuple of (usage_query, limits_query) for service CPU metrics.
     
     Args:
-        env_tag: Environment tag (e.g., 'ngapf.central.uat.gx')
-        svc_filter: Service filter pattern (e.g., 'authentication2-svc*')
+        env_tag: Environment tag (e.g., 'east.qa')
+        svc_filter: Service filter pattern (e.g., 'web-app-svc*')
     
     Returns:
         Tuple of (usage_query, limits_query) strings for Datadog API
@@ -839,8 +839,8 @@ def svc_mem_with_limits_query(env_tag: str, svc_filter: str) -> Tuple[str, str]:
     Return tuple of (usage_query, limits_query) for service Memory metrics.
     
     Args:
-        env_tag: Environment tag (e.g., 'ngapf.central.uat.gx')
-        svc_filter: Service filter pattern (e.g., 'authentication2-svc*')
+        env_tag: Environment tag (e.g., 'east.qa')
+        svc_filter: Service filter pattern (e.g., 'web-app-svc*')
     
     Returns:
         Tuple of (usage_query, limits_query) strings for Datadog API
@@ -855,8 +855,8 @@ def pod_cpu_with_limits_query(kube_namespace: Optional[str], pod_filter: str) ->
     Return tuple of (usage_query, limits_query) for pod CPU metrics.
     
     Args:
-        kube_namespace: Kubernetes namespace (e.g., 'halo-auto-qa-eastus')
-        pod_filter: Pod filter pattern (e.g., 'star-web*')
+        kube_namespace: Kubernetes namespace (e.g., 'qa-eastus')
+        pod_filter: Pod filter pattern (e.g., 'web-app*')
     
     Returns:
         Tuple of (usage_query, limits_query) strings for Datadog API
@@ -875,8 +875,8 @@ def pod_mem_with_limits_query(kube_namespace: Optional[str], pod_filter: str) ->
     Return tuple of (usage_query, limits_query) for pod Memory metrics.
     
     Args:
-        kube_namespace: Kubernetes namespace (e.g., 'halo-auto-qa-eastus')
-        pod_filter: Pod filter pattern (e.g., 'star-web*')
+        kube_namespace: Kubernetes namespace (e.g., 'qa-eastus')
+        pod_filter: Pod filter pattern (e.g., 'web-app*')
     
     Returns:
         Tuple of (usage_query, limits_query) strings for Datadog API
