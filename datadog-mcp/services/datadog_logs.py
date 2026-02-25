@@ -528,8 +528,50 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
         
         # Limit to requested number
         all_logs = all_logs[:log_page_limit]
+        get_log_count = len(all_logs)
 
-        await ctx.info(f"Retrieved {len(all_logs)} logs")
+        # --- POST search fallback for custom queries ---
+        is_custom = await _is_custom_query(query_type, custom_query)
+        post_log_count = 0
+        dedup_count = 0
+        post_search_used = False
+        search_methods = ["GET"]
+
+        if is_custom:
+            await ctx.info(
+                f"Custom query detected (type='{query_type}'). "
+                f"GET returned {get_log_count} log(s). Attempting POST search..."
+            )
+            post_search_used = True
+            search_methods.append("POST")
+
+            post_logs, post_pages = await _post_search_logs(
+                query=query,
+                start_iso=start_iso,
+                end_iso=end_iso,
+                headers=headers,
+                ctx=ctx,
+                verify_ssl=verify_ssl,
+            )
+            post_log_count = len(post_logs)
+            page_count += post_pages
+
+            if get_log_count == 0 and post_log_count > 0:
+                await ctx.info(
+                    f"GET returned 0 results; POST returned {post_log_count}. Using POST results."
+                )
+                all_logs = post_logs[:log_page_limit]
+            elif get_log_count > 0 and post_log_count > 0:
+                all_logs, dedup_count = _deduplicate_logs(all_logs, post_logs)
+                all_logs = all_logs[:log_page_limit]
+                await ctx.info(
+                    f"Merged GET ({get_log_count}) + POST ({post_log_count}) results. "
+                    f"Removed {dedup_count} duplicate(s). Final count: {len(all_logs)}"
+                )
+            elif post_log_count == 0:
+                await ctx.info("POST search also returned 0 results.")
+
+        await ctx.info(f"Retrieved {len(all_logs)} logs (final)")
 
         # Generate CSV content
         csv_content = _logs_to_csv(all_logs, env_name, env_tag, query_type)
