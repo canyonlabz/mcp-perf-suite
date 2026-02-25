@@ -367,6 +367,36 @@ async def _post_search_logs(
 
     return all_logs, page_count
 
+def _deduplicate_logs(
+    primary_logs: List[dict], secondary_logs: List[dict]
+) -> Tuple[List[dict], int]:
+    """
+    Merge two log lists, deduplicating by log 'id'.
+    Primary logs take precedence; secondary logs are appended only if their
+    id is not already present in the primary set.
+
+    Args:
+        primary_logs: First log list (GET results) — all entries are kept.
+        secondary_logs: Second log list (POST results) — only unique entries are appended.
+
+    Returns:
+        Tuple of (merged_logs, duplicate_count_removed).
+    """
+    seen_ids = {log["id"] for log in primary_logs if log.get("id")}
+    unique_secondary = []
+    dup_count = 0
+
+    for log in secondary_logs:
+        log_id = log.get("id")
+        if log_id and log_id in seen_ids:
+            dup_count += 1
+        else:
+            if log_id:
+                seen_ids.add(log_id)
+            unique_secondary.append(log)
+
+    return primary_logs + unique_secondary, dup_count
+
 # -----------------------------------------------
 # Logs (v2) API - Search Logs
 # -----------------------------------------------
