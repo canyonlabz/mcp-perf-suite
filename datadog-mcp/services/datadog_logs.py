@@ -25,6 +25,7 @@ DD_API_KEY = os.getenv("DD_API_KEY")
 DD_APP_KEY = os.getenv("DD_APP_KEY")
 DD_API_BASE_URL = os.getenv("DD_API_BASE_URL", "https://api.datadoghq.com")
 V2_LOGS_URL = f"{DD_API_BASE_URL}/api/v2/logs/events"
+V2_LOGS_SEARCH_URL = f"{DD_API_BASE_URL}/api/v2/logs/events/search"
 
 # CA bundle path for SSL verification
 CA_BUNDLE = os.getenv("REQUESTS_CA_BUNDLE") or os.getenv("SSL_CERT_FILE")
