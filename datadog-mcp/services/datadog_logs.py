@@ -626,7 +626,12 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
                 'status_counts': status_counts,
                 'level_counts': level_counts,
                 'top_services': dict(sorted(service_counts.items(), key=lambda x: x[1], reverse=True)[:10])
-            }
+            },
+            'search_methods_used': search_methods,
+            'get_log_count': get_log_count,
+            'post_log_count': post_log_count,
+            'deduplicated_count': dedup_count,
+            'post_search_used': post_search_used,
         }
 
     except httpx.RequestError as e:
