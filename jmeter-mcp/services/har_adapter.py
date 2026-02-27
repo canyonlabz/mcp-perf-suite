@@ -710,7 +710,7 @@ def _write_capture_manifest(
         "har_creator": har_creator,
     }
 
-    base_dir = os.path.join(ARTIFACTS_PATH, str(run_id), "jmeter", "network-capture")
+    base_dir = os.path.join(ARTIFACTS_PATH, str(run_id), "jmeter")
     os.makedirs(base_dir, exist_ok=True)
     manifest_path = os.path.join(base_dir, "capture_manifest.json")
 

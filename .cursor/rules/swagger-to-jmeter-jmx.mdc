@@ -1,0 +1,97 @@
+---
+description: Convert Swagger/OpenAPI spec files into JMeter JMX scripts via JMeter MCP tools
+alwaysApply: false
+---
+
+# Swagger / OpenAPI to JMeter JMX Workflow
+
+## Purpose
+
+Convert a Swagger 2.x or OpenAPI 3.x API specification file (JSON or YAML) into a functional JMeter JMX script using the JMeter MCP tool pipeline. This workflow produces a network capture, runs correlation analysis, generates a correlation naming file, and outputs a ready-to-use JMX script.
+
+## Prerequisites
+
+Collect from the user before starting:
+
+| Parameter | Required | Example |
+|-----------|----------|---------|
+| `test_run_id` | Yes | `swaggerdemo1` |
+| `spec_path` | Yes | Full or workspace-relative path to the Swagger/OpenAPI JSON or YAML file |
+| `base_url` | Yes (if spec has relative servers) | `https://api.example.com/` |
+
+## Workflow Steps
+
+### 1. Convert Swagger to Network Capture
+
+Use MCP tool `convert_swagger_to_capture`:
+
+```
+test_run_id:  <user-provided>
+spec_path:    <absolute path to spec file>
+base_url:     <user-provided base URL>
+```
+
+- If `spec_path` is relative, resolve to an absolute path first — the MCP tool requires it.
+- On success, note the returned `network_capture_path`.
+
+### 2. Analyze Network Traffic
+
+Use MCP tool `analyze_network_traffic`:
+
+```
+test_run_id: <same test_run_id>
+```
+
+- Produces `correlation_spec.json` in `artifacts/<test_run_id>/jmeter/`.
+- Note the correlation count and summary from the response.
+
+### 3. Generate Correlation Naming JSON
+
+Read the `correlation_spec.json` and follow Cursor Rules **@jmeter-correlations.mdc** to generate `correlation_naming.json`.
+
+Write the file to `artifacts/<test_run_id>/jmeter/correlation_naming.json`.
+
+Key validation checks:
+- All `variable_name` values must be unique across both `variables` and `orphan_variables`
+- No empty, numeric-only, or generic variable names
+- Extractor type matches `source_location` (json → `json_extractor`, header/redirect → `regex_extractor`)
+
+### 4. Generate JMeter JMX Script
+
+Use MCP tool `generate_jmeter_script`:
+
+```
+test_run_id: <same test_run_id>
+json_path:   <absolute path to network_capture_*.json from step 1>
+```
+
+- On success, note the returned `jmx_path`.
+
+### 5. Validate
+
+List all generated artifacts and present to user for manual validation:
+
+```
+artifacts/<test_run_id>/jmeter/
+├── network-capture/
+│   └── network_capture_<timestamp>.json
+├── capture_manifest.json
+├── correlation_spec.json
+├── correlation_naming.json
+├── ai-generated_script_<timestamp>.jmx
+└── testdata_csv/
+    └── environment.csv
+```
+
+Wait for the user to confirm the JMX script was created successfully before proceeding.
+
+## Error Handling
+
+- If any MCP tool returns `status: "ERROR"`, report the full error message to the user.
+- Do NOT write code to fix issues. Ask the user for next steps if the error does not resolve.
+
+## Notes
+
+- The `spec_path` must be an absolute filesystem path. Relative paths will fail.
+- The `base_url` parameter is required when the spec uses relative server URLs (common in Swagger 2.x).
+- Synthetic Swagger data uses placeholder values like `sample_string`, which can cause the analyzer to detect broad correlations. This is expected behavior for spec-based captures vs. real Playwright network traces.

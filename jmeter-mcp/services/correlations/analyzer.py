@@ -45,7 +45,7 @@ def _get_network_capture_path(run_id: str) -> str:
     candidates = [
         os.path.join(base_dir, f)
         for f in os.listdir(base_dir)
-        if f.lower().endswith(".json")
+        if f.lower().startswith("network_capture_") and f.lower().endswith(".json")
     ]
     if not candidates:
         raise FileNotFoundError(f"No network capture JSON files found in: {base_dir}")
