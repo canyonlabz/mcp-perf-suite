@@ -832,7 +832,7 @@ def svc_cpu_with_limits_query(env_tag: str, svc_filter: str) -> Tuple[str, str]:
     Return tuple of (usage_query, limits_query) for service CPU metrics.
     
     Args:
-        env_tag: Environment tag (e.g., 'east.qa')
+        env_tag: Environment tag (e.g., 'prod-east')
         svc_filter: Service filter pattern (e.g., 'web-app-svc*')
     
     Returns:
@@ -848,7 +848,7 @@ def svc_mem_with_limits_query(env_tag: str, svc_filter: str) -> Tuple[str, str]:
     Return tuple of (usage_query, limits_query) for service Memory metrics.
     
     Args:
-        env_tag: Environment tag (e.g., 'east.qa')
+        env_tag: Environment tag (e.g., 'prod-east')
         svc_filter: Service filter pattern (e.g., 'web-app-svc*')
     
     Returns:

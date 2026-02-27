@@ -2,7 +2,7 @@
   "schema_version": "1.1",
   "environments": {
     "QA1": {
-      "env_tag": "azure.qa1",
+      "env_tag": "qa1",
       "metadata": {
         "platform": "Azure Kubernetes",
         "description": "QA1 environment for testing"
@@ -30,7 +30,7 @@
       }
     },
     "QA2": {
-      "env_tag": "azure.qa2",
+      "env_tag": "qa2",
       "metadata": {
         "platform": "Windows Servers",
         "description": "QA2 environment for testing"

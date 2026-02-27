@@ -282,21 +282,21 @@ Then edit `custom_queries.json` to define your project-specific queries:
   "apm_queries": {
     "app_500_errors": {
       "description": "Application Services - HTTP 500 errors",
-      "query": "service:(service.app.web OR service.worker.web) env:west.qa @http.status_code:500"
+      "query": "service:(my-app-web OR my-worker-web) env:qa-west @http.status_code:500"
     },
     "app_slow_requests": {
       "description": "Application Services - Slow requests (>5s)",
-      "query": "service:(service.app.web OR service.worker.web) env:west.qa @duration:>5000000000"
+      "query": "service:(my-app-web OR my-worker-web) env:qa-west @duration:>5000000000"
     }
   },
   "log_queries": {
     "app_error_logs": {
       "description": "Application Services - Application error logs",
-      "query": "service:service.app.web status:error"
+      "query": "service:my-app-web status:error"
     },
     "app_exception_logs": {
       "description": "Application Services - Logs with stack traces",
-      "query": "service:service.app.web \"Exception\""
+      "query": "service:my-app-web \"Exception\""
     }
   }
 }
