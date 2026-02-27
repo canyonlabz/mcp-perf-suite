@@ -91,6 +91,15 @@ def _sanitize_filename(text: str) -> str:
     text = text.strip().replace(" ", "_")
     return re.sub(r"[^a-zA-Z0-9._-]", "_", text)
 
+def _normalize_k8s_filter(raw_filter: str) -> str:
+    """Produce a deterministic, filesystem-safe resource name from a K8s filter.
+
+    Strips wildcard characters before sanitizing so that 'my-pod*' and
+    'my-pod' both resolve to the same filename segment ('my-pod').
+    """
+    stripped = raw_filter.replace("*", "")
+    return _sanitize_filename(stripped)
+
 def _ensure_ready(ctx: Optional[Context]):
     """Ensure required environment variables are set."""
     missing = []
@@ -522,7 +531,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                 await ctx.info(warn_msg)
 
             # Prepare per-service CSV
-            fname = f"k8s_metrics_[{_sanitize_filename(s_filter)}].csv"
+            fname = f"k8s_metrics_[{_normalize_k8s_filter(s_filter)}].csv"
             outcsv = os.path.join(outdir, fname)
             files.append(outcsv)
 
@@ -672,7 +681,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                 await ctx.info(warn_msg)
 
             # Prepare per-pod CSV
-            fname = f"k8s_metrics_[{_sanitize_filename(pod_filter)}].csv"
+            fname = f"k8s_metrics_[{_normalize_k8s_filter(pod_filter)}].csv"
             outcsv = os.path.join(outdir, fname)
             files.append(outcsv)
 

@@ -128,6 +128,25 @@ def resolve_colors(color_names: List[str], count: int) -> List[str]:
     """
     colors = [resolve_color(name) for name in color_names]
     return [colors[i % len(colors)] for i in range(count)]
+
+# -----------------------------------------------
+# Filename normalization helpers (mirrors datadog-mcp logic)
+# -----------------------------------------------
+
+def _sanitize_filename(text: str) -> str:
+    """Sanitize text to be safe for filenames."""
+    text = text.strip().replace(" ", "_")
+    return re.sub(r"[^a-zA-Z0-9._-]", "_", text)
+
+def _normalize_k8s_filter(raw_filter: str) -> str:
+    """Produce a deterministic, filesystem-safe resource name from a K8s filter.
+
+    Strips wildcard characters before sanitizing so that 'my-pod*' and
+    'my-pod' both resolve to the same filename segment ('my-pod').
+    """
+    stripped = raw_filter.replace("*", "")
+    return _sanitize_filename(stripped)
+
 # -----------------------------------------------
 # Utility functions
 # -----------------------------------------------
@@ -144,7 +163,7 @@ async def load_environment_details(run_id: str, env_name: str) -> Optional[Dict]
         run_id (str):
             The performance test run identifier. Used to resolve chart paths.
         env_name (str):
-            The environment key (e.g. 'UAT-Central', 'Perf-West') specified in
+            The environment key (e.g. 'QA-Central', 'QA-West') specified in
             the environments.json file.
 
     Returns:
@@ -159,11 +178,11 @@ async def load_environment_details(run_id: str, env_name: str) -> Optional[Dict]
             Returns None if the JSON file is missing or the environment is undefined.
 
     Example:
-        >>> result = await load_environment_details("run_12345", "UAT-Central")
+        >>> result = await load_environment_details("run_12345", QA-Central")
         >>> print(result["env_type"])
         'k8s'
         >>> print(result["resources"])
-        ['nga-ai-autogen-app-api', 'nga-ai-plan-service']
+        ['app-api', 'app-service']
     """
     env_path = Path(_get_mcp_suite_root()) / "datadog-mcp" / "environments.json"
     if not env_path.exists():
@@ -188,12 +207,12 @@ async def load_environment_details(run_id: str, env_name: str) -> Optional[Dict]
     elif env_entry.get("kubernetes", {}).get("services"):
         env_type = "k8s"
         resources = [
-            s["service_filter"].replace("*", "") for s in env_entry["kubernetes"]["services"]
+            _normalize_k8s_filter(s["service_filter"]) for s in env_entry["kubernetes"]["services"]
         ]
     elif env_entry.get("kubernetes", {}).get("pods"):
         env_type = "k8s"
         resources = [
-            p["pod_filter"].replace("*", "") for p in env_entry["kubernetes"]["pods"]
+            _normalize_k8s_filter(p["pod_filter"]) for p in env_entry["kubernetes"]["pods"]
         ]
 
     return {
@@ -207,23 +226,29 @@ async def get_metric_files(run_id: str, env_type: str, resources: List[str]) -> 
     """
     Discover APM metric files corresponding to environment resources.
 
+    For K8s resources the canonical filename is now ``k8s_metrics_[<resource>].csv``
+    (no trailing underscore).  A fallback check for the legacy format
+    ``k8s_metrics_[<resource>_].csv`` is included so that artifacts produced
+    before this fix are still picked up automatically.
+
     Args:
         run_id (str):
             Unique test run identifier (used in artifacts folder resolution).
         env_type (str):
             Environment type. One of ['host', 'k8s'].
         resources (List[str]):
-            List of discovered resource identifiers (hostnames or K8s services).
+            List of discovered resource identifiers (hostnames or K8s filters,
+            already normalised via ``_normalize_k8s_filter``).
 
     Returns:
         List[Path]:
             List of valid CSV paths under artifacts/<run_id>/<APM_TOOL>/.
 
     Example:
-        >>> await get_metric_files("run_12345", "k8s", ["nga-ai-autogen-app-api"])
-        [Path("artifacts/run_12345/datadog/k8s_metrics_[nga-ai-autogen-app-api_].csv")]
-        >>> await get_metric_files("run_12345", "host", ["u2zqtwbpwdwv037"])
-        [Path("artifacts/run_12345/datadog/host_metrics_[u2zqtwbpwdwv037].csv")]
+        >>> await get_metric_files("run_12345", "k8s", ["app-api"])
+        [Path("artifacts/run_12345/datadog/k8s_metrics_[app-api].csv")]
+        >>> await get_metric_files("run_12345", "host", ["web01"])
+        [Path("artifacts/run_12345/datadog/host_metrics_[web01].csv")]
     """
     base_dir = ARTIFACTS_PATH / run_id / APM_TOOL
     print(f"DEBUG: base_dir={base_dir}, exists={base_dir.exists()}, APM_TOOL={APM_TOOL}")
@@ -231,27 +256,32 @@ async def get_metric_files(run_id: str, env_type: str, resources: List[str]) -> 
         print(f"DEBUG: base_dir does not exist!")
         return []
 
+    csv_files = list(base_dir.glob("*.csv"))
+    print(f"DEBUG: Found {len(csv_files)} CSV files in {base_dir}")
+    csv_names = {f.name: f for f in csv_files}
+
     discovered_files = []
     for resource in resources:
-        # Build expected filename with brackets
-        # Note: Host files use format: host_metrics_[hostname].csv (no trailing underscore)
-        #       K8s files use format: k8s_metrics_[service_name_].csv (with trailing underscore)
-        if env_type == "host":
-            expected_name = f"{env_type}_metrics_[{resource}].csv"
-        else:  # k8s
-            expected_name = f"{env_type}_metrics_[{resource}_].csv"
-        print(f"DEBUG: Looking for {expected_name} in {base_dir}")
-        # Check all CSV files and match by expected filename prefix
-        csv_files = list(base_dir.glob("*.csv"))
-        print(f"DEBUG: Found {len(csv_files)} CSV files")
-        for csv_file in csv_files:
-            # Check if the filename matches our expected pattern
-            if csv_file.name == expected_name:
-                print(f"DEBUG: Matched {csv_file.name}")
-                discovered_files.append(csv_file)
-                break  # Found the matching file, move to next resource
+        canonical = f"{env_type}_metrics_[{resource}].csv"
+        legacy = f"{env_type}_metrics_[{resource}_].csv" if env_type != "host" else None
+
+        candidates = [canonical]
+        if legacy:
+            candidates.append(legacy)
+
+        print(f"DEBUG: Looking for {candidates} in {base_dir}")
+
+        matched = None
+        for candidate in candidates:
+            if candidate in csv_names:
+                matched = csv_names[candidate]
+                break
+
+        if matched:
+            print(f"DEBUG: Matched {matched.name}")
+            discovered_files.append(matched)
         else:
-            print(f"DEBUG: No match found for {expected_name}")
+            print(f"DEBUG: No match found for resource '{resource}'")
 
     return discovered_files
 
@@ -288,8 +318,8 @@ def get_comparison_chart_output_path(comparison_id: str, chart_name: str) -> Pat
         Path: The absolute path to where the PNG file should be written.
     
     Example:
-        >>> get_comparison_chart_output_path("2026-01-21-10-30-00", "CPU_PEAK_CORE_COMPARISON_BAR-auth-svc")
-        Path("artifacts/comparisons/2026-01-21-10-30-00/charts/CPU_PEAK_CORE_COMPARISON_BAR-auth-svc.png")
+        >>> get_comparison_chart_output_path("2026-01-21-10-30-00", "CPU_PEAK_CORE_COMPARISON_BAR-app-svc")
+        Path("artifacts/comparisons/2026-01-21-10-30-00/charts/CPU_PEAK_CORE_COMPARISON_BAR-app-svc.png")
     """
     charts_dir = ARTIFACTS_PATH / "comparisons" / comparison_id / "charts"
     charts_dir.mkdir(parents=True, exist_ok=True)
