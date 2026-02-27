@@ -312,6 +312,8 @@ streamlit-ui/config.yaml
 !.cursor/rules/comparison-report-workflow.mdc
 !.cursor/rules/report-revision-workflow.mdc
 !.cursor/rules/ado-to-jmeter-automation-conversion.mdc
+!.cursor/rules/har-to-jmeter-jmx.mdc
+!.cursor/rules/swagger-to-jmeter-jmx.mdc
 
 # Temp test files
 scripts/*
