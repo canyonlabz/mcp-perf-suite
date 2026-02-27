@@ -149,6 +149,16 @@ async def analyze_bottlenecks(
         if jtl_df is None or jtl_df.empty:
             return {"error": "JTL file could not be loaded or is empty", "status": "failed"}
 
+        engine_count = _detect_engine_count(jtl_df)
+        if engine_count > 1:
+            await ctx.info(
+                "Multi-Engine Detected",
+                f"{engine_count} load-generator engines detected — "
+                f"concurrency will be computed as sum of per-engine threads",
+            )
+        else:
+            await ctx.info("Single Engine", "1 engine detected — using allThreads directly")
+
         # ------------------------------------------------------------------
         # 2. Build time buckets
         # ------------------------------------------------------------------
@@ -285,6 +295,7 @@ async def analyze_bottlenecks(
             "analysis_mode": "comparison" if baseline_run_id else "single_run",
             "analysis_timestamp": datetime.datetime.now().isoformat(),
             "configuration": cfg,
+            "engine_count": engine_count,
             "time_buckets_total": len(buckets_df),
             "warmup_buckets_skipped": cfg["warmup_buckets"],
             "baseline_metrics": baseline,
@@ -330,6 +341,13 @@ async def analyze_bottlenecks(
 # DATA LOADING
 # ============================================================================
 
+def _detect_engine_count(df: pd.DataFrame) -> int:
+    """Return the number of distinct load-generator engines in the JTL data."""
+    if "Hostname" in df.columns:
+        return int(df["Hostname"].nunique())
+    return 1
+
+
 def _load_jtl(path: Path) -> Optional[pd.DataFrame]:
     """Load raw JTL CSV and validate required columns."""
     try:
@@ -340,8 +358,11 @@ def _load_jtl(path: Path) -> Optional[pd.DataFrame]:
             print(f"[bottleneck_analyzer] Missing columns: {missing}")
             return None
 
+        engine_count = _detect_engine_count(df)
+        if engine_count > 1:
+            print(f"[bottleneck_analyzer] Multi-engine JTL detected: {engine_count} engines")
+
         df["timestamp"] = pd.to_datetime(df["timeStamp"], unit="ms", utc=True)
-        # Normalise success column to boolean
         df["success"] = df["success"].astype(str).str.lower().map({"true": True, "false": False})
         return df
     except Exception as e:
@@ -516,6 +537,37 @@ def _load_infrastructure_metrics(
 # TIME BUCKETING
 # ============================================================================
 
+def _compute_bucket_concurrency(
+    df: pd.DataFrame, bucket_seconds: int,
+) -> pd.Series:
+    """Compute per-bucket concurrency, correcting for multi-engine JTL files.
+
+    In distributed BlazeMeter/JMeter tests the merged JTL contains rows from every
+    engine, but ``allThreads`` only reports the **per-engine** thread count.
+    True concurrency = sum of each engine's max ``allThreads`` per bucket.
+
+    Single-engine tests (one unique ``Hostname``, or column absent) fall back
+    to the simpler ``max(allThreads)`` per bucket.
+    """
+    has_hostname = "Hostname" in df.columns
+    is_multi_engine = has_hostname and df["Hostname"].nunique() > 1
+
+    if is_multi_engine:
+        return (
+            df.groupby([pd.Grouper(freq=f"{bucket_seconds}s"), "Hostname"])["allThreads"]
+            .max()
+            .groupby(level=0)
+            .sum()
+            .rename("concurrency")
+        )
+
+    return (
+        df.resample(f"{bucket_seconds}s")["allThreads"]
+        .max()
+        .rename("concurrency")
+    )
+
+
 def _build_time_buckets(jtl_df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
     """
     Bucket JTL data into fixed-width time windows.
@@ -528,9 +580,9 @@ def _build_time_buckets(jtl_df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
 
     df = jtl_df.set_index("timestamp").sort_index()
 
-    # Resample into time buckets
+    concurrency_series = _compute_bucket_concurrency(df, bucket_seconds)
+
     resampled = df.resample(f"{bucket_seconds}s").agg(
-        concurrency=("allThreads", "max"),
         p50=("elapsed", lambda x: x.quantile(0.50) if len(x) else np.nan),
         p90=("elapsed", lambda x: x.quantile(0.90) if len(x) else np.nan),
         p95=("elapsed", lambda x: x.quantile(0.95) if len(x) else np.nan),
@@ -539,6 +591,8 @@ def _build_time_buckets(jtl_df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
         total_requests=("elapsed", "count"),
         error_count=("success", lambda x: (~x).sum()),
     )
+
+    resampled = resampled.join(concurrency_series)
 
     resampled["throughput_rps"] = resampled["total_requests"] / bucket_seconds
     resampled["error_rate"] = (
@@ -2123,11 +2177,12 @@ def _detect_multi_tier_bottlenecks(
 
         # --- Per-label bucketing ---
         label_indexed = label_df.set_index("timestamp").sort_index()
+        label_concurrency = _compute_bucket_concurrency(label_indexed, bucket_seconds)
         resampled = label_indexed.resample(f"{bucket_seconds}s").agg(
-            concurrency=("allThreads", "max"),
             p90=("elapsed", lambda x: x.quantile(0.90) if len(x) else np.nan),
             total_requests=("elapsed", "count"),
         )
+        resampled = resampled.join(label_concurrency)
         resampled = resampled[resampled["total_requests"] > 0]
 
         if len(resampled) <= warmup:
