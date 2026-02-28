@@ -698,20 +698,22 @@ def load_and_process_performance_data(file_path: Path, sla_threshold: float = No
         )
 
     try:
-        df = pd.read_csv(file_path)
-        
-        # Convert epoch timestamp to datetime with UTC
+        use_cols = ["timeStamp", "elapsed", "label", "success"]
+        dtype_map = {
+            "timeStamp": "int64",
+            "elapsed": "int64",
+            "label": "category",
+            "success": "str",
+        }
+
+        df = pd.read_csv(file_path, usecols=use_cols, dtype=dtype_map, low_memory=True)
+
         df['timestamp'] = pd.to_datetime(df['timeStamp'], unit='ms', utc=True)
-        
-        # Filter required columns
-        required_cols = ['timestamp', 'elapsed', 'label', 'success']
-        df = df[required_cols].copy()
-        
-        # Add SLA compliance flag (vectorized) using threshold from slas.yaml
+        df = df[['timestamp', 'elapsed', 'label', 'success']].copy()
         df['sla_violation'] = df['elapsed'] > sla_threshold
-        
+
         return df
-        
+
     except Exception as e:
         print(f"Error loading performance data: {e}")
         return None

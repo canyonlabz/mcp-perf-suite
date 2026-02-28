@@ -57,6 +57,7 @@ perf_analysis:
     cpu_high_pct: null          # CPU saturation threshold. null = use resource_thresholds.cpu.high
     memory_high_pct: null       # Memory saturation threshold. null = use resource_thresholds.memory.high
     raw_metric_degrade_pct: 50.0 # Relative increase from baseline to flag when utilization % unavailable (no K8s limits)
+    max_jtl_rows: null          # null = load all rows; set to e.g. 2000000 to cap memory on very large JTL files
 
 # Output Settings
 output:

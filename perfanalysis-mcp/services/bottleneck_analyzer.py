@@ -58,6 +58,7 @@ BN_DEFAULTS = {
     "cpu_high_pct": None,         # falls back to resource_thresholds.cpu.high
     "memory_high_pct": None,      # falls back to resource_thresholds.memory.high
     "raw_metric_degrade_pct": 50.0,  # relative increase from baseline to flag when utilization % unavailable (no K8s limits)
+    "max_jtl_rows": None,         # None = load all rows; set to cap memory on very large JTL files
 }
 
 
@@ -145,7 +146,7 @@ async def analyze_bottlenecks(
             return {"error": msg, "status": "prerequisite_missing"}
 
         await ctx.info("Loading JTL", str(jtl_path))
-        jtl_df = _load_jtl(jtl_path)
+        jtl_df = _load_jtl(jtl_path, cfg)
         if jtl_df is None or jtl_df.empty:
             return {"error": "JTL file could not be loaded or is empty", "status": "failed"}
 
@@ -348,15 +349,52 @@ def _detect_engine_count(df: pd.DataFrame) -> int:
     return 1
 
 
-def _load_jtl(path: Path) -> Optional[pd.DataFrame]:
-    """Load raw JTL CSV and validate required columns."""
+def _load_jtl(path: Path, cfg: Dict) -> Optional[pd.DataFrame]:
+    """Load raw JTL CSV with memory-optimised I/O.
+
+    Applies three techniques to handle large JTL files (hundreds of MB):
+      1. ``usecols`` — only loads the columns the analyser actually uses.
+      2. Explicit ``dtype`` map — avoids pandas object-column overhead and
+         uses ``category`` for low-cardinality string columns (label, Hostname).
+      3. Configurable ``max_jtl_rows`` — safety valve for extremely large files.
+    """
     try:
-        df = pd.read_csv(path)
         required = {"timeStamp", "elapsed", "label", "responseCode", "success", "allThreads"}
-        if not required.issubset(set(df.columns)):
-            missing = required - set(df.columns)
+
+        header = pd.read_csv(path, nrows=0)
+        available = set(header.columns)
+        if not required.issubset(available):
+            missing = required - available
             print(f"[bottleneck_analyzer] Missing columns: {missing}")
             return None
+
+        use_cols = list(required)
+        if "Hostname" in available:
+            use_cols.append("Hostname")
+
+        dtype_map = {
+            "timeStamp": "int64",
+            "elapsed": "int64",
+            "label": "category",
+            "responseCode": "category",
+            "success": "str",
+            "allThreads": "int32",
+        }
+        if "Hostname" in available:
+            dtype_map["Hostname"] = "category"
+
+        max_rows = cfg.get("max_jtl_rows")
+
+        df = pd.read_csv(
+            path,
+            usecols=use_cols,
+            dtype=dtype_map,
+            low_memory=True,
+            nrows=max_rows,
+        )
+
+        if max_rows and len(df) >= max_rows:
+            print(f"[bottleneck_analyzer] Row limit applied: loaded {max_rows:,} of available rows")
 
         engine_count = _detect_engine_count(df)
         if engine_count > 1:
