@@ -361,3 +361,179 @@ def create_cookie_manager():
     ET.SubElement(cookie_manager, "boolProp", attrib={"name": "CookieManager.controlledByThreadGroup"}).text = "false"
     
     return cookie_manager
+
+
+# === HTTP Request Defaults Element ===
+def create_http_request_defaults(
+    testname: str = "HTTP Request Defaults",
+    protocol: str = "https",
+    domain: str = "",
+    port: str = "",
+    connect_timeout: str = "30000",
+    response_timeout: str = "30000"
+):
+    """
+    Creates an HTTP Request Defaults (ConfigTestElement) element.
+
+    Centralises protocol, domain, port, and timeout settings so individual
+    HTTP samplers don't need to repeat them. Placed at the Thread Group or
+    Test Plan level.
+
+    Args:
+        testname: Display name in JMeter.
+        protocol: Default protocol ("https" or "http").
+        domain: Default server name or IP. Supports variables like "${envHostname}".
+        port: Default port number (empty string uses protocol default).
+        connect_timeout: Connection timeout in milliseconds.
+        response_timeout: Response timeout in milliseconds.
+
+    Returns:
+        The ConfigTestElement XML element.
+    """
+    defaults = ET.Element("ConfigTestElement", attrib={
+        "guiclass": "HttpDefaultsGui",
+        "testclass": "ConfigTestElement",
+        "testname": testname,
+        "enabled": "true"
+    })
+
+    args_prop = ET.SubElement(defaults, "elementProp", attrib={
+        "name": "HTTPsampler.Arguments",
+        "elementType": "Arguments",
+        "guiclass": "HTTPArgumentsPanel",
+        "testclass": "Arguments",
+        "testname": "User Defined Variables",
+        "enabled": "true"
+    })
+    ET.SubElement(args_prop, "collectionProp", attrib={
+        "name": "Arguments.arguments"
+    })
+
+    ET.SubElement(defaults, "stringProp", attrib={
+        "name": "HTTPSampler.domain"
+    }).text = domain
+    ET.SubElement(defaults, "stringProp", attrib={
+        "name": "HTTPSampler.port"
+    }).text = str(port)
+    ET.SubElement(defaults, "stringProp", attrib={
+        "name": "HTTPSampler.protocol"
+    }).text = protocol
+    ET.SubElement(defaults, "stringProp", attrib={
+        "name": "HTTPSampler.connect_timeout"
+    }).text = str(connect_timeout)
+    ET.SubElement(defaults, "stringProp", attrib={
+        "name": "HTTPSampler.response_timeout"
+    }).text = str(response_timeout)
+
+    return defaults
+
+
+# === HTTP Authorization Manager Element ===
+def create_auth_manager(
+    testname: str = "HTTP Authorization Manager",
+    entries: list = None
+):
+    """
+    Creates an HTTP Authorization Manager element.
+
+    Manages Basic/Digest authentication credentials for HTTP requests.
+
+    Args:
+        testname: Display name in JMeter.
+        entries: List of auth entry dicts, each containing:
+            - base_url (str): URL pattern to match (e.g., "https://${envHostname}")
+            - username (str): Username or variable (e.g., "${username}")
+            - password (str): Password or variable (e.g., "${password}")
+            - domain (str): NTLM domain (empty for Basic/Digest)
+            - realm (str): Auth realm (empty string for most cases)
+            - mechanism (str): "BASIC", "DIGEST", or "KERBEROS"
+
+    Returns:
+        The AuthManager XML element.
+    """
+    if entries is None:
+        entries = []
+
+    auth_manager = ET.Element("AuthManager", attrib={
+        "guiclass": "AuthPanel",
+        "testclass": "AuthManager",
+        "testname": testname,
+        "enabled": "true"
+    })
+
+    collection = ET.SubElement(auth_manager, "collectionProp", attrib={
+        "name": "AuthManager.auth_list"
+    })
+
+    for entry in entries:
+        auth_elem = ET.SubElement(collection, "elementProp", attrib={
+            "name": "",
+            "elementType": "Authorization"
+        })
+        ET.SubElement(auth_elem, "stringProp", attrib={
+            "name": "Authorization.url"
+        }).text = entry.get("base_url", "")
+        ET.SubElement(auth_elem, "stringProp", attrib={
+            "name": "Authorization.username"
+        }).text = entry.get("username", "")
+        ET.SubElement(auth_elem, "stringProp", attrib={
+            "name": "Authorization.password"
+        }).text = entry.get("password", "")
+        ET.SubElement(auth_elem, "stringProp", attrib={
+            "name": "Authorization.domain"
+        }).text = entry.get("domain", "")
+        ET.SubElement(auth_elem, "stringProp", attrib={
+            "name": "Authorization.realm"
+        }).text = entry.get("realm", "")
+        ET.SubElement(auth_elem, "stringProp", attrib={
+            "name": "Authorization.mechanism"
+        }).text = entry.get("mechanism", "BASIC")
+
+    return auth_manager
+
+
+# === Keystore Configuration Element ===
+def create_keystore_config(
+    testname: str = "Keystore Configuration",
+    keystore_path: str = "",
+    keystore_password: str = "",
+    keystore_type: str = "PKCS12",
+    alias: str = "",
+    key_password: str = ""
+):
+    """
+    Creates a Keystore Configuration element for client certificate / SSL support.
+
+    Used when the target server requires mutual TLS (mTLS) client certificates.
+
+    Args:
+        testname: Display name in JMeter.
+        keystore_path: Path to the keystore file (e.g., "certs/client.p12").
+        keystore_password: Password for the keystore. Supports variables.
+        keystore_type: Keystore format - "PKCS12", "JKS", etc.
+        alias: Certificate alias within the keystore (empty uses first).
+        key_password: Password for the private key (empty uses keystore password).
+
+    Returns:
+        The KeystoreConfig XML element.
+    """
+    keystore = ET.Element("KeystoreConfig", attrib={
+        "guiclass": "TestBeanGUI",
+        "testclass": "KeystoreConfig",
+        "testname": testname,
+        "enabled": "true"
+    })
+    ET.SubElement(keystore, "stringProp", attrib={
+        "name": "preload"
+    }).text = "true"
+    ET.SubElement(keystore, "stringProp", attrib={
+        "name": "clientCertAliasVarName"
+    }).text = alias
+    ET.SubElement(keystore, "stringProp", attrib={
+        "name": "endIndex"
+    }).text = ""
+    ET.SubElement(keystore, "stringProp", attrib={
+        "name": "startIndex"
+    }).text = ""
+
+    return keystore

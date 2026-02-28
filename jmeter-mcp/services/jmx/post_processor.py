@@ -278,3 +278,52 @@ def append_extractor(sampler_hash_tree: ET.Element, extractor: ET.Element) -> No
     """
     sampler_hash_tree.append(extractor)
     sampler_hash_tree.append(ET.Element("hashTree"))
+
+
+def create_jsr223_postprocessor(
+    script: str,
+    language: str = "groovy",
+    testname: str = "JSR223 PostProcessor",
+    cache_key: str = "true",
+    parameters: str = ""
+) -> ET.Element:
+    """
+    Creates a JSR223 PostProcessor element.
+
+    JSR223 PostProcessors execute custom scripts after an HTTP sampler runs.
+    Commonly used for parsing responses, computing flags, custom extractions,
+    or any post-response logic beyond built-in extractors.
+
+    Args:
+        script: The script code to execute (Groovy recommended).
+        language: Script language (default: "groovy").
+        testname: Display name in JMeter.
+        cache_key: Whether to cache the compiled script ("true" recommended).
+        parameters: Optional parameters passed to the script.
+
+    Returns:
+        ET.Element: The JSR223PostProcessor XML element.
+    """
+    postprocessor = ET.Element("JSR223PostProcessor", attrib={
+        "guiclass": "TestBeanGUI",
+        "testclass": "JSR223PostProcessor",
+        "testname": testname,
+        "enabled": "true"
+    })
+    ET.SubElement(postprocessor, "stringProp", attrib={
+        "name": "scriptLanguage"
+    }).text = language
+    ET.SubElement(postprocessor, "stringProp", attrib={
+        "name": "parameters"
+    }).text = parameters
+    ET.SubElement(postprocessor, "stringProp", attrib={
+        "name": "filename"
+    }).text = ""
+    ET.SubElement(postprocessor, "stringProp", attrib={
+        "name": "cacheKey"
+    }).text = cache_key
+    ET.SubElement(postprocessor, "stringProp", attrib={
+        "name": "script"
+    }).text = script
+
+    return postprocessor

@@ -24,6 +24,12 @@ from services.playwright_adapter import run_playwright_capture_pipeline
 from services.playwright_adapter import archive_existing_traces
 from services.correlations import analyze_traffic  # New modular package (v0.2.0)
 from services.jmeter_log_analyzer import analyze_logs as run_jmeter_log_analysis
+from services.jmx_editor import (
+    analyze_jmx_file as _analyze_jmx,
+    add_jmx_component as _add_jmx_component,
+    edit_jmx_component as _edit_jmx_component,
+)
+from services.jmx.component_registry import list_supported_components as _list_components
 
 # Lazy import: HAR adapter is optional — server must start even if it fails to load (safeguard #1)
 try:
@@ -383,19 +389,192 @@ async def generate_jmeter_script(test_run_id: str, json_path: str, ctx: Context)
     """
     return await generate_jmeter_jmx(test_run_id, json_path, ctx)
 
-@mcp.tool(enabled=False)
-async def validate_jmx(test_run_id: str, jmx_path: str, ctx: Context) -> dict:
+# ----------------------------------------------------------
+# JMeter HITL (Human-in-the-Loop) Script Editing Tools
+# ----------------------------------------------------------
+
+@mcp.tool()
+async def analyze_jmeter_script(
+    test_run_id: str,
+    ctx: Context,
+    jmx_filename: str = "",
+    detail_level: str = "summary",
+) -> dict:
     """
-    Validates JMX script structure and variable references.
+    Analyze an existing JMeter JMX script to understand its structure,
+    components, and configuration.
+
+    Returns a hierarchical view of the test plan along with summary
+    statistics about component types and counts. Use this before calling
+    add_jmeter_component or edit_jmeter_component to obtain the node_ids
+    needed for targeting specific elements.
+
     Args:
         test_run_id (str): Unique identifier for the test run.
-        jmx_path (str): Path to the JMX script that should be validated.
-        ctx (Context, optional): FastMCP context for tracking state, status, or error reporting.
-    
+        ctx (Context): FastMCP context for state/error details.
+        jmx_filename (str): Optional JMX filename inside the artifacts folder.
+            If empty, auto-discovers the most recent ai-generated script.
+        detail_level (str): Level of detail in the output:
+            - "summary" (default): Hierarchy outline + element counts.
+            - "detailed": Adds full node index with node_ids + variable scan.
+            - "full": Adds element properties to the node index.
+
     Returns:
-        dict: Validation results, including errors, warnings, and status.
+        dict: {
+            "status": "OK" | "ERROR",
+            "message": str,
+            "test_run_id": str,
+            "jmx_path": str,
+            "hierarchy": list,
+            "outline": str,
+            "summary": {"total_elements": int, "by_type": dict},
+            "node_index": dict (detailed/full only),
+            "variables": dict (detailed/full only)
+        }
     """
-    ##return await validate_jmeter_script(test_run_id, jmx_path, ctx)
+    return await _analyze_jmx(test_run_id, jmx_filename, detail_level, ctx)
+
+
+@mcp.tool()
+async def add_jmeter_component(
+    test_run_id: str,
+    component_type: str,
+    parent_node_id: str,
+    component_config: dict,
+    ctx: Context,
+    jmx_filename: str = "",
+    position: str = "last",
+    dry_run: bool = False,
+) -> dict:
+    """
+    Add a new JMeter component to an existing JMX script.
+
+    Supports adding any registered component type including controllers,
+    samplers, config elements, extractors, assertions, pre/post processors,
+    and timers. Run analyze_jmeter_script first to obtain the parent_node_id.
+
+    See JMeter Component Reference:
+    https://jmeter.apache.org/usermanual/component_reference.html
+
+    Args:
+        test_run_id (str): Unique identifier for the test run.
+        component_type (str): Type of component to add. Examples:
+            "loop_controller", "json_extractor", "jsr223_preprocessor",
+            "response_assertion", "constant_timer", "csv_dataset", etc.
+        parent_node_id (str): node_id of the parent element where the new
+            component will be inserted (from analyze_jmeter_script output).
+        component_config (dict): Component configuration including name and
+            type-specific properties. Required/optional fields depend on
+            the component_type.
+        ctx (Context): FastMCP context for state/error details.
+        jmx_filename (str): Optional JMX filename override. If empty,
+            auto-discovers the most recent ai-generated script.
+        position (str): Where to add within the parent's children:
+            "first" or "last" (default: "last").
+        dry_run (bool): If True, validate and preview the change without
+            saving to disk. Default: False.
+
+    Returns:
+        dict: {
+            "status": "OK" | "ERROR",
+            "message": str,
+            "test_run_id": str,
+            "jmx_path": str,
+            "backup_path": str | None,
+            "dry_run": bool,
+            "change_summary": dict
+        }
+    """
+    return await _add_jmx_component(
+        test_run_id, component_type, parent_node_id,
+        component_config, jmx_filename, position, dry_run, ctx
+    )
+
+
+@mcp.tool()
+async def edit_jmeter_component(
+    test_run_id: str,
+    target_node_id: str,
+    operations: list,
+    ctx: Context,
+    jmx_filename: str = "",
+    dry_run: bool = False,
+) -> dict:
+    """
+    Edit an existing JMeter component in a JMX script.
+
+    Applies one or more patch operations to the targeted component.
+    Run analyze_jmeter_script first to obtain the target_node_id.
+
+    Args:
+        test_run_id (str): Unique identifier for the test run.
+        target_node_id (str): node_id of the component to edit
+            (from analyze_jmeter_script output).
+        operations (list): List of edit operation dicts. Supported ops:
+            - {"op": "rename", "value": "New Name"}
+            - {"op": "set_prop", "name": "HTTPSampler.method",
+               "value": "POST", "prop_type": "stringProp"}
+            - {"op": "replace_in_body", "find": "old_text",
+               "replace": "new_text"}
+            - {"op": "toggle_enabled", "value": true/false}
+        ctx (Context): FastMCP context for state/error details.
+        jmx_filename (str): Optional JMX filename override. If empty,
+            auto-discovers the most recent ai-generated script.
+        dry_run (bool): If True, validate and preview changes without
+            saving to disk. Default: False.
+
+    Returns:
+        dict: {
+            "status": "OK" | "ERROR",
+            "message": str,
+            "test_run_id": str,
+            "jmx_path": str,
+            "backup_path": str | None,
+            "dry_run": bool,
+            "change_summary": dict
+        }
+    """
+    return await _edit_jmx_component(
+        test_run_id, target_node_id, operations,
+        jmx_filename, dry_run, ctx
+    )
+
+
+@mcp.tool()
+async def list_jmeter_component_types(
+    ctx: Context,
+    category: str = "",
+) -> dict:
+    """
+    List all supported JMeter component types that can be added via
+    add_jmeter_component.
+
+    Useful for discovering what components are available and what
+    configuration fields each type requires.
+
+    Args:
+        ctx (Context): FastMCP context.
+        category (str): Optional filter by category. Options:
+            "controller", "sampler", "config_element", "pre_processor",
+            "post_processor", "assertion", "timer", "listener".
+            Empty string returns all categories.
+
+    Returns:
+        dict: {
+            "status": "OK",
+            "components": list of component type descriptors,
+            "count": int
+        }
+    """
+    _ = ctx
+    cat = category if category else None
+    components = _list_components(cat)
+    return {
+        "status": "OK",
+        "components": components,
+        "count": len(components),
+    }
+
 
 # ----------------------------------------------------------
 # JMeter Test Execution Tools

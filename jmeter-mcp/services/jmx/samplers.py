@@ -239,3 +239,52 @@ def create_flow_control_action(
     
     return test_action
 
+
+# === JSR223 Sampler ===
+def create_jsr223_sampler(
+    testname: str = "JSR223 Sampler",
+    script: str = "",
+    language: str = "groovy",
+    cache_key: str = "true",
+    parameters: str = ""
+):
+    """
+    Creates a JSR223 Sampler element for custom scripting steps.
+
+    JSR223 Samplers execute arbitrary scripts as a sampler (producing a
+    SampleResult). Useful for data creation utilities, custom protocol
+    calls, or any logic that doesn't fit standard HTTP samplers.
+
+    Args:
+        testname: Display name in JMeter.
+        script: The script code to execute (Groovy recommended).
+        language: Script language (default: "groovy").
+        cache_key: Whether to cache the compiled script ("true" recommended).
+        parameters: Optional parameters passed to the script.
+
+    Returns:
+        The JSR223Sampler XML element.
+    """
+    sampler = ET.Element("JSR223Sampler", attrib={
+        "guiclass": "TestBeanGUI",
+        "testclass": "JSR223Sampler",
+        "testname": testname,
+        "enabled": "true"
+    })
+    ET.SubElement(sampler, "stringProp", attrib={
+        "name": "scriptLanguage"
+    }).text = language
+    ET.SubElement(sampler, "stringProp", attrib={
+        "name": "parameters"
+    }).text = parameters
+    ET.SubElement(sampler, "stringProp", attrib={
+        "name": "filename"
+    }).text = ""
+    ET.SubElement(sampler, "stringProp", attrib={
+        "name": "cacheKey"
+    }).text = cache_key
+    ET.SubElement(sampler, "stringProp", attrib={
+        "name": "script"
+    }).text = script
+
+    return sampler

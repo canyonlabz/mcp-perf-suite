@@ -23,6 +23,11 @@ artifacts:
   # Set an explicit absolute path here only if you need a custom location.
   artifacts_path: ""
 
+jmx_editing:
+  create_backup: true           # Create a backup of the JMX before any add/edit operation
+  max_backup_count: 10          # Maximum number of backups to keep per JMX file (oldest pruned first)
+  validate_after_edit: true     # Re-parse JMX after saving to verify well-formed XML
+
 jmeter:
   jmeter_home: "C:\\<path_to_jmeter>\\apache-jmeter"
   jmeter_bin_path: "C:\\<path_to_jmeter>\\apache-jmeter\\bin"           # Update with the actual path
