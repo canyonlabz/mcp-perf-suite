@@ -143,25 +143,27 @@ async def analyze_kubernetes_metrics(
             # Get resource allocation (with config-driven defaults)
             resource_allocation = get_kubernetes_resource_allocation(entity_config, filter_name, config)
             
-            # Track assumptions
-            if not entity_config:
+            # Analyze service/pod metrics
+            entity_analysis = analyze_k8s_entity_metrics(filter_data, resource_allocation, config)
+            k8s_analysis["entities"][f"{env_name}::{filter_name}"] = entity_analysis
+            
+            # Track assumptions based on CSV-driven limits (source of truth)
+            cpu_defined = entity_analysis.get("limits_status", {}).get("cpu_limits_defined", False)
+            mem_defined = entity_analysis.get("limits_status", {}).get("mem_limits_defined", False)
+            
+            if not cpu_defined and not mem_defined:
                 k8s_analysis["assumptions"].append(
                     f"K8s {entity_type.title()} '{filter_name}' - "
                     f"no CPU or memory limits defined at the pod/container level"
                 )
-            else:
-                if 'cpus' not in entity_config:
-                    k8s_analysis["assumptions"].append(
-                        f"K8s {entity_type.title()} '{filter_name}' - no CPU limits defined at the pod/container level"
-                    )
-                if 'memory' not in entity_config:
-                    k8s_analysis["assumptions"].append(
-                        f"K8s {entity_type.title()} '{filter_name}' - no memory limits defined at the pod/container level"
-                    )
-            
-            # Analyze service/pod metrics
-            entity_analysis = analyze_k8s_entity_metrics(filter_data, resource_allocation, config)
-            k8s_analysis["entities"][f"{env_name}::{filter_name}"] = entity_analysis
+            elif not cpu_defined:
+                k8s_analysis["assumptions"].append(
+                    f"K8s {entity_type.title()} '{filter_name}' - no CPU limits defined at the pod/container level"
+                )
+            elif not mem_defined:
+                k8s_analysis["assumptions"].append(
+                    f"K8s {entity_type.title()} '{filter_name}' - no memory limits defined at the pod/container level"
+                )
             
             # Count containers
             container_count = filter_data['container_or_pod'].nunique()
@@ -413,24 +415,28 @@ async def analyze_host_metrics(
             # Get resource allocation (with config-driven defaults)
             resource_allocation = get_host_resource_allocation(host_config, hostname, config)
             
-            # Track assumptions
-            if not host_config:
-                host_analysis["assumptions"].append(
-                    f"Host '{hostname}' - no CPU or memory allocation defined"
-                )
-            else:
-                if 'cpus' not in host_config:
-                    host_analysis["assumptions"].append(
-                        f"Host '{hostname}' - no CPU allocation defined"
-                    )
-                if 'memory' not in host_config:
-                    host_analysis["assumptions"].append(
-                        f"Host '{hostname}' - no memory allocation defined"
-                    )
-            
             # Analyze host metrics
             host_metrics_analysis = analyze_host_system_metrics(host_data, resource_allocation, config)
             host_analysis["hosts"][f"{env_name}::{hostname}"] = host_metrics_analysis
+            
+            # Track assumptions based on actual analysis results (source of truth)
+            cpu_analysis = host_metrics_analysis.get("cpu_analysis", {})
+            mem_analysis = host_metrics_analysis.get("memory_analysis", {})
+            has_cpu = cpu_analysis.get("peak_utilization_pct") is not None
+            has_mem = mem_analysis.get("peak_utilization_pct") is not None
+            
+            if not has_cpu and not has_mem:
+                host_analysis["assumptions"].append(
+                    f"Host '{hostname}' - no CPU or memory metrics available"
+                )
+            elif not has_cpu:
+                host_analysis["assumptions"].append(
+                    f"Host '{hostname}' - no CPU metrics available"
+                )
+            elif not has_mem:
+                host_analysis["assumptions"].append(
+                    f"Host '{hostname}' - no memory metrics available"
+                )
             
             host_analysis["total_hosts"] += 1
     
