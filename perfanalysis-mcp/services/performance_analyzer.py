@@ -309,10 +309,12 @@ async def detect_performance_anomalies(test_run_id: str, sensitivity: str, ctx: 
         
         # Load raw data for anomaly detection
         blazemeter_results = artifacts_path / 'blazemeter' / 'test-results.csv'
-        datadog_metrics = list((artifacts_path / 'datadog').glob('*.csv'))
-        
         if not blazemeter_results.exists():
-            error_msg = "BlazeMeter results CSV not found for anomaly detection"
+            blazemeter_results = artifacts_path / 'jmeter' / 'test-results.csv'
+        datadog_metrics = list((artifacts_path / 'datadog').glob('*.csv'))
+
+        if not blazemeter_results.exists():
+            error_msg = "Test results CSV not found for anomaly detection (checked blazemeter/ and jmeter/)"
             await ctx.error("Missing Test Results", error_msg)
             return {"error": error_msg, "status": "failed"}
         

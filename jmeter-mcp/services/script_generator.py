@@ -1633,10 +1633,15 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
 
     # === Add Listeners (outside the Thread Group) ===
     results_cfg = JMETER_CONFIG.get("results_collector_config", {})
-    
+    listener_artifact_dir = os.path.join(ARTIFACTS_PATH, test_run_id, "jmeter")
+
     # Add View Results Tree if enabled.
     if results_cfg.get("view_results_tree", True):
         view_results_tree_settings = results_cfg.get("view_results_tree_settings", {})
+        if "filename" not in view_results_tree_settings:
+            view_results_tree_settings["filename"] = os.path.join(
+                listener_artifact_dir, "results_tree.csv"
+            )
         vrt_elem, vrt_hash_tree = create_view_results_tree(view_results_tree_settings)
         test_plan_hash_tree.append(vrt_elem)
         test_plan_hash_tree.append(vrt_hash_tree)
@@ -1644,6 +1649,10 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     # Add Aggregate Report if enabled.
     if results_cfg.get("aggregate_report", True):
         aggregate_report_settings = results_cfg.get("aggregate_report_settings", {})
+        if "filename" not in aggregate_report_settings:
+            aggregate_report_settings["filename"] = os.path.join(
+                listener_artifact_dir, "aggregate_report.csv"
+            )
         ar_elem, ar_hash_tree = create_aggregate_report(aggregate_report_settings)
         test_plan_hash_tree.append(ar_elem)
         test_plan_hash_tree.append(ar_hash_tree)

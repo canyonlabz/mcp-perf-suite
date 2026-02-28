@@ -542,14 +542,15 @@ def analyze_temporal_kubernetes_correlations(correlations: Dict, performance_dat
         test_run_id = correlations["test_run_id"]
         artifacts_path = ARTIFACTS_PATH / test_run_id
 
-        # Load BlazeMeter performance data
+        # Load performance data (check blazemeter/ first, fall back to jmeter/)
         blazemeter_file = artifacts_path / "blazemeter" / "test-results.csv"
         if not blazemeter_file.exists():
-            # Check if the directory exists
+            blazemeter_file = artifacts_path / "jmeter" / "test-results.csv"
+        if not blazemeter_file.exists():
             if not artifacts_path.exists():
                 correlations["error"] = f"Artifacts directory not found: {artifacts_path} (cwd: {Path.cwd()})"
             else:
-                correlations["error"] = f"BlazeMeter data file not found: {blazemeter_file} (exists: {blazemeter_file.exists()})"
+                correlations["error"] = f"Test results CSV not found (checked blazemeter/ and jmeter/)"
             return correlations
         
         # Load Datadog infrastructure data: only host/k8s metrics CSVs
@@ -614,14 +615,15 @@ def analyze_temporal_host_correlations(correlations: Dict, performance_data: Dic
         test_run_id = correlations["test_run_id"]
         artifacts_path = ARTIFACTS_PATH / test_run_id
         
-        # Load BlazeMeter performance data
+        # Load performance data (check blazemeter/ first, fall back to jmeter/)
         blazemeter_file = artifacts_path / "blazemeter" / "test-results.csv"
         if not blazemeter_file.exists():
-            # Check if the directory exists
+            blazemeter_file = artifacts_path / "jmeter" / "test-results.csv"
+        if not blazemeter_file.exists():
             if not artifacts_path.exists():
                 correlations["error"] = f"Artifacts directory not found: {artifacts_path} (cwd: {Path.cwd()})"
             else:
-                correlations["error"] = f"BlazeMeter data file not found: {blazemeter_file} (exists: {blazemeter_file.exists()})"
+                correlations["error"] = f"Test results CSV not found (checked blazemeter/ and jmeter/)"
             return correlations
         
         # Load Datadog infrastructure data: only host/k8s metrics CSVs

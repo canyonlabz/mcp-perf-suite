@@ -141,7 +141,9 @@ async def analyze_bottlenecks(
         # ------------------------------------------------------------------
         jtl_path = ARTIFACTS_PATH / test_run_id / "blazemeter" / "test-results.csv"
         if not jtl_path.exists():
-            msg = f"JTL file not found: {jtl_path}. Run BlazeMeter workflow first."
+            jtl_path = ARTIFACTS_PATH / test_run_id / "jmeter" / "test-results.csv"
+        if not jtl_path.exists():
+            msg = f"JTL file not found (checked blazemeter/ and jmeter/). Run a load test workflow first."
             await ctx.error("Missing JTL", msg)
             return {"error": msg, "status": "prerequisite_missing"}
 

@@ -51,8 +51,8 @@ def load_json(run_id: str, relative_path: str, config: Optional[dict] = None) ->
     Returns:
         dict or None if file doesn't exist or fails to parse.
     """
-    file_path = get_run_path(run_id, config) / relative_path
-    if not file_path.exists():
+    file_path = _resolve_path_with_jmeter_fallback(get_run_path(run_id, config), relative_path)
+    if file_path is None:
         return None
 
     try:
@@ -60,6 +60,18 @@ def load_json(run_id: str, relative_path: str, config: Optional[dict] = None) ->
             return json.load(f)
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def _resolve_path_with_jmeter_fallback(run_path: Path, relative_path: str) -> Optional[Path]:
+    """Try the requested path first, then fall back to jmeter/ if the path starts with blazemeter/."""
+    candidate = run_path / relative_path
+    if candidate.exists():
+        return candidate
+    if relative_path.startswith("blazemeter/"):
+        fallback = run_path / relative_path.replace("blazemeter/", "jmeter/", 1)
+        if fallback.exists():
+            return fallback
+    return None
 
 
 def load_csv(run_id: str, relative_path: str, config: Optional[dict] = None) -> Optional[pd.DataFrame]:
@@ -74,8 +86,8 @@ def load_csv(run_id: str, relative_path: str, config: Optional[dict] = None) -> 
     Returns:
         DataFrame or None if file doesn't exist or fails to parse.
     """
-    file_path = get_run_path(run_id, config) / relative_path
-    if not file_path.exists():
+    file_path = _resolve_path_with_jmeter_fallback(get_run_path(run_id, config), relative_path)
+    if file_path is None:
         return None
 
     try:
@@ -115,11 +127,20 @@ def check_data_availability(run_id: str, config: Optional[dict] = None) -> dict:
     """
     run_path = get_run_path(run_id, config)
 
+    bm_exists = (run_path / "blazemeter").exists()
+    jm_exists = (run_path / "jmeter").exists()
+
     availability = {
         "blazemeter": {
-            "available": (run_path / "blazemeter").exists(),
-            "test_results": (run_path / "blazemeter" / "test-results.csv").exists(),
-            "aggregate_report": (run_path / "blazemeter" / "aggregate_performance_report.csv").exists(),
+            "available": bm_exists or jm_exists,
+            "test_results": (
+                (run_path / "blazemeter" / "test-results.csv").exists()
+                or (run_path / "jmeter" / "test-results.csv").exists()
+            ),
+            "aggregate_report": (
+                (run_path / "blazemeter" / "aggregate_performance_report.csv").exists()
+                or (run_path / "jmeter" / "aggregate_performance_report.csv").exists()
+            ),
         },
         "datadog": {
             "available": (run_path / "datadog").exists(),

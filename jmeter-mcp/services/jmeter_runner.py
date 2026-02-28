@@ -654,7 +654,7 @@ def _get_artifact_dir(test_run_id):
     return path
 
 def _make_jtl_path(test_run_id):
-    return os.path.join(_get_artifact_dir(test_run_id), f'{test_run_id}.jtl')
+    return os.path.join(_get_artifact_dir(test_run_id), 'test-results.csv')
 
 def _make_log_path(test_run_id):
     return os.path.join(_get_artifact_dir(test_run_id), f'{test_run_id}.log')
@@ -681,11 +681,9 @@ def _get_artifact_paths(test_run_id):
 def _make_aggregate_report_path(test_run_id: str) -> str:
     """
     Build the output path for the aggregate performance report CSV:
-        <ARTIFACTS_PATH>/<test_run_id>/jmeter/<test_run_id>_aggregate_report.csv
+        <ARTIFACTS_PATH>/<test_run_id>/jmeter/aggregate_performance_report.csv
     """
-    artifact_dir = os.path.join(ARTIFACTS_PATH, str(test_run_id), "jmeter")
-    os.makedirs(artifact_dir, exist_ok=True)
-    return os.path.join(artifact_dir, f"{test_run_id}_aggregate_report.csv")
+    return os.path.join(_get_artifact_dir(test_run_id), "aggregate_performance_report.csv")
 
 def _stddev(values):
     """Population standard deviation for response times."""
