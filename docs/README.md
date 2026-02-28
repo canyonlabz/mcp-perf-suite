@@ -97,7 +97,21 @@ blazemeter-mcp
 
 ---
 
-### 🧩 **4. Architecture & Flow Docs (Future Expansion)**
+### 📊 **4. Large File Handling (`large_file_handling.md`)**
+
+A technical reference explaining how the PerfAnalysis MCP handles large JTL/CSV files (200+ MB), including:
+
+* Memory optimisation techniques (column selection, category dtypes, explicit type maps)
+* Configurable row limits (`max_jtl_rows`)
+* Why chunked processing is not used and when it would be appropriate
+* Memory estimates and recommendations by file size
+* Multi-engine concurrency correction
+
+➡️ *Use this to understand the design decisions behind large file handling and known limitations.*
+
+---
+
+### 🧩 **5. Architecture & Flow Docs (Future Expansion)**
 
 Potential documents coming later:
 
@@ -119,6 +133,7 @@ docs/
 ├── README.md                         ← You are here
 ├── har_adapter_guide.md              ← HAR-to-JMeter conversion guide
 ├── report_template_guidelines.md     ← Performance report template rules
+├── large_file_handling.md            ← Large JTL file handling & limitations
 │
 ├── config_reference.md        ← (Planned)
 ├── mcp_tools_index.md         ← (Planned)
