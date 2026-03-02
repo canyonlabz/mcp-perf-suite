@@ -192,7 +192,7 @@ artifacts/<test_run_id>/jmeter/
 
 ---
 
-### Smoke Test Results
+### Example Smoke Test Results:
 
 | Test | Spec File | Operations Total | Deprecated Skipped | Captured | Steps | Tags |
 |------|-----------|------------------|--------------------|----------|-------|------|
@@ -364,4 +364,203 @@ artifacts/<test_run_id>/jmeter/
 
 ---
 
-*Last Updated: February 22, 2026*
+## 3. Centralized SLA Configuration
+
+### 3.1 Overview
+
+All SLA (Service Level Agreement) thresholds are now defined in a single YAML file (`slas.yaml`) instead of being scattered across `config.yaml` settings and hardcoded values in Python code. This refactoring introduces per-profile defaults, per-API overrides via pattern matching, configurable percentile metrics (P90/P95/P99), and configurable error rate thresholds at every level.
+
+**The core problem solved:**
+- SLA thresholds were defined in multiple places (`config.yaml`, hardcoded `5000` in code)
+- All APIs shared a single global SLA threshold
+- SLA compliance was incorrectly checked against average response time instead of percentile
+
+**What changed:**
+- New `slas.yaml` file is the single source of truth for all SLA definitions
+- Per-API SLA resolution using three-level pattern matching hierarchy
+- SLA compliance now correctly evaluates against the configured percentile (P90 by default)
+- All hardcoded SLA values (`5000`) removed from Python code and YAML configs
+- If `slas.yaml` is missing, analysis fails immediately with a clear error (no silent fallbacks)
+
+> See the full [SLA Configuration Guide](../sla_configuration_guide.md) for detailed usage instructions.
+
+### 3.2 SLA Configuration File (slas.yaml)
+
+The configuration supports a file-level default and multiple named SLA profiles:
+
+```yaml
+version: "1.0"
+
+# File-level default (used when no sla_id is provided)
+default_sla:
+  response_time_sla_ms: 5000
+  sla_unit: "P90"
+  error_rate_threshold: 1.0
+
+# Named SLA profiles
+slas:
+  - id: "order_management"
+    description: "Order Management Service APIs"
+    default_sla:
+      response_time_sla_ms: 5000
+      sla_unit: "P90"
+      error_rate_threshold: 1.0
+    api_overrides:
+      - pattern: "*/orders/export*"
+        response_time_sla_ms: 10000
+        reason: "Bulk export endpoint"
+      - pattern: "*/oauth/token*"
+        response_time_sla_ms: 500
+        reason: "Critical auth path"
+```
+
+**Configuration hierarchy** (most specific wins):
+1. `api_overrides` pattern match → per-API threshold
+2. Profile `default_sla` → profile-level default
+3. File-level `default_sla` → global fallback
+
+### 3.3 Three-Level Pattern Matching
+
+API overrides use glob-style patterns evaluated in most-specific-first order:
+
+| Priority | Pattern Type | Example | Matches |
+|----------|-------------|---------|---------|
+| 1 (highest) | Full JMeter label | `TC01_TS02_/api/orders/export` | Exact label |
+| 2 | Test Case + Test Step | `TC01_TS02_*` | All APIs under that step |
+| 3 (broadest) | Test Case only | `TC01_*` | All steps and APIs under that case |
+
+### 3.4 SLA Compliance Fix (Average → Percentile)
+
+**Before:** SLA compliance was evaluated against *average* response time, which masks tail latency issues.
+
+**After:** SLA compliance is evaluated against the configured percentile (P90 by default, configurable via `sla_unit`).
+
+### 3.5 MCP Tool Changes
+
+Three PerfAnalysis MCP tools now accept an optional `sla_id` parameter:
+
+| Tool | New Parameter | Purpose |
+|------|--------------|---------|
+| `analyze_test_results` | `sla_id: Optional[str]` | Per-API SLA compliance during aggregate analysis |
+| `correlate_test_results` | `sla_id: Optional[str]` | SLA threshold for temporal correlation analysis |
+| `identify_bottlenecks` | `sla_id: Optional[str]` | Per-endpoint SLA in bottleneck detection |
+
+### 3.6 Files Created/Modified
+
+#### Files Created
+| File | Purpose |
+|------|---------|
+| `perfanalysis-mcp/slas.example.yaml` | Annotated SLA configuration template |
+| `perfanalysis-mcp/utils/sla_config.py` | SLA config loader, schema validator, three-level resolver, and pattern validator |
+| `docs/sla_configuration_guide.md` | Comprehensive SLA configuration documentation |
+
+#### Files Modified
+| File | Changes |
+|------|---------|
+| `perfanalysis-mcp/utils/statistical_analyzer.py` | Replaced global SLA with per-API resolver; fixed avg→percentile compliance check |
+| `perfanalysis-mcp/services/bottleneck_analyzer.py` | Rewrote `_get_sla_threshold()` to use SLA resolver |
+| `perfanalysis-mcp/services/performance_analyzer.py` | Added `sla_id` to all analysis functions |
+| `perfanalysis-mcp/perfanalysis.py` | Added `sla_id` parameter to MCP tools |
+| `perfreport-mcp/services/report_generator.py` | Removed hardcoded `5000` fallbacks |
+| `perfreport-mcp/services/comparison_report_generator.py` | Replaced hardcoded `"5000"` with per-API threshold |
+
+---
+
+## 4. JMeter Log Analysis Tool
+
+### 4.1 Overview
+
+A new `analyze_jmeter_log` tool performs deep analysis of JMeter and BlazeMeter log files, providing granular error grouping, first-occurrence request/response details, and optional JTL correlation.
+
+### 4.2 New MCP Tool
+
+| Tool | Purpose |
+|------|---------|
+| `analyze_jmeter_log` | Deep analysis of JMeter/BlazeMeter log files with error grouping, first-occurrence details, and JTL correlation |
+
+### 4.3 Key Capabilities
+
+- **Multi-line block parsing**: Handles JSR223 Post-Processor verbose output
+- **Granular error grouping**: Groups by composite signature (category + response code + endpoint + normalized message hash)
+- **Message normalization**: Replaces UUIDs, emails, IPs, timestamps with placeholders for deduplication
+- **First-occurrence capture**: Preserves the first error message, request body, and response body for each group
+- **JTL correlation**: Enriches error groups with JTL response codes and elapsed times
+- **Multi-file discovery**: Discovers all `.log` files in the source directory
+
+### 4.4 Files Created/Modified
+
+#### Files Created
+| File | Purpose |
+|------|---------|
+| `jmeter-mcp/services/jmeter_log_analyzer.py` | Core service module |
+| `jmeter-mcp/utils/log_utils.py` | Low-level log parsing utilities |
+
+#### Files Modified
+| File | Changes |
+|------|---------|
+| `jmeter-mcp/jmeter.py` | Registered `analyze_jmeter_log` MCP tool |
+| `jmeter-mcp/utils/file_utils.py` | Added 6 new I/O helper functions |
+| `jmeter-mcp/config.example.yaml` | Added `jmeter_log` configuration section |
+
+---
+
+## 5. Bottleneck Analyzer v0.2
+
+### 5.1 Overview
+
+The `identify_bottlenecks` tool has been significantly upgraded to deliver accurate, actionable bottleneck detection with dramatically reduced false positives. Key improvements include sustained degradation validation, outlier filtering, timestamps in findings, multi-factor severity classification, two-phase analysis architecture, and raw metrics fallback for environments without Kubernetes resource limits.
+
+**Core principle:** A bottleneck is a *sustained, non-recovering* degradation pattern. If the system recovers, it was a transient event, not a bottleneck.
+
+### 5.2 Key Improvements
+
+1. **Sustained Degradation Validation**: Degradation must persist (configurable `persistence_ratio`, default 60%) to be classified as a bottleneck
+2. **Outlier Filtering**: Rolling median smoothing with MAD-based outlier detection
+3. **Timestamps in Findings**: Every finding includes `onset_timestamp`, `onset_bucket_index`, `test_elapsed_seconds`
+4. **Multi-Tier Accuracy**: Per-endpoint baseline with inherently-slow vs. load-induced distinction
+5. **Multi-Factor Severity**: Composite scoring across delta magnitude, persistence, scope, and classification
+6. **Two-Phase Architecture**: Phase 1 (performance degradation from JTL), Phase 2a (infrastructure cross-reference), Phase 2b (capacity risk detection)
+7. **Capacity Risk Detection**: Infrastructure stress with healthy latency as early warnings
+8. **Raw Metrics Fallback**: Relative-from-baseline thresholds when K8s limits are missing
+
+### 5.3 Files Created/Modified
+
+| File | Purpose/Changes |
+|------|---------|
+| `perfanalysis-mcp/services/bottleneck_analyzer.py` | Core bottleneck analysis engine (created) |
+| `perfanalysis-mcp/perfanalysis.py` | Registered `identify_bottlenecks` MCP tool |
+| `perfanalysis-mcp/config.example.yaml` | Added `bottleneck_analysis` configuration section |
+
+---
+
+## 6. Multi-Session Artifact Handling
+
+### 6.1 Overview
+
+When a BlazeMeter test run uses multiple load generators, each engine produces its own `artifacts.zip`. A new unified `process_session_artifacts` tool handles both single-session and multi-session runs through a single consolidated tool with built-in retry, idempotent re-runs, and JTL concatenation.
+
+### 6.2 New MCP Tool
+
+| Tool | Purpose |
+|------|---------|
+| `process_session_artifacts` | Downloads, extracts, and processes artifact ZIPs for all sessions of a BlazeMeter run |
+
+**Deprecated Tools:** `download_artifacts_zip`, `extract_artifact_zip`, `process_extracted_files`
+
+### 6.3 Files Created/Modified
+
+#### Files Created
+| File | Purpose |
+|------|---------|
+| `blazemeter-mcp/services/artifact_manager.py` | Session manifest management, JTL concatenation, download-with-retry |
+
+#### Files Modified
+| File | Changes |
+|------|---------|
+| `blazemeter-mcp/services/blazemeter_api.py` | Added `session_artifact_processor` orchestration |
+| `blazemeter-mcp/blazemeter.py` | Added `process_session_artifacts`; deprecated old tools |
+| `perfanalysis-mcp/services/log_analyzer.py` | Glob pattern for multi-session log discovery |
+
+---
+
+*Last Updated: February 25, 2026*

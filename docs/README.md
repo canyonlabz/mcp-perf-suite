@@ -46,7 +46,41 @@ A practical guide for Performance Test Engineers on converting HAR files into JM
 
 ---
 
-### ⚙️ **3. MCP Configuration References (Coming Soon)**
+### 📦 **3. Artifacts Guide (`artifacts_guide.md`)**
+
+A comprehensive guide explaining how the MCP Performance Suite manages test data through the local filesystem, including:
+
+* Why the suite is local-first (no database, no cloud storage)
+* The role of `test_run_id` and how it organizes everything
+* The `artifacts_path` configuration across all MCP servers
+* Full directory structure with every subfolder and file explained
+* Vendor folder conventions (`blazemeter/` vs `jmeter/`)
+* How the AI HITL tools use artifacts as state (backups as revision history)
+* Key files and their producer/consumer relationships
+* Tips for managing and backing up artifacts
+
+➡️ *Use this to understand where test data lives and how MCP servers share it.*
+
+---
+
+### 🤖 **4. JMeter HITL Editing Guide (`jmeter_hitl_user_guide.md`)**
+
+A comprehensive guide for using the AI-assisted Human-in-the-Loop tools to analyze, add to, and edit JMeter JMX scripts, including:
+
+* What scripts are supported (any valid JMX, not just AI-generated)
+* Requirements: `test_run_id` and artifact folder conventions
+* How to import an external/pre-existing JMX script
+* The four script generation pipelines (External, Playwright, HAR, Swagger)
+* Step-by-step HITL workflow: analyze → add → edit → verify
+* Safety features: dry run, automatic backups, node ID stability
+* Supported component types (36+ across 8 categories)
+* Best practices and V2 roadmap
+
+➡️ *Use this if you want to leverage AI to modify JMeter scripts without manually editing XML.*
+
+---
+
+### ⚙️ **5. MCP Configuration References (Coming Soon)**
 
 Planned documents:
 
@@ -68,7 +102,7 @@ A unified explanation of the `config.yaml` files used across all MCP servers, in
 
 ---
 
-### 🔧 **3. MCP Tool Index (Coming Soon)**
+### 🔧 **6. MCP Tool Index (Coming Soon)**
 
 Planned document:
 
@@ -95,9 +129,11 @@ blazemeter-mcp
 
 ➡️ *Useful for developers integrating MCP servers into automated pipelines or toolchains.*
 
+> **On the horizon:** The suite currently runs on **FastMCP 2.0**, where each MCP server is registered and started independently. A migration to **FastMCP 3.0** is planned, which introduces support for a **unified MCP gateway** -- a single entry point that exposes all servers and their tools under one roof. Stay tuned.
+
 ---
 
-### 📊 **4. Large File Handling (`large_file_handling.md`)**
+### 📊 **7. Large File Handling (`large_file_handling.md`)**
 
 A technical reference explaining how the PerfAnalysis MCP handles large JTL/CSV files (200+ MB), including:
 
@@ -111,7 +147,7 @@ A technical reference explaining how the PerfAnalysis MCP handles large JTL/CSV 
 
 ---
 
-### 🧩 **5. Architecture & Flow Docs (Future Expansion)**
+### 🧩 **8. Architecture & Flow Docs (Future Expansion)**
 
 Potential documents coming later:
 
@@ -131,12 +167,18 @@ Potential documents coming later:
 docs/
 │
 ├── README.md                         ← You are here
+├── artifacts_guide.md                ← Artifacts folder & local-first architecture
 ├── har_adapter_guide.md              ← HAR-to-JMeter conversion guide
+├── jmeter_hitl_user_guide.md         ← AI HITL editing guide
 ├── report_template_guidelines.md     ← Performance report template rules
 ├── large_file_handling.md            ← Large JTL file handling & limitations
 │
 ├── config_reference.md        ← (Planned)
 ├── mcp_tools_index.md         ← (Planned)
+│
+├── changelogs/
+│   ├── CHANGELOG-2026-01.md   ← January 2026 changes
+│   └── CHANGELOG-2026-02.md   ← February 2026 changes
 │
 ├── architecture_overview.md   ← (Future)
 └── examples/                  ← Example templates, configs, outputs
