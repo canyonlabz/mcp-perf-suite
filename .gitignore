@@ -256,6 +256,9 @@ docs/*
 !docs/metrics_calculations_and_display.md
 !docs/sla_configuration_guide.md
 !docs/har_adapter_guide.md
+!docs/artifacts_guide.md
+!docs/jmeter-hitl_user_guide.md
+!docs/large_file_handling_guide.md
 !docs/README.md
 
 # Re-include the changelogs directory itself
@@ -314,6 +317,7 @@ streamlit-ui/config.yaml
 !.cursor/rules/ado-to-jmeter-automation-conversion.mdc
 !.cursor/rules/har-to-jmeter-jmx.mdc
 !.cursor/rules/swagger-to-jmeter-jmx.mdc
+!.cusor/rules/jmeter-hitl-editing.mdc
 
 # Temp test files
 scripts/*
