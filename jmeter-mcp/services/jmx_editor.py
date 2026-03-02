@@ -820,15 +820,30 @@ async def edit_jmx_component(
             prop_value = str(op.get("value", ""))
             prop_type = op.get("prop_type", "stringProp")
 
+            _PROP_TYPES = ("stringProp", "intProp", "boolProp", "longProp")
+
             existing = target_elem.find(f"{prop_type}[@name='{prop_name}']")
+            if existing is None:
+                for alt_type in _PROP_TYPES:
+                    if alt_type == prop_type:
+                        continue
+                    existing = target_elem.find(f"{alt_type}[@name='{prop_name}']")
+                    if existing is not None:
+                        break
+
             if existing is not None:
                 old_val = existing.text or ""
+                old_tag = existing.tag
                 existing.text = prop_value
+                note = {}
+                if old_tag != prop_type:
+                    note["note"] = f"found as {old_tag}, updated in place"
                 changes.append({
                     "op": "set_prop",
                     "name": prop_name,
                     "before": old_val,
                     "after": prop_value,
+                    **note,
                 })
             else:
                 ET.SubElement(target_elem, prop_type, attrib={
