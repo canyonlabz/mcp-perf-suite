@@ -190,6 +190,18 @@ Verify the script structure is correct after modifications.
 
 After HITL editing, the user may optionally run the script headless via JMeter MCP.
 
+### Smoke Test Guardrail
+
+**Any smoke test or dry-run execution MUST use exactly 1 thread with 1 second ramp-up and 1 loop.** The purpose of a smoke test is to validate script correctness (assertions, correlations, request structure), not to stress the target system. Before starting a headless test, always verify and enforce:
+
+- `ThreadGroup.num_threads` = **1**
+- `ThreadGroup.ramp_time` = **1**
+- `LoopController.loops` = **1**
+
+If the script's Thread Group is configured with higher values, **temporarily override them to 1/1/1 before running**, then restore the original values afterward if the user needs them preserved for a future load test.
+
+**Never run a load/stress test just to confirm a script edit works.** The user will explicitly request higher thread counts when they are ready for load testing.
+
 ### Step 6: List scripts
 
 ```
@@ -261,6 +273,8 @@ The Streamlit UI uses the same fallback pattern.
 - **Backups are automatic**: Every non-dry-run mutation creates a numbered backup in `artifacts/<test_run_id>/jmeter/backups/`
 - **Re-analyze after edits**: Verify the script structure is correct after modifications
 - **One change at a time**: Apply and verify each edit individually rather than batching blind
+- **Smoke tests = 1 thread only**: Any smoke test, dry run, or validation execution MUST use 1 thread, 1 second ramp-up, and 1 loop. Never stress-test a system just to confirm a script edit works.
+- **Close JMeter GUI during HITL edits**: JMeter locks the JMX file in memory. Advise the user to close JMeter GUI before starting HITL edit operations to prevent file conflicts and stale state. The user can reopen JMeter after edits are complete to visually verify.
 
 ## Common HITL Patterns
 

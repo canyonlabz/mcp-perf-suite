@@ -319,18 +319,20 @@ def find_element_by_node_id(
     """
     Find the (element, hashTree, parent_hashTree) triple for a given node_id.
 
+    Walks the paired tree with full path accumulation (mirroring
+    build_node_index) so that regenerated node_ids are identical to the
+    ones stored in the index.
+
     Returns None if not found.
     """
     if target_node_id not in node_index:
         return None
 
-    target_info = node_index[target_node_id]
-    target_type = target_info["type"]
-    target_testname = target_info["testname"]
-
-    def _search(parent_ht: ET.Element) -> Optional[Tuple[ET.Element, Optional[ET.Element], ET.Element]]:
+    def _search(parent_ht: ET.Element, parent_path: str):
         children = list(parent_ht)
         i = 0
+        sibling_counts: Dict[str, int] = {}
+
         while i < len(children):
             elem = children[i]
             if not _is_test_element(elem):
@@ -339,20 +341,20 @@ def find_element_by_node_id(
 
             testclass = elem.get("testclass", elem.tag)
             testname = elem.get("testname", "")
+
+            idx = sibling_counts.get(testclass, 0)
+            sibling_counts[testclass] = idx + 1
+
+            path = f"{parent_path} > {testclass}[{idx}]" if parent_path else f"{testclass}[{idx}]"
+            nid = _generate_node_id(testclass, testname, path, idx)
+
             hash_tree = children[i + 1] if (i + 1 < len(children) and children[i + 1].tag == "hashTree") else None
 
-            # Rebuild this element's node_id to check for match
-            # We need the path context, so use a simpler identity check
-            if testclass == target_type and testname == target_testname:
-                # Verify by rebuilding the node_id with path context
-                # For now, use type+testname match since node_ids are unique
-                # within the index
-                nid = _find_node_id_for_element(parent_ht, elem, i)
-                if nid == target_node_id:
-                    return (elem, hash_tree, parent_ht)
+            if nid == target_node_id:
+                return (elem, hash_tree, parent_ht)
 
             if hash_tree is not None:
-                result = _search(hash_tree)
+                result = _search(hash_tree, path)
                 if result:
                     return result
 
@@ -361,50 +363,8 @@ def find_element_by_node_id(
 
     top_hash_tree = root.find("hashTree")
     if top_hash_tree is not None:
-        return _search(top_hash_tree)
+        return _search(top_hash_tree, "")
     return None
-
-
-def _find_node_id_for_element(
-    parent_ht: ET.Element,
-    target_elem: ET.Element,
-    target_index_in_parent: int,
-) -> str:
-    """Rebuild a node_id for an element by computing its sibling index and path."""
-    # Walk from root to compute the path - for efficiency we use the index
-    # approach: count siblings of same testclass before this element
-    children = list(parent_ht)
-    testclass = target_elem.get("testclass", target_elem.tag)
-    testname = target_elem.get("testname", "")
-
-    sibling_idx = 0
-    for j in range(target_index_in_parent):
-        c = children[j]
-        if _is_test_element(c) and c.get("testclass", c.tag) == testclass:
-            sibling_idx += 1
-
-    # We need the full path, but for matching we can use the node_index lookup
-    # since all node_ids are unique. Build a partial path for ID generation.
-    # This will match what build_node_index produced.
-    path = _rebuild_path(parent_ht, testclass, sibling_idx)
-    return _generate_node_id(testclass, testname, path, sibling_idx)
-
-
-def _rebuild_path(
-    parent_ht: ET.Element,
-    child_testclass: str,
-    child_sibling_idx: int,
-    _path_cache: dict = {},
-    _root_ref: list = [],
-) -> str:
-    """
-    Rebuild the path string for a child element.
-    This is a simplified approach - for full accuracy we rebuild the index.
-    """
-    # Since path reconstruction from an arbitrary hashTree parent is complex
-    # without walking from root, we use the node_index for validation instead.
-    # Return a placeholder that build_node_index would have generated.
-    return f"{child_testclass}[{child_sibling_idx}]"
 
 
 # ============================================================
