@@ -68,6 +68,29 @@ async def get_kubernetes_metrics(env_name: str, start_time: str, end_time: str, 
     """
     return await collect_kubernetes_metrics(env_name, start_time, end_time, run_id, ctx)
 
+@mcp.tool(enabled=False)
+async def get_kpi_timeseries(env_name: str, start_time: str, end_time: str, run_id: str, ctx: Context) -> Dict[str, Any]:
+    """
+    Retrieves one or more KPI timeseries from Datadog for the specified environment
+    and time window using custom query definitions.
+
+    Args:
+        env_name (str): Environment short name (e.g., 'QA', 'UAT').
+        start_time (str): Start timestamp in UTC. Accepts:
+            - Epoch seconds ("1761933994")
+            - ISO 8601 ("2025-10-31T14:06:34Z")
+            - "YYYY-MM-DD HH:MM:SS"
+            Treated as UTC with no timezone conversion.
+        end_time (str): End timestamp in UTC, same formats as start_time.
+        run_id (str): Test run identifier for artifacts (e.g., BlazeMeter run_id).
+        ctx (Context, optional): Workflow context for chaining state/status/errors.
+
+    Returns:
+        dict: Contains a list of CSV output files for KPI timeseries
+              and high-level summary statistics per KPI.
+    """
+    #return await collect_kpi_timeseries(env_name, start_time, end_time, run_id, ctx)
+
 @mcp.tool()
 async def get_logs(env_name: str, start_time: str, end_time: str, query_type: str, run_id: str, ctx: Context, custom_query: Optional[str] = None) -> dict:
     """
