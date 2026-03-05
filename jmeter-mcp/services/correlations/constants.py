@@ -151,3 +151,31 @@ OAUTH_PARAM_VALUE_TYPES: Dict[str, str] = {
 
 # PKCE-specific parameter names (subset of OAUTH_URL_PARAMS)
 PKCE_PARAMS: Set[str] = {"code_challenge", "code_challenge_method", "code_verifier"}
+
+# OAuth parameters to detect in form-urlencoded POST request bodies (token endpoints)
+OAUTH_BODY_PARAMS: Set[str] = {
+    "grant_type", "code", "code_verifier", "subject_token",
+    "client_id", "redirect_uri", "scope", "refresh_token",
+    "client_secret", "assertion",
+}
+
+# Known OAuth grant_type values for flow classification
+OAUTH_GRANT_TYPES: Dict[str, str] = {
+    "authorization_code": "pkce_or_auth_code",
+    "urn:ietf:params:oauth:grant-type:token-exchange": "token_exchange",
+    "refresh_token": "refresh_token",
+    "client_credentials": "client_credentials",
+}
+
+# Mapping from POST body param name (lowercase) to value_type classification
+OAUTH_BODY_PARAM_VALUE_TYPES: Dict[str, str] = {
+    "code": "oauth_code",
+    "code_verifier": "pkce_code_verifier",
+    "subject_token": "oauth_subject_token",
+    "client_id": "oauth_client_id",
+    "redirect_uri": "oauth_redirect_uri",
+    "scope": "oauth_scope",
+    "refresh_token": "oauth_refresh_token",
+    "client_secret": "oauth_client_secret",
+    "assertion": "oauth_assertion",
+}

@@ -16,6 +16,9 @@ from .classifiers import classify_value_type, is_id_like_value
 from .constants import (
     CORRELATION_HEADER_SUFFIXES,
     NONCE_COOKIE_KEYWORDS,
+    OAUTH_BODY_PARAM_VALUE_TYPES,
+    OAUTH_BODY_PARAMS,
+    OAUTH_GRANT_TYPES,
     OAUTH_NESTED_URL_PARAMS,
     OAUTH_PARAM_VALUE_TYPES,
     OAUTH_PARAMS,
@@ -527,6 +530,101 @@ def _extract_oauth_from_url(
                     results.extend(_extract_oauth_from_url(val, max_depth - 1))
 
     return results
+
+
+def extract_oauth_params_from_request_body(
+    entries: List[Tuple[int, int, str, Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """
+    Parse form-urlencoded POST request bodies for OAuth token exchange parameters.
+
+    Detects token endpoint requests by looking for grant_type in the POST body,
+    then extracts dynamic values that need correlation:
+    - grant_type=authorization_code → code, code_verifier (PKCE), client_id, redirect_uri
+    - grant_type=token-exchange → subject_token (JWT from prior response)
+    - grant_type=refresh_token → refresh_token
+
+    The grant_type itself is NOT emitted as a candidate (it's static metadata),
+    but it IS attached to each candidate as detected_grant_type for downstream
+    flow classification (Sprint C/D).
+
+    Skips JSON POST bodies (those starting with '{' or '[') and empty bodies.
+
+    Returns candidates with source_location="request_body" and appropriate
+    candidate_type ("oauth_param" or "pkce_param").
+    """
+    candidates: List[Dict[str, Any]] = []
+    seen_values: Dict[str, bool] = {}
+
+    for entry_index, step_number, step_label, entry in entries:
+        post_data = entry.get("post_data") or ""
+        if not post_data or not post_data.strip():
+            continue
+
+        stripped = post_data.strip()
+
+        # Skip JSON bodies — only parse form-urlencoded
+        if stripped.startswith("{") or stripped.startswith("["):
+            continue
+
+        try:
+            body_params = parse_qs(stripped, keep_blank_values=False)
+        except Exception:
+            continue
+
+        # Must contain grant_type to be an OAuth token endpoint request
+        grant_types = body_params.get("grant_type", [])
+        if not grant_types:
+            continue
+
+        grant_type_raw = grant_types[0]
+        detected_flow = OAUTH_GRANT_TYPES.get(grant_type_raw, "unknown")
+
+        url = entry.get("url", "")
+
+        for param_name, values in body_params.items():
+            param_lower = param_name.lower()
+
+            # Skip grant_type itself (static) and non-OAuth params
+            if param_lower == "grant_type":
+                continue
+            if param_lower not in OAUTH_BODY_PARAMS:
+                continue
+
+            for val in values:
+                if not val or not val.strip():
+                    continue
+
+                if val in seen_values:
+                    continue
+                seen_values[val] = True
+
+                value_type = OAUTH_BODY_PARAM_VALUE_TYPES.get(
+                    param_lower, "oauth_param"
+                )
+                candidate_type = (
+                    "pkce_param" if param_lower in PKCE_PARAMS else "oauth_param"
+                )
+
+                candidates.append({
+                    "entry_index": entry_index,
+                    "step_number": step_number,
+                    "step_label": step_label,
+                    "request_id": entry.get("request_id"),
+                    "request_method": entry.get("method", "POST"),
+                    "request_url": url,
+                    "response_status": entry.get("status"),
+                    "source_location": "request_body",
+                    "source_key": param_name,
+                    "source_json_path": None,
+                    "value": val,
+                    "value_type": value_type,
+                    "candidate_type": candidate_type,
+                    "detected_grant_type": grant_type_raw,
+                    "detected_flow": detected_flow,
+                })
+
+    return candidates
 
 
 def extract_sources(
