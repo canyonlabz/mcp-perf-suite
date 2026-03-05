@@ -20,9 +20,101 @@ from utils.config import load_config, load_jmeter_config
 from utils.file_utils import save_correlation_spec
 
 from .classifiers import classify_parameterization_strategy
-from .extractors import extract_sources
+from .extractors import (
+    extract_oauth_from_request_headers,
+    extract_oauth_params_from_request_body,
+    extract_oauth_params_from_request_urls,
+    extract_sources,
+)
 from .matchers import detect_orphan_ids, find_usages
 from .utils import init_exclude_domains, is_excluded_url
+
+
+# Parameterization hints for request-side OAuth/PKCE candidates by value_type.
+# These guide downstream JMX generation on how to handle each parameter.
+_REQUEST_SIDE_STRATEGIES: Dict[str, Dict[str, str]] = {
+    "pkce_code_verifier": {
+        "strategy": "pkce_preprocessor",
+        "reason": "PKCE value - generate via JSR223 PreProcessor",
+    },
+    "pkce_code_challenge": {
+        "strategy": "pkce_preprocessor",
+        "reason": "PKCE value - generate via JSR223 PreProcessor",
+    },
+    "pkce_code_challenge_method": {
+        "strategy": "pkce_preprocessor",
+        "reason": "PKCE value - set alongside code_challenge",
+    },
+    "oauth_code": {
+        "strategy": "infer_from_prior_response",
+        "reason": "Auth code from redirect - extract from prior Location header or form_post",
+    },
+    "oauth_subject_token": {
+        "strategy": "infer_from_prior_response",
+        "reason": "Token from prior /oauth/token response - extract $.access_token",
+    },
+    "oauth_refresh_token": {
+        "strategy": "infer_from_prior_response",
+        "reason": "Refresh token from prior /oauth/token response",
+    },
+    "sso_nonce": {
+        "strategy": "extract_and_reuse",
+        "reason": "Nonce from prior Set-Cookie response header",
+    },
+    "sso_token": {
+        "strategy": "infer_from_prior_response",
+        "reason": "SSO token from prior authentication response",
+    },
+    "csrf_token": {
+        "strategy": "extract_and_reuse",
+        "reason": "CSRF token from prior response",
+    },
+    "oauth_state": {
+        "strategy": "infer_from_prior_response",
+        "reason": "Generated state param - extract from prior response or SDK",
+    },
+    "oauth_nonce": {
+        "strategy": "infer_from_prior_response",
+        "reason": "Generated nonce param - extract from prior response or SDK",
+    },
+    "oauth_token": {
+        "strategy": "infer_from_prior_response",
+        "reason": "Token from prior OAuth response",
+    },
+    "oauth_client_id": {
+        "strategy": "user_defined_variable",
+        "reason": "Static per environment - parameterize via UDV",
+    },
+    "oauth_redirect_uri": {
+        "strategy": "user_defined_variable",
+        "reason": "Static per environment - parameterize via UDV",
+    },
+    "oauth_scope": {
+        "strategy": "user_defined_variable",
+        "reason": "Static per environment - parameterize via UDV",
+    },
+    "oauth_response_type": {
+        "strategy": "user_defined_variable",
+        "reason": "Static per flow - parameterize via UDV",
+    },
+    "oauth_response_mode": {
+        "strategy": "user_defined_variable",
+        "reason": "Static per flow - parameterize via UDV",
+    },
+    "oauth_client_secret": {
+        "strategy": "user_defined_variable",
+        "reason": "Static secret - parameterize via UDV or CSV",
+    },
+    "oauth_assertion": {
+        "strategy": "infer_from_prior_response",
+        "reason": "Assertion token from prior authentication step",
+    },
+}
+
+_REQUEST_SIDE_DEFAULT_STRATEGY: Dict[str, str] = {
+    "strategy": "user_defined_variable",
+    "reason": "OAuth parameter - parameterize via UDV or extract from prior response",
+}
 
 
 # === Configuration ===
@@ -206,6 +298,63 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
         
         correlations.append(correlation)
     
+    # Phase 1b: Request-side OAuth/PKCE extraction
+    # Detects OAuth parameters in request URLs, POST bodies, and custom headers
+    # whose response-side source may be missing from the capture.
+    request_side_candidates: List[Dict[str, Any]] = []
+    request_side_candidates.extend(extract_oauth_params_from_request_urls(entries))
+    request_side_candidates.extend(extract_oauth_params_from_request_body(entries))
+    request_side_candidates.extend(extract_oauth_from_request_headers(entries))
+
+    # Dedup: skip values already covered by response-side extraction
+    request_side_seen: Set[str] = set()
+    for candidate in request_side_candidates:
+        value_str = str(candidate.get("value", ""))
+        if not value_str or value_str in known_source_values or value_str in request_side_seen:
+            continue
+        request_side_seen.add(value_str)
+
+        # Prevent Phase 3 orphan detection from re-flagging this value
+        known_source_values.add(value_str)
+
+        correlation_counter += 1
+        correlation_id = f"corr_{correlation_counter}"
+
+        value_type = candidate.get("value_type", "oauth_param")
+        param_hint = dict(_REQUEST_SIDE_STRATEGIES.get(
+            value_type, _REQUEST_SIDE_DEFAULT_STRATEGY
+        ))
+
+        correlation = {
+            "correlation_id": correlation_id,
+            "type": candidate.get("candidate_type", "oauth_param"),
+            "value_type": value_type,
+            "confidence": "medium",
+            "correlation_found": False,
+            "source": {
+                "step_number": candidate.get("step_number"),
+                "step_label": candidate.get("step_label"),
+                "entry_index": candidate.get("entry_index"),
+                "request_id": candidate.get("request_id"),
+                "request_method": candidate.get("request_method"),
+                "request_url": candidate.get("request_url"),
+                "response_status": candidate.get("response_status"),
+                "source_location": candidate.get("source_location"),
+                "source_key": candidate.get("source_key"),
+                "source_json_path": candidate.get("source_json_path"),
+                "response_example_value": candidate.get("value"),
+            },
+            "usages": [],
+            "parameterization_hint": param_hint,
+        }
+
+        # Preserve grant-type metadata from POST body extraction
+        if candidate.get("detected_grant_type"):
+            correlation["detected_grant_type"] = candidate["detected_grant_type"]
+            correlation["detected_flow"] = candidate.get("detected_flow")
+
+        correlations.append(correlation)
+
     # Phase 3: Detect orphan IDs
     orphan_candidates = detect_orphan_ids(entries, known_source_values)
     
@@ -257,8 +406,10 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
         "business_ids": sum(1 for c in correlations if c.get("type") == "business_id"),
         "correlation_ids": sum(1 for c in correlations if c.get("type") == "correlation_id"),
         "oauth_params": sum(1 for c in correlations if c.get("type") == "oauth_param"),
+        "pkce_params": sum(1 for c in correlations if c.get("type") == "pkce_param"),
         "orphan_ids": sum(1 for c in correlations if c.get("type") == "orphan_id"),
         "high_confidence": sum(1 for c in correlations if c.get("confidence") == "high"),
+        "medium_confidence": sum(1 for c in correlations if c.get("confidence") == "medium"),
         "low_confidence": sum(1 for c in correlations if c.get("confidence") == "low"),
     }
     
