@@ -16,8 +16,12 @@ from .classifiers import classify_value_type, is_id_like_value
 from .constants import (
     CORRELATION_HEADER_SUFFIXES,
     NONCE_COOKIE_KEYWORDS,
+    OAUTH_NESTED_URL_PARAMS,
+    OAUTH_PARAM_VALUE_TYPES,
     OAUTH_PARAMS,
     OAUTH_TOKEN_FIELDS,
+    OAUTH_URL_PARAMS,
+    PKCE_PARAMS,
     SKIP_HEADERS_SOURCE,
 )
 from .utils import walk_json
@@ -415,6 +419,114 @@ def _sanitize_cookie_name_to_var(cookie_name: str) -> str:
         if result.endswith(suffix):
             result = result[:-len(suffix)]
     return result
+
+
+def extract_oauth_params_from_request_urls(
+    entries: List[Tuple[int, int, str, Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """
+    Scan request URLs for OAuth/PKCE parameters, including nested URL-encoded
+    query strings (e.g., goto=, redirect_uri=).
+
+    This is a request-first detection pass that identifies OAuth parameters by
+    their parameter names in request URLs, regardless of whether a source
+    response was captured. Complements the existing response-first pipeline.
+
+    Handles:
+    - Direct OAuth params in request URL query strings
+      (e.g., /oauth2/authorize?client_id=X&state=Y&code_challenge=Z)
+    - Nested URL-encoded params inside goto=, redirect_uri= values
+      (e.g., /login/?goto=https%3A...%3Fclient_id%3DX%26state%3DY)
+    - Improperly encoded nested URLs where params leak to top-level
+      (e.g., /authenticate?goto=https://...?client_id=X&state=Y)
+
+    Returns candidates with source_location="request_url" and candidate_type
+    of "oauth_param" or "pkce_param".
+    """
+    candidates: List[Dict[str, Any]] = []
+    seen_values: Dict[str, bool] = {}
+
+    for entry_index, step_number, step_label, entry in entries:
+        url = entry.get("url", "")
+        if not url:
+            continue
+
+        found_params = _extract_oauth_from_url(url)
+
+        for param_name, param_value in found_params:
+            if not param_value or not param_value.strip():
+                continue
+
+            # Dedup by value — keep first occurrence only
+            if param_value in seen_values:
+                continue
+            seen_values[param_value] = True
+
+            param_lower = param_name.lower()
+            value_type = OAUTH_PARAM_VALUE_TYPES.get(param_lower, "oauth_param")
+            candidate_type = "pkce_param" if param_lower in PKCE_PARAMS else "oauth_param"
+
+            candidates.append({
+                "entry_index": entry_index,
+                "step_number": step_number,
+                "step_label": step_label,
+                "request_id": entry.get("request_id"),
+                "request_method": entry.get("method", "GET"),
+                "request_url": url,
+                "response_status": entry.get("status"),
+                "source_location": "request_url",
+                "source_key": param_name,
+                "source_json_path": None,
+                "value": param_value,
+                "value_type": value_type,
+                "candidate_type": candidate_type,
+            })
+
+    return candidates
+
+
+def _extract_oauth_from_url(
+    url: str,
+    max_depth: int = 3
+) -> List[Tuple[str, str]]:
+    """
+    Parse a URL and extract OAuth parameter (name, value) pairs from its
+    query string. Recursively URL-decodes nested URL values (goto=,
+    redirect_uri=, etc.) up to max_depth levels.
+
+    Python's parse_qs automatically URL-decodes values one level, so
+    recursion handles multi-level encoding (common in SSO redirect chains).
+
+    Returns:
+        List of (param_name, param_value) tuples for OAuth-related params.
+    """
+    if max_depth <= 0 or not url:
+        return []
+
+    results: List[Tuple[str, str]] = []
+
+    try:
+        parsed = urlparse(url)
+        if not parsed.query:
+            return results
+        # parse_qs automatically URL-decodes one level
+        query_params = parse_qs(parsed.query, keep_blank_values=False)
+    except Exception:
+        return results
+
+    for param_name, values in query_params.items():
+        param_lower = param_name.lower()
+
+        for val in values:
+            if param_lower in OAUTH_URL_PARAMS:
+                results.append((param_name, val))
+
+            # Recursively parse nested URLs (goto=, redirect_uri=, etc.)
+            if param_lower in OAUTH_NESTED_URL_PARAMS and val:
+                if val.startswith("http") or "?" in val:
+                    results.extend(_extract_oauth_from_url(val, max_depth - 1))
+
+    return results
 
 
 def extract_sources(

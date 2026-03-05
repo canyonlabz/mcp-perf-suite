@@ -5,7 +5,7 @@ Shared across all correlation analysis modules.
 """
 
 import re
-from typing import Set
+from typing import Dict, Set
 
 # === Regex Patterns ===
 
@@ -105,3 +105,49 @@ NONCE_COOKIE_KEYWORDS: tuple = (
 OAUTH_TOKEN_URL_PARAMS: Set[str] = {
     "cdssotoken",
 }
+
+
+# === Request-Side OAuth Detection (Sprint A) ===
+
+# OAuth parameter names to detect in request URLs.
+# Used for request-side extraction when response sources are empty.
+# Reference: https://auth0.com/docs/get-started/authentication-and-authorization-flow/authorization-code-flow-with-pkce
+OAUTH_URL_PARAMS: Set[str] = {
+    # Standard OAuth 2.0 / OpenID Connect
+    "client_id", "redirect_uri", "response_type", "scope", "state",
+    "response_mode", "nonce",
+    # PKCE (RFC 7636)
+    "code_challenge", "code_challenge_method",
+    # Tokens that may appear in URL query strings
+    "code", "id_token", "access_token",
+    # SSO tokens in URLs (cross-domain SSO flows)
+    "cdssotoken", "ssotoken",
+}
+
+# Parameters whose values may contain nested URLs with more OAuth params.
+# These are recursively URL-decoded and re-parsed to extract embedded params.
+OAUTH_NESTED_URL_PARAMS: Set[str] = {
+    "goto", "redirect_uri", "return_url", "returnurl",
+    "redirect", "callback", "continue",
+}
+
+# Mapping from URL param name (lowercase) to value_type classification
+OAUTH_PARAM_VALUE_TYPES: Dict[str, str] = {
+    "client_id": "oauth_client_id",
+    "redirect_uri": "oauth_redirect_uri",
+    "response_type": "oauth_response_type",
+    "scope": "oauth_scope",
+    "state": "oauth_state",
+    "response_mode": "oauth_response_mode",
+    "nonce": "oauth_nonce",
+    "code_challenge": "pkce_code_challenge",
+    "code_challenge_method": "pkce_code_challenge_method",
+    "code": "oauth_code",
+    "id_token": "oauth_token",
+    "access_token": "oauth_token",
+    "cdssotoken": "sso_token",
+    "ssotoken": "sso_token",
+}
+
+# PKCE-specific parameter names (subset of OAUTH_URL_PARAMS)
+PKCE_PARAMS: Set[str] = {"code_challenge", "code_challenge_method", "code_verifier"}
