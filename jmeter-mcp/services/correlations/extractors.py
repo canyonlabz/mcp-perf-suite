@@ -19,6 +19,8 @@ from .constants import (
     OAUTH_BODY_PARAM_VALUE_TYPES,
     OAUTH_BODY_PARAMS,
     OAUTH_GRANT_TYPES,
+    OAUTH_INTEREST_HEADERS,
+    OAUTH_INTEREST_HEADER_VALUE_TYPES,
     OAUTH_NESTED_URL_PARAMS,
     OAUTH_PARAM_VALUE_TYPES,
     OAUTH_PARAMS,
@@ -623,6 +625,65 @@ def extract_oauth_params_from_request_body(
                     "detected_grant_type": grant_type_raw,
                     "detected_flow": detected_flow,
                 })
+
+    return candidates
+
+
+def extract_oauth_from_request_headers(
+    entries: List[Tuple[int, int, str, Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """
+    Extract dynamic OAuth/SSO values from request headers.
+
+    Scans request headers for names listed in OAUTH_INTEREST_HEADERS (e.g.,
+    x-cdsso-nonce, x-csrf-token). These carry nonces and tokens that need
+    correlation but whose response-side source may be missing from the capture.
+
+    Returns a list of candidate dicts with source_location="request_header".
+    Deduplicates by value — keeps the first occurrence.
+    """
+    candidates: List[Dict[str, Any]] = []
+    seen_values: Dict[str, bool] = {}
+
+    for entry_index, step_number, step_label, entry in entries:
+        headers = entry.get("headers") or {}
+        url = entry.get("url", "")
+
+        for header_name, header_value in headers.items():
+            if header_value is None:
+                continue
+
+            name_lower = header_name.lower()
+            if name_lower not in OAUTH_INTEREST_HEADERS:
+                continue
+
+            val = str(header_value).strip()
+            if not val:
+                continue
+
+            if val in seen_values:
+                continue
+            seen_values[val] = True
+
+            value_type = OAUTH_INTEREST_HEADER_VALUE_TYPES.get(
+                name_lower, "oauth_header_value"
+            )
+
+            candidates.append({
+                "entry_index": entry_index,
+                "step_number": step_number,
+                "step_label": step_label,
+                "request_id": entry.get("request_id"),
+                "request_method": entry.get("method", "GET"),
+                "request_url": url,
+                "response_status": entry.get("status"),
+                "source_location": "request_header",
+                "source_key": header_name,
+                "source_json_path": None,
+                "value": val,
+                "value_type": value_type,
+                "candidate_type": "oauth_param",
+            })
 
     return candidates
 

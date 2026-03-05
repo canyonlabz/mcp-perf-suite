@@ -152,6 +152,22 @@ OAUTH_PARAM_VALUE_TYPES: Dict[str, str] = {
 # PKCE-specific parameter names (subset of OAUTH_URL_PARAMS)
 PKCE_PARAMS: Set[str] = {"code_challenge", "code_challenge_method", "code_verifier"}
 
+# Request headers that carry dynamic OAuth/SSO values (nonces, CSRF tokens).
+# These are custom headers where the VALUE is a token/nonce needing correlation.
+# Standard headers like Authorization (Bearer) are handled separately by config_elements.
+OAUTH_INTEREST_HEADERS: Set[str] = {
+    "x-cdsso-nonce",
+    "x-csrf-token",
+    "x-xsrf-token",
+}
+
+# Mapping from interest header name (lowercase) to value_type classification
+OAUTH_INTEREST_HEADER_VALUE_TYPES: Dict[str, str] = {
+    "x-cdsso-nonce": "sso_nonce",
+    "x-csrf-token": "csrf_token",
+    "x-xsrf-token": "csrf_token",
+}
+
 # OAuth parameters to detect in form-urlencoded POST request bodies (token endpoints)
 OAUTH_BODY_PARAMS: Set[str] = {
     "grant_type", "code", "code_verifier", "subject_token",
