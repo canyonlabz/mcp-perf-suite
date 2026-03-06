@@ -72,14 +72,145 @@ def create_oauth_refresh_flow(
     client_id: str,
     current_token_var: str,
     refresh_token_var: str,
-    output_var: str
+    output_var: str,
 ) -> Tuple[ET.Element, ET.Element]:
     """
-    Creates a POST sampler + extractors for calling an OAuth refresh endpoint.
-    Returns (sampler, hash_tree) ready for JMX insertion.
-    
-    Future enhancement: wire in PKCE, grant types, token expiration logic.
-    """
-    # TODO: implement
+    Creates a POST sampler + hashTree for calling an OAuth refresh-token endpoint.
 
-# Additional helper functions and constants as needed
+    Generates the JMX structure for a standard OAuth 2.0 refresh token grant:
+      POST {refresh_endpoint_url}
+      Content-Type: application/x-www-form-urlencoded
+      Body: grant_type=refresh_token&client_id={client_id}&refresh_token=${refresh_token_var}
+
+    The hashTree includes:
+      - Header Manager (Content-Type)
+      - JSON Extractor for new access_token → output_var
+      - JSON Extractor for rotated refresh_token → refresh_token_var
+
+    Args:
+        refresh_endpoint_url: Full URL of the token endpoint (e.g.
+            "https://auth.example.com/oauth/token" or "${token_endpoint}").
+        client_id: OAuth client ID — literal value or JMeter variable
+            reference (e.g. "${client_id}").
+        current_token_var: JMeter variable holding the current access token.
+            Not sent in the request but used in the testname for traceability.
+        refresh_token_var: JMeter variable name holding the refresh token.
+            The new refresh token (if rotated by the server) is stored back
+            into this same variable.
+        output_var: JMeter variable name to store the newly issued access token.
+
+    Returns:
+        Tuple of (HTTPSamplerProxy element, hashTree element).
+        Caller inserts both into the parent hashTree sequentially.
+
+    Note:
+        This is a structural implementation. It has not yet been validated
+        against a real refresh-token capture. Refine after Sprint D / when
+        a refresh-token example is available.
+    """
+    import urllib.parse
+
+    parsed = urllib.parse.urlparse(refresh_endpoint_url)
+    domain = parsed.netloc or refresh_endpoint_url
+    protocol = parsed.scheme or "https"
+    path = parsed.path or "/oauth/token"
+
+    post_body = (
+        f"grant_type=refresh_token"
+        f"&client_id={client_id}"
+        f"&refresh_token=${{{refresh_token_var}}}"
+    )
+
+    # --- HTTP Sampler (POST) ---
+    sampler = ET.Element("HTTPSamplerProxy", attrib={
+        "guiclass": "HttpTestSampleGui",
+        "testclass": "HTTPSamplerProxy",
+        "testname": f"OAuth Refresh Token ({current_token_var})",
+        "enabled": "true",
+    })
+    ET.SubElement(sampler, "stringProp", attrib={
+        "name": "HTTPSampler.domain"
+    }).text = domain
+    ET.SubElement(sampler, "stringProp", attrib={
+        "name": "HTTPSampler.protocol"
+    }).text = protocol
+    ET.SubElement(sampler, "stringProp", attrib={
+        "name": "HTTPSampler.path"
+    }).text = path
+    ET.SubElement(sampler, "stringProp", attrib={
+        "name": "HTTPSampler.method"
+    }).text = "POST"
+    ET.SubElement(sampler, "boolProp", attrib={
+        "name": "HTTPSampler.postBodyRaw"
+    }).text = "true"
+
+    args_prop = ET.SubElement(sampler, "elementProp", attrib={
+        "name": "HTTPsampler.Arguments",
+        "elementType": "Arguments",
+    })
+    coll_prop = ET.SubElement(args_prop, "collectionProp", attrib={
+        "name": "Arguments.arguments"
+    })
+    arg_el = ET.SubElement(coll_prop, "elementProp", attrib={
+        "name": "", "elementType": "HTTPArgument"
+    })
+    ET.SubElement(arg_el, "boolProp", attrib={
+        "name": "HTTPArgument.always_encode"
+    }).text = "false"
+    ET.SubElement(arg_el, "stringProp", attrib={
+        "name": "Argument.value"
+    }).text = post_body
+    ET.SubElement(arg_el, "stringProp", attrib={
+        "name": "Argument.metadata"
+    }).text = "="
+    ET.SubElement(arg_el, "boolProp", attrib={
+        "name": "HTTPArgument.use_equals"
+    }).text = "true"
+
+    # --- hashTree (Header Manager + Extractors) ---
+    hash_tree = ET.Element("hashTree")
+
+    # Header Manager — Content-Type
+    hm = ET.Element("HeaderManager", attrib={
+        "guiclass": "HeaderPanel",
+        "testclass": "HeaderManager",
+        "testname": "HTTP Header Manager",
+        "enabled": "true",
+    })
+    hm_coll = ET.SubElement(hm, "collectionProp", attrib={
+        "name": "HeaderManager.headers"
+    })
+    hdr_el = ET.SubElement(hm_coll, "elementProp", attrib={
+        "name": "", "elementType": "Header"
+    })
+    ET.SubElement(hdr_el, "stringProp", attrib={
+        "name": "Header.name"
+    }).text = "Content-Type"
+    ET.SubElement(hdr_el, "stringProp", attrib={
+        "name": "Header.value"
+    }).text = "application/x-www-form-urlencoded"
+
+    hash_tree.append(hm)
+    hash_tree.append(ET.Element("hashTree"))
+
+    # JSON Extractor — new access_token
+    access_ext = create_json_extractor(
+        variable_name=output_var,
+        json_path="$.access_token",
+        default_value="NOT_FOUND",
+        testname=f"Extract refreshed access_token → {output_var}",
+    )
+    hash_tree.append(access_ext)
+    hash_tree.append(ET.Element("hashTree"))
+
+    # JSON Extractor — rotated refresh_token (servers may issue a new one)
+    refresh_ext = create_json_extractor(
+        variable_name=refresh_token_var,
+        json_path="$.refresh_token",
+        default_value=f"${{{refresh_token_var}}}",
+        testname=f"Extract rotated refresh_token → {refresh_token_var}",
+    )
+    hash_tree.append(refresh_ext)
+    hash_tree.append(ET.Element("hashTree"))
+
+    return sampler, hash_tree
