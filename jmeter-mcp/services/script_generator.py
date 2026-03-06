@@ -723,6 +723,14 @@ def _apply_pkce_substitutions_to_entry(
     ${code_challenge} and ${code_verifier} so the PKCE PreProcessor generates
     fresh values on each iteration.
 
+    Handles three locations where PKCE values appear:
+    - Request URLs (code_challenge in authorize request, including nested goto= params)
+    - POST bodies (code_verifier in token exchange)
+    - Headers (code_challenge in referer headers carrying the authorize URL)
+
+    Base64URL values are URL-safe (use - and _ instead of + and /), so the raw
+    value appears literally even inside percent-encoded nested URL parameters.
+
     Args:
         entry: The network capture entry (modified in place)
         pkce_flow: Detection result from detect_pkce_flow()
@@ -746,6 +754,22 @@ def _apply_pkce_substitutions_to_entry(
         if body and cv_val in body:
             entry["post_data"] = body.replace(cv_val, "${code_verifier}")
             changed = True
+
+    # Substitute in headers (referer headers carry the authorize URL
+    # with code_challenge embedded in nested goto= query params)
+    headers = entry.get("headers")
+    if headers and (cc_val or cv_val):
+        for hdr_name, hdr_value in headers.items():
+            if not hdr_value:
+                continue
+            new_value = hdr_value
+            if cc_val and cc_val in new_value:
+                new_value = new_value.replace(cc_val, "${code_challenge}")
+            if cv_val and cv_val in new_value:
+                new_value = new_value.replace(cv_val, "${code_verifier}")
+            if new_value != hdr_value:
+                headers[hdr_name] = new_value
+                changed = True
 
     return changed
 
