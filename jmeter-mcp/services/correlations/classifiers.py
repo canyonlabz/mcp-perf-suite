@@ -17,11 +17,27 @@ from .constants import (
 )
 
 
+# Epoch millisecond timestamp range: 2000-01-01 to 2050-01-01
+_EPOCH_MS_MIN = 946_684_800_000
+_EPOCH_MS_MAX = 2_524_608_000_000
+
+
+def _is_epoch_ms_timestamp(value: str) -> bool:
+    """Check if a numeric string is a plausible epoch millisecond timestamp."""
+    if len(value) != 13:
+        return False
+    try:
+        return _EPOCH_MS_MIN <= int(value) <= _EPOCH_MS_MAX
+    except ValueError:
+        return False
+
+
 def classify_value_type(value: Any) -> str:
     """
     Classify value into type category.
     
     Returns one of:
+    - timestamp: Epoch millisecond timestamp (SignalR cache-busting, etc.)
     - business_id_numeric: Numeric string or integer
     - business_id_guid: UUID/GUID format
     - oauth_token: JWT format (for Phase 2)
@@ -30,9 +46,13 @@ def classify_value_type(value: Any) -> str:
     - unknown: Unclassifiable
     """
     if isinstance(value, int):
+        if _EPOCH_MS_MIN <= value <= _EPOCH_MS_MAX:
+            return "timestamp"
         return "business_id_numeric"
     if isinstance(value, str):
         if NUMERIC_ID_RE.match(value):
+            if _is_epoch_ms_timestamp(value):
+                return "timestamp"
             return "business_id_numeric"
         if GUID_RE.match(value):
             return "business_id_guid"

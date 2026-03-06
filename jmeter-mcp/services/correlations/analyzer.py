@@ -371,12 +371,28 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
         correlation_counter += 1
         correlation_id = f"corr_{correlation_counter}"
         
-        param_hint = classify_parameterization_strategy(False, occurrence_count)
-        
+        orphan_value_type = orphan.get("value_type", "unknown")
+
+        if orphan_value_type == "timestamp":
+            param_hint = {
+                "strategy": "timestamp_preprocessor",
+                "reason": "Epoch millisecond timestamp - generate via JSR223 PreProcessor",
+            }
+            notes = (
+                "Epoch millisecond timestamp (e.g. SignalR cache-busting). "
+                "Use create_timestamp_preprocessor() to generate dynamically."
+            )
+        else:
+            param_hint = classify_parameterization_strategy(False, occurrence_count)
+            notes = (
+                "Value found in request URL but not in any prior response. "
+                "Recommend parameterization via CSV Data Set or User Defined Variables."
+            )
+
         correlation = {
             "correlation_id": correlation_id,
             "type": "orphan_id",
-            "value_type": orphan.get("value_type", "unknown"),
+            "value_type": orphan_value_type,
             "confidence": "low",
             "correlation_found": False,
             "source": {
@@ -394,8 +410,7 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
             },
             "usages": [],
             "parameterization_hint": param_hint,
-            "notes": "Value found in request URL but not in any prior response. "
-                     "Recommend parameterization via CSV Data Set or User Defined Variables.",
+            "notes": notes,
         }
         
         correlations.append(correlation)
