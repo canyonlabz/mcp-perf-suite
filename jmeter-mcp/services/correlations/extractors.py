@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from .classifiers import classify_value_type, is_id_like_value
 from .constants import (
+    API_KEY_HEADER_RE,
     CORRELATION_HEADER_SUFFIXES,
     NONCE_COOKIE_KEYWORDS,
     OAUTH_BODY_PARAM_VALUE_TYPES,
@@ -862,6 +863,77 @@ def detect_token_exchanges(
         })
 
     return exchanges
+
+
+def detect_static_api_key_headers(
+    entries: List[Tuple[int, int, str, Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """
+    Detect request headers that carry static API keys or subscription keys.
+
+    Scans all request headers for names matching ``API_KEY_HEADER_RE``
+    (e.g. ``x-api-key``, anything ending in ``-key``).  
+    For each matching header name, collects all distinct
+    values observed.  If the header has exactly one consistent value
+    across all requests, it is flagged as a static API key suitable for
+    User Defined Variable parameterization.
+
+    Returns one item per unique (header_name, value) pair:
+        {
+            "header_name": str,         # original-cased header name
+            "value": str,               # the static header value
+            "occurrence_count": int,    # how many requests carry it
+            "first_entry_index": int,   # first entry where seen
+            "first_step_number": int,
+            "first_step_label": str,
+            "first_request_url": str,
+        }
+
+    Returns an empty list when no static API key headers are found.
+    """
+    # Collect: header_name_lower -> { "values": {value: count}, "first": ..., "original_name": ... }
+    header_stats: Dict[str, Dict[str, Any]] = {}
+
+    for entry_index, step_number, step_label, entry in entries:
+        headers = entry.get("headers") or {}
+        for hdr_name, hdr_value in headers.items():
+            if not hdr_value or not API_KEY_HEADER_RE.search(hdr_name):
+                continue
+
+            key = hdr_name.lower()
+            if key not in header_stats:
+                header_stats[key] = {
+                    "original_name": hdr_name,
+                    "values": {},
+                    "total_count": 0,
+                    "first_entry_index": entry_index,
+                    "first_step_number": step_number,
+                    "first_step_label": step_label,
+                    "first_request_url": entry.get("url", ""),
+                }
+
+            stats = header_stats[key]
+            stats["values"][hdr_value] = stats["values"].get(hdr_value, 0) + 1
+            stats["total_count"] += 1
+
+    results: List[Dict[str, Any]] = []
+    for _key, stats in header_stats.items():
+        # Only flag headers with a single consistent value (static key)
+        if len(stats["values"]) != 1:
+            continue
+
+        value = next(iter(stats["values"]))
+        results.append({
+            "header_name": stats["original_name"],
+            "value": value,
+            "occurrence_count": stats["total_count"],
+            "first_entry_index": stats["first_entry_index"],
+            "first_step_number": stats["first_step_number"],
+            "first_step_label": stats["first_step_label"],
+            "first_request_url": stats["first_request_url"],
+        })
+
+    return results
 
 
 def extract_sources(

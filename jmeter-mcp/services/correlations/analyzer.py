@@ -21,6 +21,7 @@ from utils.file_utils import save_correlation_spec
 
 from .classifiers import classify_parameterization_strategy
 from .extractors import (
+    detect_static_api_key_headers,
     detect_token_exchanges,
     extract_oauth_from_request_headers,
     extract_oauth_params_from_request_body,
@@ -425,6 +426,60 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
         correlations.append(correlation)
         token_chain_count += 1
 
+    # Phase 1d: Static API key header detection
+    # Detects headers like ocp-apim-subscription-key, x-api-key, etc.
+    # that carry a single consistent value across all requests and should
+    # be parameterized via User Defined Variables.
+    static_key_headers = detect_static_api_key_headers(entries)
+
+    for key_info in static_key_headers:
+        header_value = key_info["value"]
+        # Prevent Phase 3 from re-flagging this value as an orphan
+        known_source_values.add(header_value)
+
+        correlation_counter += 1
+        correlation_id = f"corr_{correlation_counter}"
+
+        # Derive a variable name from the header name (e.g. my-api-key -> my_api_key)
+        var_name = key_info["header_name"].lower().replace("-", "_")
+
+        correlation = {
+            "correlation_id": correlation_id,
+            "type": "static_header",
+            "value_type": "api_key",
+            "confidence": "high",
+            "correlation_found": True,
+            "source": {
+                "step_number": key_info["first_step_number"],
+                "step_label": key_info["first_step_label"],
+                "entry_index": key_info["first_entry_index"],
+                "request_id": None,
+                "request_method": None,
+                "request_url": key_info["first_request_url"],
+                "response_status": None,
+                "source_location": "request_header",
+                "source_key": key_info["header_name"],
+                "source_json_path": None,
+                "response_example_value": header_value,
+            },
+            "usages": [],
+            "parameterization_hint": {
+                "strategy": "user_defined_variable",
+                "suggested_var_name": var_name,
+                "reason": (
+                    f"Static API key header '{key_info['header_name']}' "
+                    f"found in {key_info['occurrence_count']} request(s) with same value"
+                ),
+            },
+            "notes": (
+                f"Static API key detected: {key_info['header_name']} appears in "
+                f"{key_info['occurrence_count']} request(s). Add to User Defined Variables "
+                f"as '{var_name}' and substitute with ${{{var_name}}} in headers."
+            ),
+        }
+
+        correlations.append(correlation)
+
     # Phase 3: Detect orphan IDs
     orphan_candidates = detect_orphan_ids(entries, known_source_values)
     
@@ -493,6 +548,7 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
         "oauth_params": sum(1 for c in correlations if c.get("type") == "oauth_param"),
         "pkce_params": sum(1 for c in correlations if c.get("type") == "pkce_param"),
         "token_chains": sum(1 for c in correlations if c.get("type") == "token_chain"),
+        "static_headers": sum(1 for c in correlations if c.get("type") == "static_header"),
         "orphan_ids": sum(1 for c in correlations if c.get("type") == "orphan_id"),
         "high_confidence": sum(1 for c in correlations if c.get("confidence") == "high"),
         "medium_confidence": sum(1 for c in correlations if c.get("confidence") == "medium"),

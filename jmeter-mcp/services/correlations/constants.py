@@ -195,3 +195,11 @@ OAUTH_BODY_PARAM_VALUE_TYPES: Dict[str, str] = {
     "client_secret": "oauth_client_secret",
     "assertion": "oauth_assertion",
 }
+
+# === Static API Key Header Detection ===
+# Pattern for header names that typically carry static API keys or
+# subscription keys.  Matched case-insensitively against request headers.
+# Catches any header ending in "-key" (e.g. x-api-key, x-functions-key,
+# *-subscription-key, my-service-key, etc.)
+import re as _re
+API_KEY_HEADER_RE = _re.compile(r"-key$", _re.IGNORECASE)
