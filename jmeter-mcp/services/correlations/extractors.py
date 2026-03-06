@@ -9,8 +9,8 @@ Extracts candidate values from:
 """
 
 import json
-from typing import Any, Dict, List, Tuple
-from urllib.parse import parse_qs, urlparse
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .classifiers import classify_value_type, is_id_like_value
 from .constants import (
@@ -693,6 +693,88 @@ def extract_oauth_from_request_headers(
             })
 
     return candidates
+
+
+def detect_pkce_flow(
+    entries: List[Tuple[int, int, str, Dict[str, Any]]]
+) -> Optional[Dict[str, Any]]:
+    """
+    Detect whether the captured traffic contains a PKCE flow.
+
+    Scans request URLs (including nested URL-encoded params like goto=) for
+    code_challenge / code_challenge_method, and request POST bodies for
+    code_verifier.
+
+    Returns None if no PKCE indicators are found, otherwise a dict:
+        {
+            "detected": True,
+            "code_challenge_method": "S256" | "plain" | None,
+            "code_challenge_value": str,      # recorded value for substitution
+            "code_verifier_value": str | None, # recorded value (from POST body)
+            "authorize_entry_index": int,      # first entry with code_challenge
+            "authorize_request_url": str,
+            "token_entry_index": int | None,   # entry that POSTs code_verifier
+            "token_request_url": str | None,
+        }
+    """
+    challenge_info: Optional[Dict[str, Any]] = None
+    verifier_info: Optional[Dict[str, Any]] = None
+
+    for entry_index, step_number, step_label, entry in entries:
+        url = entry.get("url", "")
+        post_data = entry.get("post_data") or ""
+
+        # --- Scan URL (and nested URLs) for code_challenge ---
+        if challenge_info is None:
+            url_params = _extract_oauth_from_url(url)
+            param_map = {name.lower(): val for name, val in url_params}
+
+            if "code_challenge" in param_map:
+                challenge_info = {
+                    "entry_index": entry_index,
+                    "request_url": url,
+                    "code_challenge_value": param_map["code_challenge"],
+                    "code_challenge_method": param_map.get(
+                        "code_challenge_method", "S256"
+                    ),
+                }
+
+        # --- Scan POST body for code_verifier ---
+        if verifier_info is None and post_data and "code_verifier" in post_data:
+            try:
+                body_params = parse_qs(post_data, keep_blank_values=False)
+                cv_list = body_params.get("code_verifier")
+                if cv_list:
+                    verifier_info = {
+                        "entry_index": entry_index,
+                        "request_url": url,
+                        "code_verifier_value": cv_list[0],
+                    }
+            except Exception:
+                pass
+
+        if challenge_info and verifier_info:
+            break
+
+    if not challenge_info:
+        return None
+
+    return {
+        "detected": True,
+        "code_challenge_method": challenge_info["code_challenge_method"],
+        "code_challenge_value": challenge_info["code_challenge_value"],
+        "code_verifier_value": (
+            verifier_info["code_verifier_value"] if verifier_info else None
+        ),
+        "authorize_entry_index": challenge_info["entry_index"],
+        "authorize_request_url": challenge_info["request_url"],
+        "token_entry_index": (
+            verifier_info["entry_index"] if verifier_info else None
+        ),
+        "token_request_url": (
+            verifier_info["request_url"] if verifier_info else None
+        ),
+    }
 
 
 def extract_sources(
