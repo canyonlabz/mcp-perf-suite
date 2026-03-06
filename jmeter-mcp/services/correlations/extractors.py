@@ -98,6 +98,13 @@ def extract_from_redirect_url(
                 is_oauth = param_name.lower() in OAUTH_PARAMS
                 
                 if is_id_like_value(val) or is_oauth:
+                    if is_oauth:
+                        value_type = OAUTH_PARAM_VALUE_TYPES.get(
+                            param_name.lower(), "oauth_param"
+                        )
+                    else:
+                        value_type = classify_value_type(val)
+
                     candidates.append({
                         "entry_index": entry_index,
                         "step_number": step_number,
@@ -110,7 +117,7 @@ def extract_from_redirect_url(
                         "source_key": param_name,
                         "source_json_path": None,
                         "value": val,
-                        "value_type": "oauth_state" if is_oauth else classify_value_type(val),
+                        "value_type": value_type,
                         "candidate_type": "oauth_param" if is_oauth else "business_id",
                     })
     except Exception:
