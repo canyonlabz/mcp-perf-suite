@@ -777,6 +777,93 @@ def detect_pkce_flow(
     }
 
 
+def detect_token_exchanges(
+    entries: List[Tuple[int, int, str, Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """
+    Detect and classify all OAuth token exchange requests in the traffic.
+
+    Scans POST bodies for ``grant_type`` to identify token endpoint calls,
+    then classifies each by flow type and extracts key parameters.
+
+    The returned list is ordered by ``entry_index`` (sequential as they
+    appeared in the capture) so D-2 can chain them: each token-exchange
+    request's ``subject_token`` should be extracted from the *prior*
+    exchange's response.
+
+    Returns an empty list when no token exchanges are found (e.g.
+    OpenID Connect Hybrid flow which obtains tokens via
+    HTML form_post, not explicit /oauth/token calls).
+
+    Each item in the list:
+        {
+            "entry_index": int,
+            "step_number": int,
+            "step_label": str,
+            "request_url": str,
+            "grant_type_raw": str,
+            "detected_flow": str,
+            "params": {
+                "code": "...",
+                "code_verifier": "...",
+                "subject_token": "eyJ...",
+                "client_id": "...",
+                ...
+            },
+            "has_subject_token": bool,
+            "sequence_position": int,   # 0-based position in the chain
+        }
+    """
+    exchanges: List[Dict[str, Any]] = []
+
+    for entry_index, step_number, step_label, entry in entries:
+        method = (entry.get("method") or "").upper()
+        if method != "POST":
+            continue
+
+        post_data = entry.get("post_data") or ""
+        if not post_data.strip():
+            continue
+
+        stripped = post_data.strip()
+        if stripped.startswith("{") or stripped.startswith("["):
+            continue
+
+        try:
+            body_params = parse_qs(stripped, keep_blank_values=False)
+        except Exception:
+            continue
+
+        grant_types = body_params.get("grant_type", [])
+        if not grant_types:
+            continue
+
+        grant_type_raw = unquote(grant_types[0])
+        detected_flow = OAUTH_GRANT_TYPES.get(grant_type_raw, "unknown")
+
+        params: Dict[str, str] = {}
+        for param_name, values in body_params.items():
+            param_lower = param_name.lower()
+            if param_lower == "grant_type":
+                continue
+            if param_lower in OAUTH_BODY_PARAMS and values:
+                params[param_lower] = values[0]
+
+        exchanges.append({
+            "entry_index": entry_index,
+            "step_number": step_number,
+            "step_label": step_label,
+            "request_url": entry.get("url", ""),
+            "grant_type_raw": grant_type_raw,
+            "detected_flow": detected_flow,
+            "params": params,
+            "has_subject_token": "subject_token" in params,
+            "sequence_position": len(exchanges),
+        })
+
+    return exchanges
+
+
 def extract_sources(
     entries: List[Tuple[int, int, str, Dict[str, Any]]]
 ) -> List[Dict[str, Any]]:
