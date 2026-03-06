@@ -47,6 +47,11 @@ from services.jmx.post_processor import (
     create_json_extractor,
     create_regex_extractor
 )
+from services.jmx.pre_processor import (
+    create_pkce_preprocessor,
+    append_preprocessor
+)
+from services.correlations.extractors import detect_pkce_flow
 from utils.file_utils import save_jmx_file
 
 # ============================================================
@@ -704,6 +709,48 @@ def _apply_substitutions_to_entry(entry: Dict, sub_map: Dict[str, List[Dict]]) -
 
 
 # ============================================================
+# Helper Functions - PKCE Substitution (Sprint C-2)
+# ============================================================
+
+def _apply_pkce_substitutions_to_entry(
+    entry: Dict,
+    pkce_flow: Dict[str, Any]
+) -> bool:
+    """
+    Replace hardcoded PKCE values with JMeter variable references.
+
+    Substitutes the recorded code_challenge and code_verifier values with
+    ${code_challenge} and ${code_verifier} so the PKCE PreProcessor generates
+    fresh values on each iteration.
+
+    Args:
+        entry: The network capture entry (modified in place)
+        pkce_flow: Detection result from detect_pkce_flow()
+
+    Returns:
+        True if any substitution was applied
+    """
+    changed = False
+
+    cc_val = pkce_flow.get("code_challenge_value", "")
+    cv_val = pkce_flow.get("code_verifier_value", "")
+
+    if cc_val:
+        url = entry.get("url", "")
+        if cc_val in url:
+            entry["url"] = url.replace(cc_val, "${code_challenge}")
+            changed = True
+
+    if cv_val:
+        body = entry.get("post_data", "")
+        if body and cv_val in body:
+            entry["post_data"] = body.replace(cv_val, "${code_verifier}")
+            changed = True
+
+    return changed
+
+
+# ============================================================
 # Helper Functions - Orphan Variable Handling (Phase D)
 # ============================================================
 
@@ -1231,12 +1278,6 @@ def _substitute_hostname_in_entry(entry: Dict, hostname_var_map: Dict[str, str])
 
 
 # ============================================================
-# Helper Functions
-# ============================================================
-
-
-
-# ============================================================
 # Main JMeter JMX Generator function
 # ============================================================
 
@@ -1275,6 +1316,28 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
 
     ctx.info(f"✅ Loaded network capture JSON file: {json_path}")
     ctx.info(f"Network data contains {len(network_data)} entries.")
+    
+    # === PKCE Flow Detection (Sprint C) ===
+    pkce_flow = None
+    pkce_subs_applied = 0
+    pkce_preprocessor_inserted = False
+    flat_entries = []
+    global_idx = 0
+    for step_num, (step_label, value) in enumerate(network_data.items()):
+        entries_list = value if isinstance(value, list) else [value]
+        for entry in entries_list:
+            flat_entries.append((global_idx, step_num, step_label, entry))
+            global_idx += 1
+    pkce_result = detect_pkce_flow(flat_entries)
+    if pkce_result and pkce_result.get("detected"):
+        pkce_flow = pkce_result
+        method = pkce_result.get("code_challenge_method", "S256")
+        ctx.info(f"🔐 PKCE flow detected (method: {method})")
+        ctx.info(f"   code_challenge found at: {pkce_result.get('authorize_request_url', 'N/A')[:80]}...")
+        if pkce_result.get("code_verifier_value"):
+            ctx.info(f"   code_verifier found at: {pkce_result.get('token_request_url', 'N/A')[:80]}...")
+    else:
+        ctx.info("ℹ️ No PKCE flow detected in network capture")
     
     # === Load Correlation Data (if available) ===
     # correlation_naming.json: JMeter variable names and extractor configurations
@@ -1489,7 +1552,6 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 original_url = entry.get("url", "")
                 if substitution_map:
                     _apply_substitutions_to_entry(entry, substitution_map)
-                    # Count if URL changed (substitution was applied)
                     if entry.get("url", "") != original_url:
                         substitutions_applied += 1
                 
@@ -1497,6 +1559,11 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 if orphan_substitution_map:
                     if _apply_orphan_substitutions_to_entry(entry, orphan_substitution_map):
                         orphan_subs_applied += 1
+                
+                # Apply PKCE variable substitutions (Sprint C)
+                if pkce_flow:
+                    if _apply_pkce_substitutions_to_entry(entry, pkce_flow):
+                        pkce_subs_applied += 1
                 
                 # Apply hostname parameterization (obs-1)
                 if hostname_var_map:
@@ -1516,7 +1583,6 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                     )
                 
                 # Get extractors for this URL (correlation support - Phase B)
-                # Note: Use original URL for extractor lookup since that matches correlation_naming
                 entry_for_extractor = {"url": original_url} if original_url else entry
                 extractors = _get_extractors_for_entry(
                     entry_for_extractor, 
@@ -1527,7 +1593,15 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 )
                 extractors_added += len(extractors)
                 
-                append_sampler(ctrl_hash, sampler, header_manager, extractors=extractors)
+                sampler_hash_tree = append_sampler(ctrl_hash, sampler, header_manager, extractors=extractors)
+                
+                # Insert PKCE PreProcessor on the authorize request (Sprint C)
+                if pkce_flow and not pkce_preprocessor_inserted:
+                    cc_val = pkce_flow.get("code_challenge_value", "")
+                    if cc_val and cc_val in original_url:
+                        pkce_element = create_pkce_preprocessor()
+                        append_preprocessor(sampler_hash_tree, pkce_element)
+                        pkce_preprocessor_inserted = True
             
             # === Add Think Time (Test Action) at end of each step (except last) ===
             # This simulates realistic user think time between steps, matching browser automation behavior
@@ -1573,7 +1647,6 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             original_url = entry.get("url", "")
             if substitution_map:
                 _apply_substitutions_to_entry(entry, substitution_map)
-                # Count if URL changed (substitution was applied)
                 if entry.get("url", "") != original_url:
                     substitutions_applied += 1
             
@@ -1581,6 +1654,11 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             if orphan_substitution_map:
                 if _apply_orphan_substitutions_to_entry(entry, orphan_substitution_map):
                     orphan_subs_applied += 1
+            
+            # Apply PKCE variable substitutions (Sprint C)
+            if pkce_flow:
+                if _apply_pkce_substitutions_to_entry(entry, pkce_flow):
+                    pkce_subs_applied += 1
             
             # Apply hostname parameterization (obs-1)
             if hostname_var_map:
@@ -1600,7 +1678,6 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 )
             
             # Get extractors for this URL (correlation support - Phase B)
-            # Note: Use original URL for extractor lookup since that matches correlation_naming
             entry_for_extractor = {"url": original_url} if original_url else entry
             extractors = _get_extractors_for_entry(
                 entry_for_extractor, 
@@ -1611,8 +1688,15 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             )
             extractors_added += len(extractors)
             
-            # Append the sampler and its header manager (if any) into the Thread Group's hashTree.
-            append_sampler(thread_group_hash_tree, sampler, header_manager, extractors=extractors)
+            sampler_hash_tree = append_sampler(thread_group_hash_tree, sampler, header_manager, extractors=extractors)
+            
+            # Insert PKCE PreProcessor on the authorize request (Sprint C)
+            if pkce_flow and not pkce_preprocessor_inserted:
+                cc_val = pkce_flow.get("code_challenge_value", "")
+                if cc_val and cc_val in original_url:
+                    pkce_element = create_pkce_preprocessor()
+                    append_preprocessor(sampler_hash_tree, pkce_element)
+                    pkce_preprocessor_inserted = True
     
     # Log correlation summary
     if excluded_entries > 0:
@@ -1630,6 +1714,9 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
         ctx.info(f"✅ Applied hostname parameterization to {hostname_subs_applied} request(s)")
     if think_time_added > 0:
         ctx.info(f"✅ Added {think_time_added} Think Time element(s) between steps")
+    if pkce_preprocessor_inserted:
+        ctx.info(f"🔐 Inserted PKCE PreProcessor (code_verifier + code_challenge generation)")
+        ctx.info(f"🔐 Applied PKCE substitutions to {pkce_subs_applied} request(s)")
 
     # === Add Listeners (outside the Thread Group) ===
     results_cfg = JMETER_CONFIG.get("results_collector_config", {})
