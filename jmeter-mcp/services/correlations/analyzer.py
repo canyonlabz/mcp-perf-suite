@@ -21,6 +21,7 @@ from utils.file_utils import save_correlation_spec
 
 from .classifiers import classify_parameterization_strategy
 from .extractors import (
+    detect_token_exchanges,
     extract_oauth_from_request_headers,
     extract_oauth_params_from_request_body,
     extract_oauth_params_from_request_urls,
@@ -355,6 +356,75 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
 
         correlations.append(correlation)
 
+    # Phase 1c: Token chain analysis
+    # Detects sequential /oauth/token exchanges and links each token-exchange
+    # request's subject_token to the inferred $.access_token from the prior
+    # exchange's response (which is typically empty in browser captures).
+    token_exchanges = detect_token_exchanges(entries)
+    token_chain_count = 0
+
+    for ex in token_exchanges:
+        if not ex["has_subject_token"] or ex["sequence_position"] == 0:
+            continue
+
+        prior_ex = token_exchanges[ex["sequence_position"] - 1]
+        correlation_counter += 1
+        correlation_id = f"corr_{correlation_counter}"
+
+        prior_url = prior_ex["request_url"]
+        prior_flow = prior_ex["detected_flow"]
+        cur_flow = ex["detected_flow"]
+
+        notes = (
+            f"Token chain: subject_token in this {cur_flow} request "
+            f"should be extracted from the prior /oauth/token response "
+            f"(entry {prior_ex['entry_index']}, {prior_flow} grant). "
+            f"Inferred JSONPath: $.access_token"
+        )
+
+        correlation = {
+            "correlation_id": correlation_id,
+            "type": "token_chain",
+            "value_type": "oauth_subject_token",
+            "confidence": "medium",
+            "correlation_found": False,
+            "source": {
+                "step_number": prior_ex["step_number"],
+                "step_label": prior_ex["step_label"],
+                "entry_index": prior_ex["entry_index"],
+                "request_id": None,
+                "request_method": "POST",
+                "request_url": prior_url,
+                "response_status": None,
+                "source_location": "inferred_response_json",
+                "source_key": "access_token",
+                "source_json_path": "$.access_token",
+                "response_example_value": None,
+            },
+            "target": {
+                "entry_index": ex["entry_index"],
+                "step_number": ex["step_number"],
+                "step_label": ex["step_label"],
+                "request_url": ex["request_url"],
+                "grant_type": ex["grant_type_raw"],
+                "detected_flow": cur_flow,
+            },
+            "usages": [],
+            "parameterization_hint": {
+                "strategy": "infer_from_prior_response",
+                "inferred_json_path": "$.access_token",
+                "reason": (
+                    f"Extract $.access_token from prior token endpoint response "
+                    f"(entry {prior_ex['entry_index']}) and use as subject_token"
+                ),
+            },
+            "notes": notes,
+            "token_chain_position": ex["sequence_position"],
+        }
+
+        correlations.append(correlation)
+        token_chain_count += 1
+
     # Phase 3: Detect orphan IDs
     orphan_candidates = detect_orphan_ids(entries, known_source_values)
     
@@ -422,6 +492,7 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
         "correlation_ids": sum(1 for c in correlations if c.get("type") == "correlation_id"),
         "oauth_params": sum(1 for c in correlations if c.get("type") == "oauth_param"),
         "pkce_params": sum(1 for c in correlations if c.get("type") == "pkce_param"),
+        "token_chains": sum(1 for c in correlations if c.get("type") == "token_chain"),
         "orphan_ids": sum(1 for c in correlations if c.get("type") == "orphan_id"),
         "high_confidence": sum(1 for c in correlations if c.get("confidence") == "high"),
         "medium_confidence": sum(1 for c in correlations if c.get("confidence") == "medium"),
