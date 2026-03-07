@@ -20,6 +20,17 @@ This document summarizes the enhancements and new features added to the MCP Perf
   - [3.4 Script Source Agnostic](#34-script-source-agnostic)
   - [3.5 Safety Features](#35-safety-features)
   - [3.6 Files Created/Modified](#36-files-createdmodified)
+- [4. Correlation Analysis Enhancements (v0.6.0)](#4-correlation-analysis-enhancements-v060)
+  - [4.1 Overview](#41-overview)
+  - [4.2 Multi-Phase Correlation Detection](#42-multi-phase-correlation-detection)
+  - [4.3 OAuth and PKCE Support](#43-oauth-and-pkce-support)
+  - [4.4 Static Header Parameterization](#44-static-header-parameterization)
+  - [4.5 Enhanced Classification](#45-enhanced-classification)
+  - [4.6 AI HITL Correlation Naming](#46-ai-hitl-correlation-naming)
+  - [4.7 Orphan Variable Handling](#47-orphan-variable-handling)
+  - [4.8 Script Generator Refactoring](#48-script-generator-refactoring)
+  - [4.9 Files Created](#49-files-created)
+  - [4.10 Files Modified](#410-files-modified)
 - [Previous Changelogs](#previous-changelogs)
 
 ---
@@ -169,6 +180,99 @@ All sources converge on the same HITL workflow: analyze → add/edit → verify.
 
 ---
 
+## 4. Correlation Analysis Enhancements (v0.6.0)
+
+### 4.1 Overview
+
+Major overhaul of the correlation analysis engine to support multi-phase detection, OAuth/PKCE flow recognition, static header parameterization, and an AI Human-in-the-Loop (HITL) naming workflow. The correlation analyzer now detects dynamic values across both responses and requests, classifies them by type, and feeds them into the JMX script generator for automatic parameterization.
+
+### 4.2 Multi-Phase Correlation Detection
+
+The analyzer now runs four detection phases in sequence:
+
+| Phase | Name | Description |
+|-------|------|-------------|
+| 1a | Response-side extraction | Scan response bodies, headers, redirects, and cookies for dynamic values reused in later requests |
+| 1b | Request-side OAuth/PKCE | Extract OAuth parameters from request URLs, POST bodies, and headers when response bodies are missing (common with browser-captured HAR traffic) |
+| 1c | Token chain analysis | Detect sequential OAuth token exchanges (authorization_code, token-exchange, refresh_token) |
+| 1d | Static header detection | Identify static API key headers using a generic pattern (`-key$` regex) for UDV parameterization |
+
+### 4.3 OAuth and PKCE Support
+
+- **Request-side OAuth detection**: Extracts `client_id`, `redirect_uri`, `state`, `nonce`, `scope`, `response_type`, `response_mode`, and SSO tokens from request URLs, POST bodies, and headers
+- **PKCE flow detection**: Identifies `code_challenge` and `code_verifier` values across authorize and token exchange requests
+- **PKCE Pre-Processor**: Inserts a JSR223 PreProcessor that generates fresh `code_verifier` and `code_challenge` values per iteration using SHA-256 and Base64URL encoding
+- **PKCE substitution**: Replaces hardcoded PKCE values in URLs, POST bodies, and headers with `${code_challenge}` and `${code_verifier}`
+
+### 4.4 Static Header Parameterization
+
+- Detects static API key headers matching the generic `-key$` pattern across all requests
+- Adds detected values to User Defined Variables automatically
+- Replaces hardcoded header values with `${variable_name}` references in all HTTP Header Managers
+
+### 4.5 Enhanced Classification
+
+| Value Type | Detection Method |
+|------------|-----------------|
+| `oauth_state`, `oauth_nonce`, `oauth_code` | OAuth parameter name matching |
+| `oauth_redirect_uri`, `oauth_client_id` | OAuth URL/body parameter extraction |
+| `oauth_scope`, `oauth_response_type` | Request-side parameter detection |
+| `sso_token` | SSO cookie/header detection |
+| `api_key` | Generic header pattern matching (`-key$`) |
+| `timestamp` | 13-digit Unix epoch millisecond detection |
+| `business_id_numeric`, `business_id_guid` | Existing response-side extraction |
+
+### 4.6 AI HITL Correlation Naming
+
+A new workflow step between correlation analysis and JMX generation:
+
+1. `analyze_network_traffic` produces `correlation_spec.json` with raw correlations
+2. The AI generates `correlation_naming.json` assigning unique variable names, extractor types, and expressions per the naming rules (`.cursor/rules/jmeter-correlations.mdc`)
+3. `generate_jmeter_script` consumes both files to produce the parameterized JMX
+
+### 4.7 Orphan Variable Handling
+
+- Orphan IDs (values in requests with no identifiable source response) are extracted and added to User Defined Variables
+- SignalR timestamps detected by `source_key: "_"` are assigned `${__time()}` for dynamic generation
+- Orphan values are substituted in URLs and POST bodies (both raw and URL-encoded forms)
+
+### 4.8 Script Generator Refactoring
+
+The `script_generator.py` was refactored into modular helper files under `services/helpers/`:
+
+| Module | Responsibility |
+|--------|---------------|
+| `extractor_helpers.py` | Correlation naming/spec loading, extractor map building, extractor element creation |
+| `substitution_helpers.py` | Variable name maps, substitution maps, URL/body/header replacement, PKCE substitution, static header substitution |
+| `orphan_helpers.py` | Orphan value extraction, UDV variable building, orphan substitution maps, static header config extraction |
+| `hostname_helpers.py` | Hostname extraction, categorization, variable mapping, hostname substitution |
+
+### 4.9 Files Created
+
+| File | Purpose |
+|------|---------|
+| `jmeter-mcp/services/helpers/__init__.py` | Package init for helper modules |
+| `jmeter-mcp/services/helpers/extractor_helpers.py` | Correlation extractor support functions |
+| `jmeter-mcp/services/helpers/substitution_helpers.py` | Variable substitution functions including PKCE and static headers |
+| `jmeter-mcp/services/helpers/orphan_helpers.py` | Orphan variable and static header UDV handling |
+| `jmeter-mcp/services/helpers/hostname_helpers.py` | Hostname parameterization functions |
+| `.cursor/rules/jmeter-correlations.mdc` | Cursor Rule defining correlation naming conventions and output schema |
+
+### 4.10 Files Modified
+
+| File | Changes |
+|------|---------|
+| `jmeter-mcp/services/correlations/analyzer.py` | Added Phase 1b (request-side OAuth), Phase 1c (token chains), Phase 1d (static headers); updated summary statistics |
+| `jmeter-mcp/services/correlations/extractors.py` | Added `extract_oauth_params_from_request_urls`, `extract_oauth_params_from_request_body`, `extract_oauth_from_request_headers`, `detect_pkce_flow`, `detect_token_exchanges`, `detect_static_api_key_headers` |
+| `jmeter-mcp/services/correlations/classifiers.py` | Added 13-digit Unix epoch timestamp reclassification to `timestamp` value type |
+| `jmeter-mcp/services/correlations/constants.py` | Expanded OAuth parameter lists; added generic `API_KEY_HEADER_RE` pattern (`-key$`) |
+| `jmeter-mcp/services/jmx/oauth2.py` | Implemented `create_oauth_token_extractor`; scaffolded `create_oauth_refresh_flow` |
+| `jmeter-mcp/services/jmx/pre_processor.py` | Added `create_pkce_preprocessor` and `append_preprocessor` |
+| `jmeter-mcp/services/script_generator.py` | Refactored to import helper modules; added PKCE detection/substitution, orphan UDV merging, static header extraction/substitution; wired all phases into both controller and flat mode |
+| `jmeter-mcp/config.example.yaml` | Updated version to `0.6.0-dev` |
+
+---
+
 ## Previous Changelogs
 
 | Month | File | Highlights |
@@ -178,4 +282,4 @@ All sources converge on the same HITL workflow: analyze → add/edit → verify.
 
 ---
 
-*Last Updated: March 1, 2026*
+*Last Updated: March 7, 2026*
