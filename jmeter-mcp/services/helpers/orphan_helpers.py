@@ -16,6 +16,60 @@ JMETER_CONFIG = load_jmeter_config()
 # Helper Functions - Orphan Variable Handling (Phase D)
 # ============================================================
 
+def _extract_static_header_config(
+    correlation_spec: Dict[str, Any],
+    correlation_naming: Dict[str, Any]
+) -> tuple:
+    """
+    Extract static header correlations for UDV parameterization and header substitution.
+
+    Scans the correlation spec for type ``static_header`` entries and resolves
+    variable names from the correlation naming file.
+
+    Args:
+        correlation_spec: The loaded correlation_spec.json data
+        correlation_naming: The loaded correlation_naming.json data
+
+    Returns:
+        Tuple of (udv_vars, header_sub_map) where:
+        - udv_vars: variable_name -> header_value (for User Defined Variables)
+        - header_sub_map: header_name_lower -> variable_name (for header substitution)
+    """
+    udv_vars: Dict[str, str] = {}
+    header_sub_map: Dict[str, str] = {}
+
+    naming_lookup: Dict[str, str] = {}
+    for var in correlation_naming.get("variables", []):
+        cid = var.get("correlation_id", "")
+        vname = var.get("variable_name", "")
+        if cid and vname:
+            naming_lookup[cid] = vname
+
+    for corr in correlation_spec.get("correlations", []):
+        if corr.get("type") != "static_header":
+            continue
+
+        corr_id = corr.get("correlation_id", "")
+        source = corr.get("source", {})
+        header_name = source.get("source_key", "")
+        value = source.get("response_example_value", "")
+
+        if not header_name or not value:
+            continue
+
+        hint = corr.get("parameterization_hint", {})
+        var_name = (
+            naming_lookup.get(corr_id)
+            or hint.get("suggested_var_name")
+            or header_name.lower().replace("-", "_")
+        )
+
+        udv_vars[var_name] = str(value)
+        header_sub_map[header_name.lower()] = var_name
+
+    return udv_vars, header_sub_map
+
+
 def _extract_orphan_values(correlation_spec: Dict[str, Any]) -> Dict[str, str]:
     """
     Extract orphan ID values from correlation_spec.json.

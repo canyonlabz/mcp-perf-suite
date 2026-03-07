@@ -39,12 +39,14 @@ from services.helpers.substitution_helpers import (
     _substitute_in_body,
     _substitute_in_headers,
     _apply_substitutions_to_entry,
-    _apply_pkce_substitutions_to_entry
+    _apply_pkce_substitutions_to_entry,
+    _substitute_static_headers_in_entry
 )
 
 # Import helper functions for orphan variable handling (Phase D)
 from services.helpers.orphan_helpers import (
     _extract_orphan_values,
+    _extract_static_header_config,
     _get_orphan_udv_variables,
     _merge_udv_config,
     _build_orphan_substitution_map,
@@ -283,6 +285,8 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     substitution_map = {}
     orphan_udv_vars = {}  # Orphan variables for User Defined Variables (Phase D)
     orphan_substitution_map = []  # Orphan value substitutions for HTTP requests (obs-3)
+    static_header_udv_vars = {}  # Static header variables for UDV
+    static_header_sub_map = {}  # Static header name -> variable name for substitution
     extracted_variables = set()  # Track variables that already have extractors (obs-2)
     
     # Load extractor placement config
@@ -313,6 +317,13 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             orphan_substitution_map = _build_orphan_substitution_map(correlation_naming, orphan_values)
             if orphan_substitution_map:
                 ctx.info(f"✅ Built orphan substitution map: {len(orphan_substitution_map)} value(s) to replace")
+            
+            # Extract static header config for UDV and header substitution
+            static_header_udv_vars, static_header_sub_map = _extract_static_header_config(
+                correlation_spec, correlation_naming
+            )
+            if static_header_udv_vars:
+                ctx.info(f"✅ Detected {len(static_header_udv_vars)} static header(s) for UDV parameterization")
         else:
             ctx.info("ℹ️ No correlation_spec.json found - skipping variable substitution")
     else:
@@ -384,6 +395,10 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     if orphan_udv_vars:
         udv_cfg = _merge_udv_config(udv_cfg, orphan_udv_vars)
     
+    # Merge static header variables into UDV config
+    if static_header_udv_vars:
+        udv_cfg = _merge_udv_config(udv_cfg, static_header_udv_vars)
+    
     udv_elem = create_user_defined_variables(udv_cfg)
     if udv_elem is not None:
         test_plan_hash_tree.append(udv_elem)
@@ -425,6 +440,7 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     extractors_added = 0
     substitutions_applied = 0
     orphan_subs_applied = 0  # Track orphan UDV substitutions (obs-3)
+    static_header_subs_applied = 0  # Track static header substitutions
     excluded_entries = 0
     hostname_subs_applied = 0  # Track hostname substitutions
     think_time_added = 0  # Track Think Time additions
@@ -493,6 +509,11 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 if orphan_substitution_map:
                     if _apply_orphan_substitutions_to_entry(entry, orphan_substitution_map):
                         orphan_subs_applied += 1
+                
+                # Apply static header substitutions
+                if static_header_sub_map:
+                    if _substitute_static_headers_in_entry(entry, static_header_sub_map):
+                        static_header_subs_applied += 1
                 
                 # Apply PKCE variable substitutions (Sprint C)
                 if pkce_flow:
@@ -589,6 +610,11 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 if _apply_orphan_substitutions_to_entry(entry, orphan_substitution_map):
                     orphan_subs_applied += 1
             
+            # Apply static header substitutions
+            if static_header_sub_map:
+                if _substitute_static_headers_in_entry(entry, static_header_sub_map):
+                    static_header_subs_applied += 1
+            
             # Apply PKCE variable substitutions (Sprint C)
             if pkce_flow:
                 if _apply_pkce_substitutions_to_entry(entry, pkce_flow):
@@ -644,6 +670,8 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
         ctx.info(f"✅ Applied variable substitutions to {substitutions_applied} request(s)")
     if orphan_subs_applied > 0:
         ctx.info(f"✅ Applied orphan UDV substitutions to {orphan_subs_applied} request(s)")
+    if static_header_subs_applied > 0:
+        ctx.info(f"✅ Applied static header substitutions to {static_header_subs_applied} request(s)")
     if hostname_subs_applied > 0:
         ctx.info(f"✅ Applied hostname parameterization to {hostname_subs_applied} request(s)")
     if think_time_added > 0:

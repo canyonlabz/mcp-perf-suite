@@ -304,6 +304,43 @@ def _apply_substitutions_to_entry(entry: Dict, sub_map: Dict[str, List[Dict]]) -
 
 
 # ============================================================
+# Helper Functions - Static Header Substitution
+# ============================================================
+
+def _substitute_static_headers_in_entry(
+    entry: Dict,
+    static_header_map: Dict[str, str]
+) -> bool:
+    """
+    Replace static header values with JMeter variable references.
+
+    Performs case-insensitive matching on header names.  When a match is
+    found the entire header value is replaced with ``${variable_name}``.
+
+    Args:
+        entry: The network capture entry (modified in place)
+        static_header_map: Mapping from header_name_lower -> variable_name
+
+    Returns:
+        True if any substitution was applied
+    """
+    headers = entry.get("headers")
+    if not headers or not static_header_map:
+        return False
+
+    modified = False
+    for hdr_name in list(headers.keys()):
+        var_name = static_header_map.get(hdr_name.lower())
+        if var_name:
+            jmeter_var = f"${{{var_name}}}"
+            if headers[hdr_name] != jmeter_var:
+                headers[hdr_name] = jmeter_var
+                modified = True
+
+    return modified
+
+
+# ============================================================
 # Helper Functions - PKCE Substitution (Sprint C-2)
 # ============================================================
 
