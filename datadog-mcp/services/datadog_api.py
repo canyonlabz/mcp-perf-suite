@@ -434,7 +434,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
 
     env_tag = env_config.get("env_tag", "unknown")
 
-    kube_namespace = env_config.get("kube_namespace")
+    kube_namespace = env_config.get("kube_namespace") or env_config.get("namespace")
 
     k8s_cfg = env_config.get("kubernetes", {}) or {}
     services: List[Dict[str, Any]] = k8s_cfg.get("services", []) or []
@@ -467,8 +467,11 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
         # 1) Services - Using DYNAMIC limits from Datadog
         # -------------------------------------------------------------
         for svc in services:
-            s_filter = svc.get("service_filter")
+            s_filter = svc.get("service_filter") or svc.get("kube_service")
             if not s_filter:
+                warn_msg = f"Service entry skipped — no 'service_filter' or 'kube_service' key found. Keys present: {list(svc.keys())}"
+                warnings.append(warn_msg)
+                await ctx.warning(warn_msg)
                 continue
 
             # NOTE: We no longer use static limits from environments.json for K8s
@@ -613,8 +616,11 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
         # 2) Pods - Using DYNAMIC limits from Datadog
         # -------------------------------------------------------------
         for pod in pods:
-            pod_filter = pod.get("pod_filter")
+            pod_filter = pod.get("pod_filter") or pod.get("kube_service")
             if not pod_filter:
+                warn_msg = f"Pod entry skipped — no 'pod_filter' or 'kube_service' key found. Keys present: {list(pod.keys())}"
+                warnings.append(warn_msg)
+                await ctx.warning(warn_msg)
                 continue
 
             # NOTE: We no longer use static limits from environments.json for K8s
