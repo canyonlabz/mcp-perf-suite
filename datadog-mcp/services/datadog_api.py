@@ -677,8 +677,27 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                 r_mem.raise_for_status()
                 attrs = r_mem.json().get("data", {}).get("attributes", {})
                 pod_mem_usage_series, pod_mem_limits_series = _extract_series_with_limits(
-                    attrs, ["kube_pod_name", "kube_container_name", "kube_namespace"]
+                    attrs, pod_id_tag_keys, default_identifier=normalized_filter
                 )
+
+                # Query-level fallback: if primary (by kube_service) returned no usage data,
+                # retry with original grouping (by kube_pod_name) for backwards compatibility
+                if not pod_mem_usage_series:
+                    warnings.append(f"Pod '{pod_filter}': primary Memory query (by kube_service) returned no data; retrying with fallback (by kube_pod_name)")
+                    await ctx.warning(warnings[-1])
+                    if kube_namespace:
+                        fb_mem_usage = f"sum:kubernetes.memory.usage{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_pod_name}}"
+                        fb_mem_limits = f"sum:kubernetes.memory.limits{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_pod_name}}"
+                    else:
+                        fb_mem_usage = f"sum:kubernetes.memory.usage{{kube_service:{pod_filter}}} by {{kube_pod_name}}"
+                        fb_mem_limits = f"sum:kubernetes.memory.limits{{kube_service:{pod_filter}}} by {{kube_pod_name}}"
+                    body_mem_fb = _build_combined_metrics_request(v2_from_ms, v2_to_ms, fb_mem_usage, fb_mem_limits)
+                    r_mem_fb = await client.post(V2_TIMESERIES_URL, headers=headers, json=body_mem_fb, timeout=60.0)
+                    r_mem_fb.raise_for_status()
+                    attrs_fb = r_mem_fb.json().get("data", {}).get("attributes", {})
+                    pod_mem_usage_series, pod_mem_limits_series = _extract_series_with_limits(
+                        attrs_fb, pod_id_tag_keys, default_identifier=normalized_filter
+                    )
             except Exception as e:
                 warnings.append(f"Pod '{pod_filter}': Memory query failed with error: {e}")
                 await ctx.error(warnings[-1])
