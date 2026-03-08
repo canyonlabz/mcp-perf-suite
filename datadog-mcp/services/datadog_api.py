@@ -626,6 +626,9 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
             # NOTE: We no longer use static limits from environments.json for K8s
             # Instead, we query limits dynamically from Datadog alongside usage metrics
 
+            normalized_filter = pod_filter.rstrip("*")
+            pod_id_tag_keys = ["kube_service", "kube_pod_name", "kube_container_name"]
+
             # 2a) CPU request (usage + limits combined)
             cpu_usage_query, cpu_limits_query = pod_cpu_with_limits_query(kube_namespace, pod_filter)
             body_cpu = _build_combined_metrics_request(v2_from_ms, v2_to_ms, cpu_usage_query, cpu_limits_query)
@@ -637,8 +640,27 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                 r_cpu.raise_for_status()
                 attrs = r_cpu.json().get("data", {}).get("attributes", {})
                 pod_cpu_usage_series, pod_cpu_limits_series = _extract_series_with_limits(
-                    attrs, ["kube_pod_name", "kube_container_name", "kube_namespace"]
+                    attrs, pod_id_tag_keys, default_identifier=normalized_filter
                 )
+
+                # Query-level fallback: if primary (by kube_service) returned no usage data,
+                # retry with original grouping (by kube_namespace) for backwards compatibility
+                if not pod_cpu_usage_series:
+                    warnings.append(f"Pod '{pod_filter}': primary CPU query (by kube_service) returned no data; retrying with fallback (by kube_namespace)")
+                    await ctx.warning(warnings[-1])
+                    if kube_namespace:
+                        fb_cpu_usage = f"avg:kubernetes.cpu.usage.total{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_namespace}}"
+                        fb_cpu_limits = f"sum:kubernetes.cpu.limits{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_namespace}}"
+                    else:
+                        fb_cpu_usage = f"avg:kubernetes.cpu.usage.total{{kube_service:{pod_filter}}} by {{kube_namespace}}"
+                        fb_cpu_limits = f"sum:kubernetes.cpu.limits{{kube_service:{pod_filter}}} by {{kube_namespace}}"
+                    body_cpu_fb = _build_combined_metrics_request(v2_from_ms, v2_to_ms, fb_cpu_usage, fb_cpu_limits)
+                    r_cpu_fb = await client.post(V2_TIMESERIES_URL, headers=headers, json=body_cpu_fb, timeout=60.0)
+                    r_cpu_fb.raise_for_status()
+                    attrs_fb = r_cpu_fb.json().get("data", {}).get("attributes", {})
+                    pod_cpu_usage_series, pod_cpu_limits_series = _extract_series_with_limits(
+                        attrs_fb, pod_id_tag_keys, default_identifier=normalized_filter
+                    )
             except Exception as e:
                 warnings.append(f"Pod '{pod_filter}': CPU query failed with error: {e}")
                 await ctx.error(warnings[-1])
