@@ -61,6 +61,7 @@ from .post_processor import (
     create_boundary_extractor,
     append_extractor,
     create_jsr223_postprocessor,
+    create_jsr223_debug_postprocessor,
 )
 
 # Pre-Processors
@@ -130,6 +131,7 @@ __all__ = [
     "create_boundary_extractor",
     "append_extractor",
     "create_jsr223_postprocessor",
+    "create_jsr223_debug_postprocessor",
     # Pre-Processors
     "create_jsr223_preprocessor",
     "create_timestamp_preprocessor",
