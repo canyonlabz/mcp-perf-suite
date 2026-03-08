@@ -103,7 +103,7 @@ Create an `environments.json` file defining your environments, hosts, and Kubern
             "description": "Products microservices"
           },
           {
-            "service_filter": "*auth*", 
+            "kube_service": "*auth*", 
             "description": "Authentication services"
           }
         ],
@@ -113,7 +113,7 @@ Create an `environments.json` file defining your environments, hosts, and Kubern
             "description": "App Web Pod"
           },
           {
-            "pod_filter": "app-worker*",
+            "kube_service": "app-worker*",
             "description": "App Worker Pod"
           }
         ]
