@@ -327,3 +327,49 @@ def create_jsr223_postprocessor(
     }).text = script
 
     return postprocessor
+
+
+def create_jsr223_debug_postprocessor(
+    testname: str = "AI Debug PostProcessor",
+    cache_key: str = "true",
+) -> ET.Element:
+    """
+    Creates a JSR223 PostProcessor pre-loaded with an AI debug Groovy script.
+
+    When added to an HTTP sampler, this post-processor logs verbose
+    request/response details to the JMeter log for any sampler that fails.
+    Output is gated by the VERBOSE_LOGGING User Defined Variable (must be
+    set to "true" to produce output).
+
+    Intended for AI-assisted script debugging workflows: attach to a failing
+    sampler, run a 1-user smoke test, then read the JMeter log to diagnose
+    correlation, parameterization, or server-side issues.
+
+    Args:
+        testname: Display name in JMeter (default: "AI Debug PostProcessor").
+        cache_key: Whether to cache the compiled script ("true" recommended).
+
+    Returns:
+        ET.Element: The JSR223PostProcessor XML element with the debug script.
+    """
+    script = """\
+def threadName   = prev.getThreadName()
+def verboseMode  = "true".equalsIgnoreCase(vars.get("VERBOSE_LOGGING"))
+def samplerName  = prev.getSampleLabel()
+def success      = prev.isSuccessful()
+def logMsg       = ""
+
+if (verboseMode && !success) {
+    logMsg += "[ERROR]:[DEBUG]:[" + threadName + "]: " + samplerName + ": Response Code=${prev.getResponseCode()}\\n"
+    logMsg += "[ERROR]:[DEBUG]:[" + threadName + "]: " + samplerName + ": Response Message=${prev.getResponseMessage()}\\n"
+    logMsg += "[ERROR]:[DEBUG]:[" + threadName + "]: " + samplerName + ": Request=[" + prev.getSamplerData() + "]\\n"
+    logMsg += "[ERROR]:[DEBUG]:[" + threadName + "]: " + samplerName + ": Response=[" + prev.getResponseDataAsString() + "]\\n"
+    log.error(logMsg)
+}
+"""
+    return create_jsr223_postprocessor(
+        script=script,
+        language="groovy",
+        testname=testname,
+        cache_key=cache_key,
+    )
