@@ -12,6 +12,7 @@ user_defined_variables:
   variables: {
     "thinkTime": 5000,                  # Interaction time between browser steps (in milliseconds)
     "pacing": 10000,                    # Pacing time between thread loops (in milliseconds)
+    "VERBOSE_LOGGING": false            # Enable/disable verbose logging for debugging (used for AI troubleshooting; set to true for detailed logs, false for cleaner output)
   }  # e.g., {"bearer_token": ""}
 
 csv_dataset_config:

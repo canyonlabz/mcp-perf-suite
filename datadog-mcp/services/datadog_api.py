@@ -897,11 +897,11 @@ def pod_mem_with_limits_query(kube_namespace: Optional[str], pod_filter: str) ->
         Tuple of (usage_query, limits_query) strings for Datadog API
     """
     if kube_namespace:
-        usage = f"sum:kubernetes.memory.usage{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_pod_name}}"
-        limits = f"sum:kubernetes.memory.limits{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_pod_name}}"
+        usage = f"sum:kubernetes.memory.usage{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_service}}"
+        limits = f"sum:kubernetes.memory.limits{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_service}}"
     else:
-        usage = f"sum:kubernetes.memory.usage{{kube_service:{pod_filter}}} by {{kube_pod_name}}"
-        limits = f"sum:kubernetes.memory.limits{{kube_service:{pod_filter}}} by {{kube_pod_name}}"
+        usage = f"sum:kubernetes.memory.usage{{kube_service:{pod_filter}}} by {{kube_service}}"
+        limits = f"sum:kubernetes.memory.limits{{kube_service:{pod_filter}}} by {{kube_service}}"
     return usage, limits
 
 
