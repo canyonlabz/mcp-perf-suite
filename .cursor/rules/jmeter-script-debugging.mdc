@@ -1,0 +1,334 @@
+---
+description: AI-driven JMeter script debugging - iterative smoke test, verbose logging, log analysis, and fix cycle (user must explicitly request debugging)
+globs:
+  - "jmeter-mcp/**"
+  - "artifacts/**"
+alwaysApply: false
+---
+
+# JMeter Script Debugging Workflow
+
+This rule defines an iterative, AI-assisted debugging workflow for JMeter scripts. It activates **only when the user explicitly requests** script debugging, troubleshooting, or validation via smoke testing.
+
+The workflow mirrors how an experienced performance test engineer debugs a script: run a smoke test, identify the **first** failure, diagnose it, fix it, re-test, and repeat until the script is clean.
+
+For HITL editing tools (analyze, add, edit components) and headless execution basics, see `@jmeter-hitl-editing.mdc`.
+
+---
+
+## Prerequisites
+
+- A **`test_run_id`** with an existing JMX script in `artifacts/<test_run_id>/jmeter/`
+- JMeter installed and configured in `config.yaml` (jmeter_home, jmeter_bin_path), or in OS-specific YAML files (e.g. `config.windows.yaml`, `config.mac.yaml`)
+- The `VERBOSE_LOGGING` User Defined Variable must exist in the JMX (included by default when generated via `jmeter_config.yaml`)
+
+---
+
+## Debug Manifest
+
+Maintain a debug manifest file throughout the workflow to log all issues encountered, fixes applied, and timing data. This serves as a historical record for future MCP tool improvements and provides metrics for reporting.
+
+**File location**: `artifacts/<test_run_id>/analysis/debug_manifest.md`
+
+### Create at Start
+
+Create the manifest when beginning the debug workflow:
+
+```markdown
+# Debug Manifest
+
+- **Test Run ID**: <test_run_id>
+- **Script**: <jmx_filename>
+- **Started**: <YYYY-MM-DD HH:MM:SS>
+- **Status**: In Progress
+
+---
+```
+
+### Append After Each Iteration
+
+After each debug cycle (smoke test, diagnosis, fix), append an iteration entry:
+
+```markdown
+## Iteration <N> — <YYYY-MM-DD HH:MM:SS>
+
+### Error Identified
+- **Sampler**: <sampler_name>
+- **Response Code**: <code>
+- **Error Category**: <category>
+- **Error Message**: <message>
+
+### Diagnosis
+<description of root cause>
+
+### Fix Applied
+<description of fix and which component was added/edited>
+
+### Result After Fix
+<smoke test outcome — resolved, new failure, same failure>
+Completed at <YYYY-MM-DD HH:MM:SS>.
+```
+
+### Finalize at End
+
+When the workflow completes (clean script, human intervention needed, or iteration limit reached), update the header Status and append a final summary:
+
+```markdown
+## Final Summary
+- **Started**: <YYYY-MM-DD HH:MM:SS>
+- **Completed**: <YYYY-MM-DD HH:MM:SS>
+- **Total Duration**: <elapsed time>
+- **Total Iterations**: <N>
+- **Final Status**: Resolved | Needs Human Intervention | Iteration Limit Reached
+- **Fixes Applied**:
+  1. <fix description>
+  2. <fix description>
+```
+
+If stopping for human intervention, include the reason and remaining errors so the user has full context.
+
+---
+
+## Phase 1: Initial Smoke Test
+
+### 1.1 Enforce 1/1/1 Thread Configuration
+
+Before running, verify the Thread Group is set to 1 thread, 1 second ramp-up, 1 loop. If not, temporarily override using `edit_jmeter_component` with `set_prop`. This is a validation run, not a load test.
+
+### 1.2 Run the Smoke Test
+
+```
+mcp_jmeter_start_jmeter_test(
+  test_run_id="<test_run_id>",
+  jmx_path="<path_from_list_scripts>"
+)
+```
+
+### 1.3 Monitor Until Complete
+
+Poll `get_jmeter_run_status` with the returned `pid` until the test finishes.
+
+```
+mcp_jmeter_get_jmeter_run_status(
+  test_run_id="<test_run_id>",
+  pid=<pid>
+)
+```
+
+### 1.4 Analyze Results
+
+Run log analysis with `log_source="jmeter"` (not the default `"blazemeter"`):
+
+```
+mcp_jmeter_analyze_jmeter_log(
+  test_run_id="<test_run_id>",
+  log_source="jmeter"
+)
+```
+
+---
+
+## Phase 2: Triage
+
+Evaluate the analysis output. **Focus on the FIRST failing sampler only** — do not attempt to fix all errors at once. Many errors are cascading; fixing the first failure often resolves downstream issues.
+
+### 2.1 Clean Script (0% error rate)
+
+If `error_rate = 0%` and no issues in the log analysis, the script is validated. Report success to the user and stop.
+
+### 2.2 Server-Side / Environment Issues — STOP and Report
+
+**Stop debugging immediately** and report to the user if any of these are detected:
+
+- **HTTP 401 or 403 on login/auth samplers**: Credential failure, missing Java KeyStore, or insufficient permissions. The user must fix credentials or environment access.
+- **HTTP 5xx on all or most samplers**: The target environment is likely down, a deployment is in progress, or a backend service is unavailable. Check the response body for confirmation.
+- **Connection refused / timeout on all samplers**: The environment is unreachable or a firewall is blocking traffic.
+- **Repeated identical errors across all samplers** with no variation: Suggests a systemic issue, not a script bug.
+
+In these cases, finalize the debug manifest with Status `Needs Human Intervention` and the reason. Present the error details (response codes, response body excerpts) and ask the user for next steps. **Do not continue the debug cycle.**
+
+### 2.3 Script Issues — Continue Debugging
+
+If errors are isolated to specific samplers (not systemic), proceed to Phase 3. Common patterns:
+
+- **HTTP 4xx on specific samplers**: Likely a correlation or parameterization issue (e.g., a dynamic value was not extracted or is stale)
+- **HTTP 5xx on specific samplers**: May indicate bad request data (wrong body, missing fields)
+- **Script execution failures**: Groovy syntax errors in pre/post-processors
+- **Assertion failures**: Response content does not match expected patterns
+
+---
+
+## Phase 3: Apply Debug Post-Processor
+
+### 3.1 Enable Verbose Logging
+
+Use `analyze_jmeter_script` to find the User Defined Variables node, then enable `VERBOSE_LOGGING`:
+
+```
+mcp_jmeter_edit_jmeter_component(
+  test_run_id="<test_run_id>",
+  target_node_id="<udv_node_id>",
+  operations=[
+    {"op": "set_prop", "name": "VERBOSE_LOGGING", "value": "true"}
+  ]
+)
+```
+
+### 3.2 Attach Debug Post-Processor to the First Failing Sampler
+
+Identify the first failing sampler from the log analysis output and add the debug post-processor to it:
+
+```
+mcp_jmeter_add_jmeter_component(
+  test_run_id="<test_run_id>",
+  component_type="jsr223_debug_postprocessor",
+  parent_node_id="<failing_sampler_node_id>",
+  component_config={}
+)
+```
+
+---
+
+## Phase 4: Debug Smoke Test
+
+### 4.1 Re-run the Smoke Test
+
+Repeat the same 1/1/1 smoke test (Phase 1 steps 1.2 and 1.3).
+
+### 4.2 Analyze Errors
+
+Run `analyze_jmeter_log(log_source="jmeter")` again for structured error analysis.
+
+### 4.3 Read Verbose Debug Output
+
+Read the raw JMeter log file to find the detailed debug output:
+
+**Log file location**: `artifacts/<test_run_id>/jmeter/<test_run_id>.log`
+
+Search for lines containing `[ERROR]:[DEBUG]:` — these are the verbose request/response details from the debug post-processor. The output includes:
+
+- **Response Code**: The HTTP status code returned
+- **Response Message**: The HTTP status message
+- **Request**: The full request sent (method, URL, headers, body)
+- **Response**: The full response body received
+
+Correlate this with the structured errors from `analyze_jmeter_log` to understand the root cause.
+
+---
+
+## Phase 5: Diagnose and Fix (One Issue at a Time)
+
+Based on the debug output, identify the root cause and apply a single fix. **Fix only the first failing sampler, then re-test.**
+
+### Common Diagnosis Patterns
+
+**Missing or stale correlation values** (`NOT_FOUND` appears in request body or URL):
+- A dynamic value was not extracted from a prior response
+- Fix: Add a JSON, Regex, or Boundary extractor to the sampler whose response contains the value
+- Use the debug `Response=[...]` output to confirm which prior response contains the value
+
+**Extractor on the wrong sampler** (common in OAuth/SSO flows):
+- The extractor logic is correct, but it is placed under the wrong HTTP sampler
+- The debug `Response=[...]` output reveals which sampler's response actually contains the value to extract
+- Fix: Remove the extractor from the wrong sampler and add it to the correct one using `add_jmeter_component`
+
+**Wrong request body or parameterization**:
+- Hardcoded values that should be parameterized, or incorrect variable references
+- Fix: Use `edit_jmeter_component` with `replace_in_body` to substitute correct values
+
+**Auth token or session issues**:
+- Bearer token, CSRF token, or session cookie not being passed correctly
+- Check the OAuth flow sequence and extractor placement
+- Fix: Verify extractors are on the correct sampler in the auth chain, add missing cookie/header extractors
+
+**Server-side validation errors** (response body contains application error message):
+- The request data may be invalid from the server's perspective (e.g., duplicate record, expired data)
+- Report the response body details to the user — this may require test data adjustments rather than script fixes
+
+### Applying the Fix
+
+Use the HITL tools (`add_jmeter_component`, `edit_jmeter_component`) to apply the fix. Follow `@jmeter-hitl-editing.mdc` conventions:
+- Use `dry_run=true` first to preview the change
+- Apply with `dry_run=false` after confirming
+- Re-analyze the script after edits to verify structure
+
+---
+
+## Phase 6: Iterate
+
+After applying a fix, return to **Phase 1** (run a fresh smoke test). Assess the results:
+
+- **0% error rate**: Proceed to Phase 7 (cleanup)
+- **Same sampler still failing**: The fix did not resolve it — try a different approach
+- **Different sampler now failing**: The original fix worked; the new failure is a separate issue. Focus on this new first-failure and repeat from Phase 2
+- **All errors resolved except new ones**: Cascading failures resolved as expected. Continue with the next first-failure
+
+### Iteration Limit
+
+**Maximum 5 debug iterations.** If the script is not clean after 5 cycles, finalize the debug manifest with Status `Iteration Limit Reached` and stop. Report to the user with:
+- Summary of fixes applied so far (from the debug manifest)
+- Remaining errors and their patterns
+- Recommendation for manual investigation
+- Location of the full debug manifest: `artifacts/<test_run_id>/analysis/debug_manifest.md`
+
+This prevents infinite loops on complex or systemic issues.
+
+---
+
+## Phase 7: Cleanup
+
+Once the smoke test passes with 0% error rate:
+
+### 7.1 Disable Debug Post-Processors
+
+For each debug post-processor added during the workflow, disable it:
+
+```
+mcp_jmeter_edit_jmeter_component(
+  test_run_id="<test_run_id>",
+  target_node_id="<debug_postprocessor_node_id>",
+  operations=[
+    {"op": "toggle_enabled"}
+  ]
+)
+```
+
+### 7.2 Disable Verbose Logging
+
+Set `VERBOSE_LOGGING` back to `false`:
+
+```
+mcp_jmeter_edit_jmeter_component(
+  test_run_id="<test_run_id>",
+  target_node_id="<udv_node_id>",
+  operations=[
+    {"op": "set_prop", "name": "VERBOSE_LOGGING", "value": "false"}
+  ]
+)
+```
+
+### 7.3 Final Validation Smoke Test
+
+Run one last 1/1/1 smoke test to confirm the script is clean with debug artifacts disabled. This ensures the disabled post-processors and toggled variable do not affect execution.
+
+### 7.4 Finalize Debug Manifest and Report to User
+
+Update the debug manifest Status to `Resolved`, append the Final Summary with timestamps and total duration, then present the summary to the user:
+- Total debug iterations and elapsed time
+- Fixes applied (sampler name, issue, resolution)
+- Final smoke test result (should be 0% error rate)
+- The script is ready for load testing or BlazeMeter upload
+- Location of the full debug manifest: `artifacts/<test_run_id>/analysis/debug_manifest.md`
+
+---
+
+## Safety Guidelines
+
+- **User-initiated only**: Never start this workflow unless the user explicitly requests debugging or troubleshooting
+- **One fix at a time**: Fix the first failing sampler, re-test, then assess. Do not batch-fix multiple samplers blind
+- **Smoke tests = 1 thread only**: All debug runs use 1 thread, 1 second ramp-up, 1 loop. Never escalate thread count during debugging
+- **Preserve backups**: The HITL tools create automatic backups on every edit. Do not delete backups during debugging
+- **Stop on environment issues**: If errors indicate server-side, credential, or infrastructure problems, stop and report to the user immediately
+- **Max 5 iterations**: If the script is not clean after 5 debug cycles, stop and report remaining issues to the user
+- **log_source = "jmeter"**: Always use `log_source="jmeter"` when analyzing logs from local smoke tests (not the default `"blazemeter"`)
+- **Maintain the debug manifest**: Always create and update `artifacts/<test_run_id>/analysis/debug_manifest.md` throughout the workflow. Finalize it regardless of outcome (resolved, human intervention, iteration limit)

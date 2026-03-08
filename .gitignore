@@ -319,6 +319,7 @@ streamlit-ui/config.yaml
 !.cursor/rules/har-to-jmeter-jmx.mdc
 !.cursor/rules/swagger-to-jmeter-jmx.mdc
 !.cursor/rules/jmeter-hitl-editing.mdc
+!.cursor/rules/jmeter-script-debugging.mdc
 
 # Temp test files
 scripts/*
