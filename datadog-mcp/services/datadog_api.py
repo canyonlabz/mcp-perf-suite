@@ -949,7 +949,8 @@ def _extract_series(attrs: Dict[str, Any], id_tag_keys: List[str]) -> Dict[str, 
 
 def _extract_series_with_limits(
     attrs: Dict[str, Any],
-    id_tag_keys: List[str]
+    id_tag_keys: List[str],
+    default_identifier: Optional[str] = None
 ) -> Tuple[Dict[str, List[Tuple[int, float]]], Dict[str, List[Tuple[int, float]]]]:
     """
     Extract both usage (query_index=0) and limits (query_index=1) series from Datadog response.
@@ -960,6 +961,8 @@ def _extract_series_with_limits(
     Args:
         attrs: The 'attributes' section from Datadog v2 timeseries response
         id_tag_keys: List of tag keys to try for identifying series (e.g., ['kube_container_name'])
+        default_identifier: Fallback identifier when no tag keys match (e.g., normalized filter name).
+                            If None, falls back to 'series_{index}'.
     
     Returns:
         Tuple of (usage_series, limits_series) where each is:
@@ -986,7 +989,7 @@ def _extract_series_with_limits(
             if identifier:
                 break
         if not identifier:
-            identifier = f"series_{s_idx}"
+            identifier = default_identifier or f"series_{s_idx}"
         
         # Extract values for this series
         row_vals = values[s_idx] if s_idx < len(values) else []
