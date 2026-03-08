@@ -877,11 +877,11 @@ def pod_cpu_with_limits_query(kube_namespace: Optional[str], pod_filter: str) ->
         Tuple of (usage_query, limits_query) strings for Datadog API
     """
     if kube_namespace:
-        usage = f"avg:kubernetes.cpu.usage.total{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_namespace}}"
-        limits = f"sum:kubernetes.cpu.limits{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_namespace}}"
+        usage = f"avg:kubernetes.cpu.usage.total{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_service}}"
+        limits = f"sum:kubernetes.cpu.limits{{kube_service:{pod_filter},kube_namespace:{kube_namespace}}} by {{kube_service}}"
     else:
-        usage = f"avg:kubernetes.cpu.usage.total{{kube_service:{pod_filter}}} by {{kube_namespace}}"
-        limits = f"sum:kubernetes.cpu.limits{{kube_service:{pod_filter}}} by {{kube_namespace}}"
+        usage = f"avg:kubernetes.cpu.usage.total{{kube_service:{pod_filter}}} by {{kube_service}}"
+        limits = f"sum:kubernetes.cpu.limits{{kube_service:{pod_filter}}} by {{kube_service}}"
     return usage, limits
 
 
