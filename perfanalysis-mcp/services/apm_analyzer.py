@@ -123,15 +123,16 @@ async def analyze_kubernetes_metrics(
             filter_data = env_data[env_data['filter'] == filter_name]
             
             # Find matching configuration - try services first, then pods
+            # Supports both canonical keys (service_filter, pod_filter) and Datadog-native alias (kube_service)
             entity_config = next(
-                (s for s in services_config if s.get('service_filter') == filter_name), 
+                (s for s in services_config if s.get('service_filter') == filter_name or s.get('kube_service') == filter_name), 
                 None
             )
             entity_type = "service"
             
             if not entity_config:
                 entity_config = next(
-                    (p for p in pods_config if p.get('pod_filter') == filter_name),
+                    (p for p in pods_config if p.get('pod_filter') == filter_name or p.get('kube_service') == filter_name),
                     None
                 )
                 entity_type = "pod" if entity_config else "unknown"
