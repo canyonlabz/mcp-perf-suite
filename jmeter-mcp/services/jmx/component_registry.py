@@ -46,6 +46,7 @@ from services.jmx.post_processor import (
     create_regex_extractor,
     create_boundary_extractor,
     create_jsr223_postprocessor,
+    create_jsr223_debug_postprocessor,
 )
 from services.jmx.pre_processor import (
     create_jsr223_preprocessor,
@@ -331,6 +332,13 @@ def _build_jsr223_postprocessor(cfg: dict) -> Tuple[ET.Element, ET.Element]:
         testname=cfg.get("name", "JSR223 PostProcessor"),
         cache_key=str(cfg.get("cache_compiled_script", True)).lower(),
         parameters=cfg.get("parameters", ""),
+    )
+    return elem, ET.Element("hashTree")
+
+
+def _build_jsr223_debug_postprocessor(cfg: dict) -> Tuple[ET.Element, ET.Element]:
+    elem = create_jsr223_debug_postprocessor(
+        testname=cfg.get("name", "AI Debug PostProcessor"),
     )
     return elem, ET.Element("hashTree")
 
@@ -662,6 +670,15 @@ COMPONENT_REGISTRY: Dict[str, Dict[str, Any]] = {
         "optional_fields": ["name", "language", "cache_compiled_script", "parameters"],
         "defaults": {"name": "JSR223 PostProcessor", "language": "groovy", "cache_compiled_script": True},
         "description": "Execute custom Groovy script after a sampler runs (parse, compute, extract)",
+    },
+    "jsr223_debug_postprocessor": {
+        "testclass": "JSR223PostProcessor",
+        "category": "post_processor",
+        "builder": _build_jsr223_debug_postprocessor,
+        "required_fields": [],
+        "optional_fields": ["name"],
+        "defaults": {"name": "AI Debug PostProcessor"},
+        "description": "AI verbose debug logger - logs request/response details to JMeter log when VERBOSE_LOGGING=true and sampler fails",
     },
 
     # ---- Assertions ----
