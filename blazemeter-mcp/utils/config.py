@@ -72,6 +72,30 @@ def get_cleanup_session_folders(config: dict = None) -> bool:
     return config.get("blazemeter", {}).get("cleanup_session_folders", False)
 
 
+# Default extensions if not specified in config
+_DEFAULT_SHARED_FOLDER_EXTENSIONS = [
+    ".csv", ".xlsx", ".xls", ".pdf", ".jmx", ".properties",
+    ".jks", ".p12", ".pem", ".json", ".xml", ".txt", ".jar", ".groovy",
+]
+
+
+def get_shared_folder_allowed_extensions(config: dict = None) -> list:
+    """Return the allowlist of file extensions for shared folder uploads.
+
+    Reads from ``blazemeter.shared_folders.allowed_extensions`` in
+    config.yaml. Falls back to a built-in default list that covers
+    common JMeter test data and configuration file types.
+    """
+    if config is None:
+        config = load_config()
+    extensions = (
+        config.get("blazemeter", {})
+        .get("shared_folders", {})
+        .get("allowed_extensions", _DEFAULT_SHARED_FOLDER_EXTENSIONS)
+    )
+    return [ext.lower() if ext.startswith(".") else f".{ext.lower()}" for ext in extensions]
+
+
 if __name__ == '__main__':
     # For testing purposes, print both configurations.
     config = load_config()

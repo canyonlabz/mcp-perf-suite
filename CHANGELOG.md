@@ -38,6 +38,12 @@ This document summarizes the enhancements and new features added to the MCP Perf
   - [5.4 Debug Manifest](#54-debug-manifest)
   - [5.5 Safety Guardrails](#55-safety-guardrails)
   - [5.6 Files Created/Modified](#56-files-createdmodified)
+- [6. BlazeMeter Shared Folder Tools](#6-blazemeter-shared-folder-tools)
+  - [6.1 Overview](#61-overview)
+  - [6.2 New MCP Tools](#62-new-mcp-tools)
+  - [6.3 Design Decisions](#63-design-decisions)
+  - [6.4 Configuration](#64-configuration)
+  - [6.5 Files Created/Modified](#65-files-createdmodified)
 - [Previous Changelogs](#previous-changelogs)
 
 ---
@@ -467,6 +473,68 @@ The manifest serves as a historical record for identifying recurring patterns, r
 | `jmeter-mcp/services/jmx/component_registry.py` | Added `_build_jsr223_debug_postprocessor` adapter and `jsr223_debug_postprocessor` registry entry |
 | `jmeter-mcp/services/jmx/__init__.py` | Exported `create_jsr223_debug_postprocessor` |
 | `jmeter-mcp/jmeter_config.example.yaml` | Added `VERBOSE_LOGGING` to default User Defined Variables |
+
+---
+
+## 6. BlazeMeter Shared Folder Tools
+
+### 6.1 Overview
+
+Added three new MCP tools for managing BlazeMeter shared folders. Shared folders are workspace-level containers that store test data files (CSVs, Excel sheets, Java KeyStores, JMeter properties files, etc.) which are deployed alongside JMX scripts on load-generator engines at runtime.
+
+These tools enable performance test engineers to list, inspect, and upload files to shared folders directly via the BlazeMeter API, bypassing the BlazeMeter UI's file-size restriction for uploads.
+
+### 6.2 New MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `get_shared_folders` | List all shared folders in a BlazeMeter workspace with their IDs and names. Supports pagination and workspace ID fallback to environment variable. |
+| `get_shared_folder_file_list` | List every file inside a shared folder with name, size (bytes/MB), and last-modified timestamp. Useful for verifying folder contents before or after uploads. |
+| `upload_to_shared_folder` | Unified upload tool that accepts a file path **or** directory path. Uploads via BlazeMeter's two-step signed-URL process. Includes extension allowlist filtering, per-file progress logging, and detailed result reporting. |
+
+### 6.3 Design Decisions
+
+- **Single unified upload tool** instead of separate file/directory tools to reduce tool overload. The tool auto-detects whether the path is a file or directory.
+- **File extension allowlist** defined in `config.yaml` to prevent uploading irrelevant files (e.g. `.DS_Store`, `Thumbs.db`). Default list covers common JMeter file types.
+- **Non-recursive directory scanning** by design — only top-level files in a directory are uploaded. Subdirectories are not traversed.
+- **Full transparency** — skipped files (those not matching the allowlist) are reported in the response with reasons, aiding debugging.
+- **No delete operations** — shared folder tools are upload/read-only by design. Deletion is out of scope and requires explicit guardrails before being considered.
+
+### 6.4 Configuration
+
+New `shared_folders` section added to `config.example.yaml` under `blazemeter`:
+
+```yaml
+blazemeter:
+  shared_folders:
+    allowed_extensions:
+      - .csv
+      - .xlsx
+      - .xls
+      - .pdf
+      - .jmx
+      - .properties
+      - .jks
+      - .p12
+      - .pem
+      - .json
+      - .xml
+      - .txt
+      - .jar
+      - .groovy
+```
+
+### 6.5 Files Created/Modified
+
+#### Modified Files
+
+| File | Changes |
+|------|---------|
+| `blazemeter-mcp/blazemeter.py` | Added 3 shared folder MCP tool definitions (`get_shared_folders`, `get_shared_folder_file_list`, `upload_to_shared_folder`) with enhanced docstrings |
+| `blazemeter-mcp/services/blazemeter_api.py` | Added 3 shared folder API functions (`list_shared_folders`, `get_shared_folder_files`, `upload_to_shared_folder`) with extension filtering logic |
+| `blazemeter-mcp/utils/config.py` | Added `get_shared_folder_allowed_extensions()` helper with built-in default list |
+| `blazemeter-mcp/config.example.yaml` | Added `shared_folders.allowed_extensions` configuration section |
+| `blazemeter-mcp/README.md` | Added shared folder tools to usage table, new Shared Folder Tools documentation section with workflow examples |
 
 ---
 

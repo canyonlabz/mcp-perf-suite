@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Union
 from dotenv import load_dotenv
 from fastmcp import FastMCP, Context  # ✅ FastMCP 2.x import
-from utils.config import load_config, get_cleanup_session_folders
+from utils.config import load_config, get_cleanup_session_folders, get_shared_folder_allowed_extensions
 from utils.file_utils import write_public_report_json
 from services.artifact_manager import (
     get_manifest_path, load_manifest, save_manifest, create_manifest,
@@ -1063,3 +1063,322 @@ def get_ssl_verify_setting() -> Union[str, bool]:
     else:
         # Default to system cert verification
         return True
+
+
+# ===============================================
+# Shared Folder API Functions
+# ===============================================
+
+
+async def list_shared_folders(workspace_id: str = None) -> list:
+    """
+    Retrieve all shared folders for a BlazeMeter workspace.
+
+    Calls the BlazeMeter ``GET /api/v4/folders`` endpoint with automatic
+    pagination (page size of 50) until all folders are returned.
+
+    Shared folders are workspace-level containers used to store test data
+    files (CSVs, Excel sheets, keystores, etc.) that can be attached to one
+    or more BlazeMeter tests. Files placed in a shared folder are deployed
+    alongside the JMX script on every load-generator engine at runtime.
+
+    Args:
+        workspace_id: BlazeMeter workspace ID. If omitted or empty, falls
+            back to the ``BLAZEMETER_WORKSPACE_ID`` environment variable.
+
+    Returns:
+        list[dict]: One dict per folder with keys ``id``, ``name``, and
+        ``workspace_id``.  Returns a single-element list containing an
+        ``error`` key when the workspace ID cannot be resolved.
+    """
+    workspace_id = workspace_id or BLAZEMETER_WORKSPACE_ID
+    if not workspace_id:
+        return [{"error": "workspace_id not provided and BLAZEMETER_WORKSPACE_ID is not set."}]
+
+    verify_ssl = get_ssl_verify_setting()
+    all_folders = []
+    skip = 0
+    page_size = 50
+
+    async with httpx.AsyncClient(verify=verify_ssl) as client:
+        while True:
+            url = (
+                f"{BLAZEMETER_API_BASE}/folders"
+                f"?workspaceId={workspace_id}&skip={skip}&limit={page_size}"
+            )
+            resp = await client.get(url, headers=get_headers())
+            resp.raise_for_status()
+            folders = resp.json().get("result", [])
+            if not folders:
+                break
+            all_folders.extend(folders)
+            if len(folders) < page_size:
+                break
+            skip += page_size
+
+    return [
+        {"id": f["id"], "name": f["name"], "workspace_id": f.get("workspaceId")}
+        for f in all_folders
+    ]
+
+
+async def get_shared_folder_files(folder_id: str) -> dict:
+    """
+    List every file stored inside a BlazeMeter shared folder.
+
+    Calls ``GET /api/v4/folders/{folder_id}/files`` and returns a
+    normalised summary including each file's name, size (bytes and MB),
+    and last-modified timestamp.
+
+    Use this to verify folder contents before or after an upload, or to
+    confirm that test data files are present before triggering a test run.
+
+    Args:
+        folder_id: The unique identifier of the shared folder, as returned
+            by :func:`list_shared_folders`.
+
+    Returns:
+        dict with keys:
+            - ``folder_id``: Echo of the requested folder ID.
+            - ``folder_name``: Human-readable folder name.
+            - ``file_count``: Number of files in the folder.
+            - ``files``: List of dicts, each with ``name``, ``size_bytes``,
+              ``size_mb``, and ``last_modified``.
+    """
+    verify_ssl = get_ssl_verify_setting()
+    async with httpx.AsyncClient(verify=verify_ssl) as client:
+        url = f"{BLAZEMETER_API_BASE}/folders/{folder_id}/files"
+        resp = await client.get(url, headers=get_headers())
+        resp.raise_for_status()
+        result = resp.json().get("result", {})
+
+    files = []
+    for f in result.get("files", []):
+        files.append({
+            "name": f.get("name"),
+            "size_bytes": f.get("size"),
+            "size_mb": round(f.get("size", 0) / (1024 * 1024), 1),
+            "last_modified": epoch_to_timestamp(f.get("lastModified")),
+        })
+
+    return {
+        "folder_id": result.get("id", folder_id),
+        "folder_name": result.get("name"),
+        "file_count": len(files),
+        "files": files,
+    }
+
+
+async def upload_to_shared_folder(
+    folder_id: str,
+    path: str,
+    ctx: Context = None,
+) -> dict:
+    """
+    Upload one file **or** every allowed file in a directory to a BlazeMeter
+    shared folder.
+
+    Behaviour is determined by the ``path`` argument:
+
+    * **File path** -- uploads that single file.
+    * **Directory path** -- discovers all top-level files whose extension is
+      on the ``allowed_extensions`` allowlist (see ``config.yaml`` →
+      ``blazemeter.shared_folders.allowed_extensions``), uploads each one,
+      and reports per-file results. Files whose extension is *not* in the
+      allowlist are skipped and listed in ``skipped_files`` so the caller
+      can review what was excluded.
+
+    Each file is uploaded via BlazeMeter's two-step signed-URL process:
+
+    1. ``GET /api/v4/folders/{folder_id}/s3/sign?fileName=<name>`` to
+       obtain a cloud-provider signed upload URL.
+    2. ``PUT`` the raw file bytes to that signed URL with
+       ``Content-Type: application/octet-stream``.
+
+    This bypasses the BlazeMeter UI's file-size restriction and works for
+    files of any practical size.
+
+    Args:
+        folder_id: Target shared folder ID (from :func:`list_shared_folders`).
+        path: Absolute local path to a single file **or** a directory
+            containing files to upload.
+        ctx: Optional FastMCP context for per-file progress logging.
+
+    Returns:
+        dict with keys:
+            - ``status``: ``"success"`` | ``"partial"`` | ``"failed"``
+            - ``folder_id``: Echo of the target folder ID.
+            - ``source``: The path that was provided.
+            - ``mode``: ``"single_file"`` or ``"directory"``.
+            - ``total_files``: Number of files that were candidates for upload.
+            - ``uploaded``: Count of successfully uploaded files.
+            - ``failed``: Count of files that failed to upload.
+            - ``skipped_files``: (directory mode only) List of dicts for files
+              excluded by the extension allowlist, each with ``file`` and
+              ``reason``.
+            - ``total_size_mb``: Combined size of successfully uploaded files.
+            - ``results``: List of per-file result dicts (``status``, ``file``,
+              ``size_mb``, and ``error`` if applicable).
+
+    Raises:
+        No exceptions are raised; all errors are captured in the return dict
+        and per-file ``results`` entries.
+    """
+    import urllib.parse
+
+    allowed_extensions = get_shared_folder_allowed_extensions(config)
+
+    # --- Resolve file list ------------------------------------------------
+    if os.path.isfile(path):
+        mode = "single_file"
+        file_paths = [path]
+        skipped = []
+    elif os.path.isdir(path):
+        mode = "directory"
+        all_entries = sorted(
+            os.path.join(path, f)
+            for f in os.listdir(path)
+            if os.path.isfile(os.path.join(path, f))
+        )
+        file_paths = []
+        skipped = []
+        for fp in all_entries:
+            ext = os.path.splitext(fp)[1].lower()
+            if ext in allowed_extensions:
+                file_paths.append(fp)
+            else:
+                skipped.append({
+                    "file": os.path.basename(fp),
+                    "reason": f"Extension '{ext}' not in allowed_extensions",
+                })
+        if not file_paths and not skipped:
+            return {
+                "status": "failed",
+                "folder_id": folder_id,
+                "source": path,
+                "mode": mode,
+                "error": f"No files found in directory: {path}",
+            }
+    else:
+        return {
+            "status": "failed",
+            "folder_id": folder_id,
+            "source": path,
+            "mode": "unknown",
+            "error": f"Path not found (not a file or directory): {path}",
+        }
+
+    if ctx and skipped:
+        await ctx.info(
+            f"Skipped {len(skipped)} file(s) not matching allowed extensions: "
+            + ", ".join(s["file"] for s in skipped)
+        )
+    if ctx and file_paths:
+        total_label = "file" if len(file_paths) == 1 else "files"
+        await ctx.info(f"Uploading {len(file_paths)} {total_label} to shared folder {folder_id}")
+
+    if not file_paths:
+        return {
+            "status": "failed",
+            "folder_id": folder_id,
+            "source": path,
+            "mode": mode,
+            "total_files": 0,
+            "uploaded": 0,
+            "failed": 0,
+            "skipped_files": skipped,
+            "total_size_mb": 0,
+            "results": [],
+            "error": "No files with allowed extensions found in directory.",
+        }
+
+    # --- Upload each file -------------------------------------------------
+    verify_ssl = get_ssl_verify_setting()
+    results = []
+
+    for file_path in file_paths:
+        file_name = os.path.basename(file_path)
+        file_size = os.path.getsize(file_path)
+        encoded_name = urllib.parse.quote(file_name, safe="")
+
+        try:
+            # Step 1: Obtain signed upload URL from BlazeMeter
+            async with httpx.AsyncClient(verify=verify_ssl) as client:
+                sign_url = (
+                    f"{BLAZEMETER_API_BASE}/folders/{folder_id}"
+                    f"/s3/sign?fileName={encoded_name}"
+                )
+                resp = await client.get(sign_url, headers=get_headers())
+                resp.raise_for_status()
+                signed_url = resp.json().get("result")
+
+            if not signed_url:
+                results.append({
+                    "status": "failed",
+                    "file": file_name,
+                    "error": "No signed URL returned by BlazeMeter API.",
+                })
+                if ctx:
+                    await ctx.error(f"No signed URL returned for {file_name}")
+                continue
+
+            if ctx:
+                size_mb = round(file_size / (1024 * 1024), 1)
+                await ctx.info(f"Uploading {file_name} ({size_mb} MB)...")
+
+            # Step 2: PUT file bytes to the signed URL
+            async with httpx.AsyncClient(verify=verify_ssl, timeout=httpx.Timeout(600.0)) as client:
+                with open(file_path, "rb") as f:
+                    file_data = f.read()
+                resp = await client.put(
+                    signed_url,
+                    content=file_data,
+                    headers={"Content-Type": "application/octet-stream"},
+                )
+                resp.raise_for_status()
+
+            if ctx:
+                await ctx.info(f"Uploaded {file_name} successfully.")
+
+            results.append({
+                "status": "success",
+                "file": file_name,
+                "size_bytes": file_size,
+                "size_mb": round(file_size / (1024 * 1024), 1),
+            })
+
+        except Exception as e:
+            error_msg = f"Upload failed for {file_name}: {e}"
+            if ctx:
+                await ctx.error(error_msg)
+            results.append({"status": "failed", "file": file_name, "error": str(e)})
+
+    # --- Build summary ----------------------------------------------------
+    succeeded = [r for r in results if r["status"] == "success"]
+    failed = [r for r in results if r["status"] == "failed"]
+    total_size_mb = sum(r.get("size_mb", 0) for r in succeeded)
+
+    if not failed:
+        overall = "success"
+    elif succeeded:
+        overall = "partial"
+    else:
+        overall = "failed"
+
+    summary = {
+        "status": overall,
+        "folder_id": folder_id,
+        "source": path,
+        "mode": mode,
+        "total_files": len(file_paths),
+        "uploaded": len(succeeded),
+        "failed": len(failed),
+        "skipped_files": skipped,
+        "total_size_mb": round(total_size_mb, 1),
+        "results": results,
+    }
+
+    if ctx and failed:
+        await ctx.error(f"{len(failed)} file(s) failed to upload.")
+
+    return summary

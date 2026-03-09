@@ -12,6 +12,7 @@ Welcome to the BlazeMeter MCP Server! 🎉 This is a Python-based MCP server bui
 - **Download and manage test artifacts**: Fully automate retrieval, extraction, and processing of test result artifacts (`artifacts.zip`, JMeter logs, KPIs).
 - **Flexible configuration loading**: Centralized `config.yaml` management for all paths and parameters.
 - **Extensible utilities**: Modular codebase supporting new MCP server integrations (e.g. Datadog, test analysis/reporting).
+- **Shared folder management**: List, inspect, and upload files to BlazeMeter shared folders via the API with automatic extension filtering.
 - **Defensive error handling**: Robust input validation and artifact management for reliable automation.
 
 ---
@@ -138,6 +139,9 @@ Your MCP server exposes these primary tools for Cursor, agents, or other MCP cli
 | `get_artifact_file_list` | Get downloadable artifact/log files for a specific session |
 | `process_session_artifacts` | Downloads, extracts, and processes artifact ZIPs for all sessions of a run. Handles single and multi-session runs, with built-in retry and idempotent design |
 | `get_run_results` | Fetch summary metrics and key performance indicators for a test run |
+| `get_shared_folders` | List all shared folders in a workspace |
+| `get_shared_folder_file_list` | List files inside a shared folder (name, size, last modified) |
+| `upload_to_shared_folder` | Upload a file or directory of files to a shared folder (with extension filtering) |
 
 #### Deprecated Tools (disabled by default)
 
@@ -213,6 +217,93 @@ Avg: 340
 
 ---
 
+## 📂 Shared Folder Tools
+
+The shared folder tools allow you to manage BlazeMeter shared folders and upload test data files (CSVs, Excel sheets, Java KeyStores, JMeter properties files, etc.) directly via the API.
+
+### What Are Shared Folders?
+
+Shared folders are workspace-level containers in BlazeMeter used to store files that can be attached to one or more tests. When a test runs, files in the linked shared folder are deployed alongside the JMX script on every load-generator engine. This makes them ideal for test data files, certificates, and configuration that multiple tests share.
+
+### How Uploads Work
+
+BlazeMeter shared folders use a **two-step signed-URL upload process**:
+
+1. **GET** a signed upload URL from BlazeMeter (`/api/v4/folders/{folderId}/s3/sign?fileName=...`)
+2. **PUT** the file binary to the signed URL with `Content-Type: application/octet-stream`
+
+The tools handle URL-encoding for file names with spaces/special characters, SSL configuration, and large file transfers automatically.
+
+### File Extension Filtering
+
+Uploads are filtered by an allowlist of file extensions defined in `config.yaml` under `blazemeter.shared_folders.allowed_extensions`. By default this includes:
+
+`.csv`, `.xlsx`, `.xls`, `.pdf`, `.jmx`, `.properties`, `.jks`, `.p12`, `.pem`, `.json`, `.xml`, `.txt`, `.jar`, `.groovy`
+
+Files with extensions not on the allowlist (e.g. `.DS_Store`, `Thumbs.db`, temp files) are automatically skipped and reported in the response. You can customise the list in your local `config.yaml` without code changes.
+
+### Shared Folder Workflow
+
+#### 1. List shared folders in your workspace
+
+```python
+result = await get_shared_folders(workspace_id="123456")
+# Returns: [{"id": "abc123def456...", "name": "my_test_files", "workspace_id": "123456"}, ...]
+```
+
+#### 2. Check what files are already in a folder
+
+```python
+result = await get_shared_folder_file_list(folder_id="abc123def456789")
+# Returns: {"folder_name": "my_test_files", "file_count": 3, "files": [...]}
+```
+
+#### 3a. Upload a single file
+
+```python
+result = await upload_to_shared_folder(
+    folder_id="abc123def456789",
+    path="C:/TestData/my_large_file.xlsx"
+)
+# Returns: {"status": "success", "mode": "single_file", "uploaded": 1, ...}
+```
+
+#### 3b. Upload all files from a directory
+
+```python
+result = await upload_to_shared_folder(
+    folder_id="abc123def456789",
+    path="C:/TestData/my_test_files"
+)
+# Returns: {"status": "success", "mode": "directory", "uploaded": 8, "skipped_files": [...], ...}
+```
+
+### Key Features
+
+- **No file size restriction**: Uploads via signed URLs bypass the BlazeMeter UI's file-size limit.
+- **Smart path detection**: Pass a file path to upload one file, or a directory path to upload all allowed files.
+- **Extension allowlist**: Only uploads file types relevant to JMeter testing. Configurable in `config.yaml`.
+- **Transparency**: Skipped files are reported with reasons so you can review what was excluded.
+- **Space/special character support**: File names like `PerformanceTesting 10K Asset.xlsx` are URL-encoded automatically.
+- **Idempotent**: Re-uploading the same file name overwrites the existing file in the shared folder.
+- **Progress logging**: When called with an MCP context, logs per-file upload progress.
+- **Error resilience**: Continues uploading remaining files even if one fails, and reports per-file status.
+
+### Using Shared Folders in JMeter Tests
+
+When you configure a BlazeMeter test to use a shared folder, the folder contents are deployed alongside your JMX script on the cloud engine. Reference them using relative paths in your JMX:
+
+```
+# In JMX (CSV Data Set Config filename field):
+testdata_csv/Environment_QA.csv
+
+# In JMX (Groovy script building file paths):
+def basePath = scriptPath + File.separator + "my_test_files" + File.separator
+vars.put("assetFilePath", basePath + assetFileName)
+```
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -230,6 +321,48 @@ blazemeter-mcp/
 ```
 
 \*If you're exclusively using modern tools like `uv` with `pyproject.toml`, you may omit `requirements.txt`.
+
+---
+
+## 🔒 Security Considerations (Shared Folder Uploads)
+
+The shared folder upload tools provide direct API access to BlazeMeter's file storage. The following considerations should be reviewed by your Security and DevOps teams before production use.
+
+### 1. Executable File Uploads
+
+The allowed extensions include `.jar`, `.groovy`, and `.jmx` — files that JMeter **executes** on cloud load-generator engines at runtime. A malicious actor with valid API credentials could upload weaponized code (e.g. reverse shells, credential harvesting, lateral movement) disguised as test components.
+
+**Recommendation**: Establish code review policies for executable uploads (`.jar`, `.groovy`, `.jmx`). Consider a separate approval workflow for these file types.
+
+### 2. No Content Validation
+
+The extension allowlist filters by file name only. It does not inspect file contents. A file named `testdata.csv` could contain binary payloads, injection strings, or scripts. There is no magic-byte validation, virus scanning, or content-type verification at the tool level.
+
+**Recommendation**: Evaluate whether BlazeMeter performs server-side content validation or malware scanning on shared folder uploads. Implement scanning at the pipeline level if not.
+
+### 3. API Credentials Scope
+
+The BlazeMeter API key/secret used by these tools has write access to shared folders. If credentials are compromised (leaked `.env` file, exposed in logs, etc.), an attacker can upload arbitrary files to any shared folder in the workspace without UI interaction.
+
+**Recommendation**: Use least-privilege API keys scoped to specific workspaces. Enforce secrets rotation policies. Monitor BlazeMeter API audit logs for unexpected upload activity.
+
+### 4. Bypasses UI Controls
+
+The BlazeMeter UI enforces a file-size restriction on uploads (approximately 50 MB). These tools intentionally bypass that restriction via the direct API. Any other UI-level validations or approval workflows are also bypassed.
+
+**Recommendation**: Verify with BlazeMeter whether UI-side restrictions serve a security purpose or are purely UX limits. Ensure equivalent controls exist at the API level.
+
+### 5. No Audit Logging at the Tool Level
+
+The tools log progress via FastMCP context but do not produce a persistent audit trail of uploads (file name, size, hash, timestamp, user identity). In an incident investigation, there would be no local record.
+
+**Recommendation**: Implement upload audit logging with file hashes (SHA-256) to a persistent log. Integrate with SIEM if available.
+
+### 6. Shared Folder Blast Radius
+
+Files uploaded to a shared folder are available to **all tests** linked to that folder within the workspace. A malicious file in a widely-shared folder could impact multiple test configurations and teams.
+
+**Recommendation**: Restrict shared folder access by team or project where possible. Periodically review which tests are linked to each shared folder.
 
 ---
 

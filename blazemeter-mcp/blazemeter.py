@@ -18,6 +18,9 @@ from services.blazemeter_api import (
     session_artifact_processor,
     get_public_report_url,
     fetch_aggregate_report,
+    list_shared_folders,
+    get_shared_folder_files,
+    upload_to_shared_folder as _upload_to_shared_folder,
 )
 
 mcp = FastMCP(
@@ -273,6 +276,85 @@ async def get_aggregate_report(run_id: str, ctx: Context) -> Dict[str, Any]:
         Dictionary containing aggregate performance statistics and CSV file path
     """
     return await fetch_aggregate_report(run_id, ctx)
+
+# -----------------------------
+# Shared Folder Tools
+# -----------------------------
+
+@mcp.tool()
+async def get_shared_folders(workspace_id: Optional[str] = None) -> list:
+    """
+    List all shared folders in a BlazeMeter workspace.
+
+    Shared folders are workspace-level containers used to store test data files
+    (CSVs, Excel sheets, Java KeyStores, JMeter properties files, etc.) that
+    can be attached to one or more BlazeMeter tests. When a test runs, files in
+    the linked shared folder are deployed alongside the JMX script on every
+    load-generator engine.
+
+    Use this tool to discover available shared folders and obtain their IDs
+    before listing folder contents or uploading files.
+
+    Args:
+        workspace_id: The BlazeMeter workspace ID. If omitted, falls back to
+            the BLAZEMETER_WORKSPACE_ID environment variable.
+
+    Returns:
+        List of shared folders, each with id, name, and workspace_id.
+    """
+    return await list_shared_folders(workspace_id)
+
+
+@mcp.tool()
+async def get_shared_folder_file_list(folder_id: str) -> dict:
+    """
+    List all files inside a BlazeMeter shared folder.
+
+    Returns the folder name, total file count, and a list of every file with
+    its name, size (bytes and MB), and last-modified timestamp. Use this to
+    verify folder contents before or after an upload, or to confirm that
+    required test data files are present before triggering a test run.
+
+    Args:
+        folder_id: The shared folder ID (obtained from get_shared_folders).
+
+    Returns:
+        Dict with folder_id, folder_name, file_count, and a files list.
+        Each file entry includes name, size_bytes, size_mb, and last_modified.
+    """
+    return await get_shared_folder_files(folder_id)
+
+
+@mcp.tool()
+async def upload_to_shared_folder(folder_id: str, path: str, ctx: Context) -> dict:
+    """
+    Upload files to a BlazeMeter shared folder.
+
+    Accepts either a single file path or a directory path:
+
+    - **Single file**: Uploads the specified file directly.
+    - **Directory**: Scans the top-level directory for files whose extension
+      matches the allowed_extensions allowlist in config.yaml (e.g. .csv,
+      .xlsx, .jmx, .properties, .jks, .jar, .groovy, etc.) and uploads each
+      one. Files with extensions not on the allowlist are skipped and reported
+      in the response for transparency.
+
+    Each file is uploaded via BlazeMeter's two-step signed-URL process:
+    the tool first requests a signed upload URL from BlazeMeter, then PUTs
+    the file bytes to that URL. File names with spaces or special characters
+    are handled automatically via URL encoding.
+
+    Args:
+        folder_id: Target shared folder ID (from get_shared_folders).
+        path: Absolute local path to a file or a directory of files to upload.
+
+    Returns:
+        Dict with overall status (success/partial/failed), upload mode
+        (single_file or directory), per-file results, counts of uploaded vs
+        failed files, skipped files with reasons, and total size in MB.
+    """
+    return await _upload_to_shared_folder(folder_id, path, ctx)
+
 
 # -----------------------------
 # BlazeMeter MCP entry point

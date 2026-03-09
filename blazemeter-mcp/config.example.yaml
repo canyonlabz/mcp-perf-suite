@@ -23,3 +23,22 @@ blazemeter:
   artifact_download_max_retries: 3   # Max download attempts per session artifact ZIP
   artifact_download_retry_delay: 2   # Seconds to wait between download retry attempts
   cleanup_session_folders: false     # If true, remove sessions/ subfolder after combining artifacts
+  shared_folders:
+    # Allowlist of file extensions permitted for upload to BlazeMeter shared folders.
+    # Files with extensions not in this list will be skipped during upload.
+    # Add or remove extensions based on your team's JMeter test data requirements.
+    allowed_extensions:
+      - .csv
+      - .xlsx
+      - .xls
+      - .pdf
+      - .jmx
+      - .properties
+      - .jks          # Java KeyStore
+      - .p12          # PKCS12 certificate
+      - .pem          # PEM certificate
+      - .json
+      - .xml
+      - .txt
+      - .jar          # JMeter plugins / custom libraries
+      - .groovy        # Groovy scripts
