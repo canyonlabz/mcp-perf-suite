@@ -31,6 +31,13 @@ This document summarizes the enhancements and new features added to the MCP Perf
   - [4.8 Script Generator Refactoring](#48-script-generator-refactoring)
   - [4.9 Files Created](#49-files-created)
   - [4.10 Files Modified](#410-files-modified)
+- [5. AI-Assisted Script Debugging Workflow](#5-ai-assisted-script-debugging-workflow)
+  - [5.1 Overview](#51-overview)
+  - [5.2 Debug Workflow](#52-debug-workflow)
+  - [5.3 New Component Type](#53-new-component-type)
+  - [5.4 Debug Manifest](#54-debug-manifest)
+  - [5.5 Safety Guardrails](#55-safety-guardrails)
+  - [5.6 Files Created/Modified](#56-files-createdmodified)
 - [Previous Changelogs](#previous-changelogs)
 
 ---
@@ -273,6 +280,196 @@ The `script_generator.py` was refactored into modular helper files under `servic
 
 ---
 
+## 5. AI-Assisted Script Debugging Workflow
+
+### 5.1 Overview
+
+A new iterative debugging workflow enables Cursor (or any AI agent) to autonomously validate and fix JMeter scripts after generation. This closes the loop on the script creation pipeline — scripts created via Playwright, HAR, or Swagger adapters can now be smoke-tested, diagnosed, and repaired without manual intervention.
+
+The workflow mirrors how an experienced performance test engineer debugs a script: run a 1-user smoke test, identify the first failure, diagnose it using verbose logging, apply a fix, and re-test. This cycle repeats until the script is clean or human intervention is needed.
+
+```
+                        ┌─────────────────────────┐
+                        │   User Requests Debug   │
+                        └────────────┬────────────┘
+                                     │
+                                     ▼
+                        ┌─────────────────────────┐
+                        │  Create Debug Manifest  │
+                        └────────────┬────────────┘
+                                     │
+                ┌────────────────────┼────────────────────┐
+                │            ITERATIVE CYCLE              │
+                │                    ▼                    │
+                │   ┌─────────────────────────────────┐   │
+                │   │  Phase 1: Smoke Test (1/1/1)    │   │
+                │   │  start_jmeter_test              │   │
+                │   │  get_jmeter_run_status          │   │
+                │   │  analyze_jmeter_log             │   │
+                │   └───────────────┬─────────────────┘   │
+                │                   │                     │
+                │                   ▼                     │
+                │   ┌─────────────────────────────────┐   │
+                │   │  Phase 2: Triage                │   │
+                │   │  0% errors ──────► Done         │   │
+                │   │  401/403 ────────► STOP (creds) │   │
+                │   │  5xx all ────────► STOP (env)   │   │
+                │   │  Isolated errors ► Continue     │   │
+                │   └───────────────┬─────────────────┘   │
+                │                   │                     │
+                │                   ▼                     │
+                │   ┌─────────────────────────────────┐   │
+                │   │  Phase 3: Apply Debug           │   │
+                │   │  PostProcessor                  │   │
+                │   │  Enable VERBOSE_LOGGING         │   │
+                │   │  Attach to first failing        │   │
+                │   │  sampler                        │   │
+                │   └───────────────┬─────────────────┘   │
+                │                   │                     │
+                │                   ▼                     │
+                │   ┌─────────────────────────────────┐   │
+                │   │  Phase 4: Debug Smoke Test      │   │
+                │   │  Re-run 1/1/1                   │   │
+                │   │  analyze_jmeter_log             │   │
+                │   │  Read [ERROR]:[DEBUG]: lines    │   │
+                │   │  from raw log                   │   │
+                │   └───────────────┬─────────────────┘   │
+                │                   │                     │
+                │                   ▼                     │
+                │   ┌─────────────────────────────────┐   │
+                │   │  Phase 5: Diagnose & Fix        │   │
+                │   │  (one issue at a time)          │   │
+                │   │  - Correlation issues           │   │
+                │   │  - Extractor placement          │   │
+                │   │  - Parameterization             │   │
+                │   │  - Auth/session tokens          │   │
+                │   └───────────────┬─────────────────┘   │
+                │                   │                     │
+                │                   ▼                     │
+                │   ┌─────────────────────────────────┐   │
+                │   │  Phase 6: Iterate               │   │
+                │   │  Append to debug manifest       │   │
+                │   │  Max 5 iterations               │   │
+                │   └───────────────┬─────────────────┘   │
+                │                   │                     │
+                │            ┌──────┴───────┐             │
+                │            │ Errors left? │             │
+                │            └──────┬───────┘             │
+                │             Yes   │   No                │
+                │              │    │    │                │
+                │              ▼    │    ▼                │
+                │          Loop ◄───┘  Continue           │
+                │                                         │
+                └─────────────────────────────────────────┘
+                                     │
+                                     ▼
+                        ┌──────────────────────────┐
+                        │  Phase 7: Cleanup        │
+                        │  Disable debug post-     │
+                        │  processors              │
+                        │  VERBOSE_LOGGING=false   │
+                        │  Final validation run    │
+                        │  Finalize debug manifest │
+                        └──────────────────────────┘
+```
+
+**Key Principles:**
+- **User-initiated only** — Cursor never starts debugging unless explicitly asked
+- **First-failure-first** — fix one sampler at a time; cascading errors often resolve themselves
+- **Dual-channel analysis** — `analyze_jmeter_log` for structured error triage + raw log reading for verbose `[ERROR]:[DEBUG]:` request/response details
+- **Automatic bailout** — stops on server-side, credential, or infrastructure issues that require human intervention
+
+---
+
+### 5.2 Debug Workflow
+
+The workflow is defined in a new Cursor Rule (`jmeter-script-debugging.mdc`) with 7 phases:
+
+| Phase | Purpose | Key Tools |
+|-------|---------|-----------|
+| Phase 1 | Run initial 1/1/1 smoke test | `start_jmeter_test`, `get_jmeter_run_status`, `analyze_jmeter_log` |
+| Phase 2 | Triage errors — continue, stop, or done | Decision tree based on error patterns |
+| Phase 3 | Attach debug post-processor to first failing sampler, enable `VERBOSE_LOGGING` | `add_jmeter_component`, `edit_jmeter_component` |
+| Phase 4 | Re-run smoke test with verbose logging | `start_jmeter_test`, raw log reading |
+| Phase 5 | Diagnose root cause and apply a single fix | `add_jmeter_component`, `edit_jmeter_component` |
+| Phase 6 | Iterate (loop back to Phase 1, max 5 cycles) | Append iteration to debug manifest |
+| Phase 7 | Cleanup — disable debug artifacts, final validation run | `edit_jmeter_component`, finalize debug manifest |
+
+---
+
+### 5.3 New Component Type
+
+A new `jsr223_debug_postprocessor` component type was added to the JMX builder pipeline and component registry. This is a JSR223 PostProcessor pre-loaded with a Groovy debug script that logs verbose request/response details for failed samplers.
+
+**Behavior:**
+- Gated by the `VERBOSE_LOGGING` User Defined Variable (must be `"true"` to produce output)
+- Only fires when the sampler **fails** (`prev.isSuccessful() == false`)
+- Uses `log.error()` so the `analyze_jmeter_log` tool picks up the output as a heads-up
+- Log output uses `[ERROR]:[DEBUG]:` prefix followed by Response Code, Response Message, Request, and Response body
+
+**Usage via HITL tools:**
+
+```
+add_jmeter_component(
+  test_run_id="<test_run_id>",
+  component_type="jsr223_debug_postprocessor",
+  parent_node_id="<failing_sampler_node_id>",
+  component_config={}
+)
+```
+
+No required fields — the Groovy script is built-in. Only an optional `name` override is supported.
+
+---
+
+### 5.4 Debug Manifest
+
+Each debugging session produces a debug manifest at `artifacts/<test_run_id>/analysis/debug_manifest.md`. This markdown file is created at the start of the workflow and appended after each iteration.
+
+**Contents:**
+- Test run ID, script name, start timestamp, and status
+- Per-iteration entries with timestamps, error details, diagnosis, fix applied, and result
+- Final summary with total duration, iteration count, and list of all fixes applied
+
+**Status values:** `In Progress`, `Resolved`, `Needs Human Intervention`, `Iteration Limit Reached`
+
+The manifest serves as a historical record for identifying recurring patterns, reporting AI debugging efficiency to leadership, and informing future MCP tool improvements.
+
+---
+
+### 5.5 Safety Guardrails
+
+| Guardrail | Description |
+|-----------|-------------|
+| User-initiated only | Workflow only activates when the user explicitly requests debugging |
+| One fix at a time | Fix the first failing sampler, re-test, then assess remaining errors |
+| 1/1/1 smoke tests only | All debug runs use 1 thread, 1 second ramp-up, 1 loop |
+| Max 5 iterations | Prevents infinite loops on systemic issues |
+| Environment bailout | Stops on HTTP 401/403, widespread 5xx, or connection failures |
+| Automatic backups | HITL tools create numbered backups before every edit |
+| `log_source="jmeter"` | Always uses local JMeter log source, not the default BlazeMeter source |
+
+---
+
+### 5.6 Files Created/Modified
+
+#### New Files
+
+| File | Purpose |
+|------|---------|
+| `.cursor/rules/jmeter-script-debugging.mdc` | Cursor Rule defining the full iterative debugging workflow (7 phases, safety guidelines, debug manifest) |
+
+#### Modified Files
+
+| File | Changes |
+|------|---------|
+| `jmeter-mcp/services/jmx/post_processor.py` | Added `create_jsr223_debug_postprocessor` function with built-in Groovy debug script |
+| `jmeter-mcp/services/jmx/component_registry.py` | Added `_build_jsr223_debug_postprocessor` adapter and `jsr223_debug_postprocessor` registry entry |
+| `jmeter-mcp/services/jmx/__init__.py` | Exported `create_jsr223_debug_postprocessor` |
+| `jmeter-mcp/jmeter_config.example.yaml` | Added `VERBOSE_LOGGING` to default User Defined Variables |
+
+---
+
 ## Previous Changelogs
 
 | Month | File | Highlights |
@@ -282,4 +479,4 @@ The `script_generator.py` was refactored into modular helper files under `servic
 
 ---
 
-*Last Updated: March 7, 2026*
+*Last Updated: March 8, 2026*
