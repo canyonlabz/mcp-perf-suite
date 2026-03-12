@@ -384,12 +384,17 @@ def format_performance_markdown(analysis: Dict, test_run_id: str) -> str:
     violations = sla_analysis.get('violations', [])
     if violations:
         md_content += "## SLA Violations\n\n"
-        md_content += "| API Name | Avg Response Time | Violation Amount | Violation % |\n"
-        md_content += "|----------|-------------------|------------------|-------------|\n"
+        md_content += "| API Name | Percentile Value | SLA Threshold | Violation Amount | Violation % |\n"
+        md_content += "|----------|-----------------|---------------|------------------|-------------|\n"
         
         for violation in violations:
-            md_content += f"| {violation['api_name']} | {violation['avg_response_time']:.0f} ms | {violation['violation_amount']:.0f} ms "
-            md_content += f"| {violation['violation_percentage']:.1f}% |\n"
+            md_content += (
+                f"| {violation['api_name']} "
+                f"| {violation['percentile_value']:.0f} ms ({violation.get('sla_unit', 'P90')}) "
+                f"| {violation['sla_threshold']:.0f} ms "
+                f"| {violation['violation_amount']:.0f} ms "
+                f"| {violation['violation_percentage']:.1f}% |\n"
+            )
         md_content += "\n"
     
     # Top APIs by Response Time

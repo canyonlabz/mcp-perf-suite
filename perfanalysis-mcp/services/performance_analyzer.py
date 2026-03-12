@@ -641,27 +641,31 @@ async def generate_performance_outputs(analysis: Dict, output_path: Path, test_r
     """Generate all output files for performance analysis"""
     
     output_files = {}
-    
+
+    # JSON Output - Detailed analysis
     try:
-        # JSON Output - Detailed analysis
         json_file = output_path / 'performance_analysis.json'
         await write_json_output(analysis, json_file)
         output_files['json'] = str(json_file)
-        
-        # CSV Output - Structured data for reporting
+    except Exception as e:
+        await ctx.error("JSON Output Error", f"Failed to generate JSON: {str(e)}")
+
+    # CSV Output - Structured data for reporting
+    try:
         csv_file = output_path / 'performance_summary.csv'
         await write_performance_csv(analysis, csv_file)
         output_files['csv'] = str(csv_file)
-        
-        # Markdown Output - Human-readable summary
+    except Exception as e:
+        await ctx.error("CSV Output Error", f"Failed to generate CSV: {str(e)}")
+
+    # Markdown Output - Human-readable summary
+    try:
         markdown_file = output_path / 'performance_summary.md'
         markdown_content = format_performance_markdown(analysis, test_run_id)
         await write_markdown_output(markdown_content, markdown_file)
         output_files['markdown'] = str(markdown_file)
-        
-        await ctx.info("Output Generation", f"Generated {len(output_files)} analysis files")
-        
     except Exception as e:
-        await ctx.error("Output Generation Error", f"Failed to generate outputs: {str(e)}")
-    
+        await ctx.error("Markdown Output Error", f"Failed to generate Markdown: {str(e)}")
+
+    await ctx.info("Output Generation", f"Generated {len(output_files)} of 3 analysis files")
     return output_files
