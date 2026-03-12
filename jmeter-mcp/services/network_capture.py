@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import logging
+from fnmatch import fnmatch
 from urllib.parse import urlparse
 from datetime import datetime
 import uuid
@@ -38,6 +39,12 @@ def should_capture_url(url, config):
         excluded_lower = excluded.lower()
         # Match exact domain, subdomain, or partial match (e.g. "google" matches "google.com", "maps.google.com", etc.)
         if domain == excluded_lower or domain.endswith("." + excluded_lower) or excluded_lower in domain:
+            return False
+
+    # Check exclude_paths list (SignalR, health checks, diagnostics, etc.)
+    exclude_paths = config.get("exclude_paths", [])
+    for pattern in exclude_paths:
+        if fnmatch(path, pattern.lower()):
             return False
 
     # Get the capture domain from the config, defaulting to an empty string if not provided

@@ -155,3 +155,39 @@ network_capture:
     - bugsnag.com
     - rollbar.com
     - raygun.com
+
+  # URL path exclusion patterns (supports wildcards via fnmatch glob-style matching)
+  # Matched against the URL path only (no query string). Case-insensitive.
+  # Wildcards: * matches any characters, ? matches a single character
+  exclude_paths:
+    # Real-Time / WebSocket Negotiation
+    - "*/SignalR/negotiate"
+    - "*/SignalRHub/negotiate"
+    - "*/signalr/start"
+    - "*/signalr/poll"
+    - "*/signalr/connect"
+
+    # Health Checks / Readiness Probes
+    - "*/health"
+    - "*/healthz"
+    - "*/ready"
+    - "*/readiness"
+    - "*/liveness"
+
+    # Diagnostics / Debug Endpoints
+    - "*/diagnostics"
+    - "*/ping"
+    - "*/status"
+
+    # Browser-Only / UI Notification Channels
+    - "*/push/negotiate"
+    - "*/push/connect"
+
+    # Service Workers / Manifests
+    - "*/service-worker.js"
+    - "*/sw.js"
+    - "*/manifest.json"
+    - "*/browserconfig.xml"
+
+    # Source Maps (not relevant for load testing)
+    - "*.map"
