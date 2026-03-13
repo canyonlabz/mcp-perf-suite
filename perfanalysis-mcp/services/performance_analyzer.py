@@ -118,13 +118,15 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context, sla_id: Opt
         sla_analysis = analysis_result.get('sla_analysis', {})
 
         # Generate output files
+        expected_outputs = ["json", "csv", "markdown"]
         output_files = await generate_performance_outputs(analysis_result, analysis_path, test_run_id, ctx)
+        missing_outputs = [f for f in expected_outputs if f not in output_files]
 
         await ctx.info("BlazeMeter Analysis Complete",
                        f"Analysis completed for {len(df)} labels. "
                        f"Files saved to {analysis_path}")
         return {
-            "status": "success",
+            "status": "success" if not missing_outputs else ("failed" if not output_files else "partial"),
             "test_run_id": test_run_id,
             "summary": {
                 "overall_performance": overall_summary,
@@ -138,6 +140,7 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context, sla_id: Opt
                 }
             },
             "output_files": output_files,
+            "missing_outputs": missing_outputs,
             "data_source": "blazemeter_aggregate_api"
         }
         
