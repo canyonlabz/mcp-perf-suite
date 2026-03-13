@@ -624,9 +624,11 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, 
         await ctx.warning(f"Failed to load chart schema: {e}, using default height {default_height}")
     
     # Scan charts folder for PNG files and build mapping
+    # Values are lists to support multiple per-resource images per chart_id
+    # (e.g., CPU_CORES_LINE -> [web.png, worker.png])
     chart_mapping = {}
     if charts_folder.exists():
-        for png_file in charts_folder.glob("*.png"):
+        for png_file in sorted(charts_folder.glob("*.png")):
             # Extract chart_id from filename
             # Format: CHART_ID.png or CHART_ID-<resource>.png
             stem = png_file.stem
@@ -634,21 +636,20 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, 
             # Try to match against known chart IDs
             # First check for exact match (multi-line charts, performance charts)
             if stem in chart_heights:
-                chart_mapping[stem] = {
+                chart_mapping[stem] = [{
                     "filename": png_file.name,
                     "height": chart_heights.get(stem, default_height)
-                }
+                }]
             else:
                 # Check if stem starts with a known chart ID (per-resource charts)
                 for chart_id in chart_heights:
                     if stem.startswith(f"{chart_id}-"):
-                        # This is a per-resource chart, use the chart_id for placeholder matching
-                        # but keep the actual filename
                         if chart_id not in chart_mapping:
-                            chart_mapping[chart_id] = {
-                                "filename": png_file.name,
-                                "height": chart_heights.get(chart_id, default_height)
-                            }
+                            chart_mapping[chart_id] = []
+                        chart_mapping[chart_id].append({
+                            "filename": png_file.name,
+                            "height": chart_heights.get(chart_id, default_height)
+                        })
                         break
     
     await ctx.info(f"Found {len(chart_mapping)} chart mappings: {list(chart_mapping.keys())}")

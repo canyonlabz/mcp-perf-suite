@@ -351,17 +351,18 @@ def replace_chart_placeholders(xhtml: str, chart_mapping: dict, default_height: 
     
     Args:
         xhtml: XHTML content with {{CHART_PLACEHOLDER: ID}} markers.
-        chart_mapping: Dict mapping chart_id to {filename, height}.
+        chart_mapping: Dict mapping chart_id to a list of {filename, height} dicts.
+            Supports multiple images per chart_id for per-resource charts
+            (e.g., CPU_CORES_LINE with separate images per K8s service).
             Example:
             {
-                "CPU_UTILIZATION_MULTILINE": {
-                    "filename": "CPU_UTILIZATION_MULTILINE.png",
-                    "height": 300
-                },
-                "MEMORY_UTILIZATION_MULTILINE": {
-                    "filename": "MEMORY_UTILIZATION_MULTILINE.png",
-                    "height": 300
-                }
+                "CPU_UTILIZATION_MULTILINE": [
+                    {"filename": "CPU_UTILIZATION_MULTILINE.png", "height": 300}
+                ],
+                "CPU_CORES_LINE": [
+                    {"filename": "CPU_CORES_LINE-web.png", "height": 250},
+                    {"filename": "CPU_CORES_LINE-worker.png", "height": 250}
+                ]
             }
         default_height: Default image height if not specified in mapping.
     
@@ -370,7 +371,8 @@ def replace_chart_placeholders(xhtml: str, chart_mapping: dict, default_height: 
         
     Note:
         - Placeholders without a matching chart in chart_mapping are left unchanged.
-        - The replacement wraps the image in a <p> tag for proper formatting.
+        - The replacement wraps each image in a <p> tag for proper formatting.
+        - Per-resource charts produce one <p><ac:image.../></p> block per service.
     """
     # Pattern: {{CHART_PLACEHOLDER: CHART_ID}} - captures the ID
     # Allows for optional whitespace around the colon and ID
@@ -379,11 +381,13 @@ def replace_chart_placeholders(xhtml: str, chart_mapping: dict, default_height: 
     def replacer(match):
         chart_id = match.group(1)
         if chart_id in chart_mapping:
-            info = chart_mapping[chart_id]
-            filename = info.get('filename', f'{chart_id}.png')
-            height = info.get('height', default_height)
-            image_xhtml = generate_confluence_image_xhtml(filename, height)
-            return image_xhtml
+            entries = chart_mapping[chart_id]
+            image_tags = []
+            for info in entries:
+                filename = info.get('filename', f'{chart_id}.png')
+                height = info.get('height', default_height)
+                image_tags.append(generate_confluence_image_xhtml(filename, height))
+            return '\n'.join(image_tags)
         else:
             # Keep placeholder if no mapping found (will show as text in final page)
             return match.group(0)
