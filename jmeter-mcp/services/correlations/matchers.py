@@ -179,6 +179,72 @@ def find_usages(
     return usages
 
 
+# === Source Resolution ===
+
+def resolve_best_source(
+    sources: List[Dict[str, Any]],
+    usage: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Pick the best source candidate for a specific usage based on field-name affinity.
+
+    When a value (e.g. "10") appears in multiple response fields with different
+    semantic meanings (stateId vs countryId), this function selects the source
+    whose field name matches the usage context.
+
+    Resolution cascade:
+      1. If only one source exists, return it immediately.
+      2. Field-name affinity: prefer a source whose source_key matches the
+         usage's location_key (case-insensitive).
+      3. Same-step affinity: among affinity-matched sources, prefer one from
+         the same step as the usage (API responses often precede their
+         corresponding requests within the same step).
+      4. Chronological fallback: return the earliest source (lowest entry_index).
+
+    Args:
+        sources: List of source candidate dicts for the same value
+                 (from extract_sources_multi).
+        usage: A single usage dict (from find_usages), which includes
+               location_key, step_number, entry_index, etc.
+
+    Returns:
+        The single best-matching source candidate dict.
+    """
+    if len(sources) == 1:
+        return sources[0]
+
+    usage_key = (usage.get("location_key") or "").lower()
+    usage_step = usage.get("step_number")
+
+    # Pass 1: field-name affinity — source_key matches usage location_key
+    if usage_key:
+        affinity_matches = [
+            s for s in sources
+            if (s.get("source_key") or "").lower() == usage_key
+        ]
+
+        if len(affinity_matches) == 1:
+            return affinity_matches[0]
+
+        if len(affinity_matches) > 1:
+            # Pass 2: among affinity matches, prefer same step
+            same_step = [
+                s for s in affinity_matches
+                if s.get("step_number") == usage_step
+            ]
+            if same_step:
+                return same_step[0]
+            return affinity_matches[0]
+
+    # Pass 3: no affinity — prefer earliest source before the usage
+    usage_entry = usage.get("entry_index", float("inf"))
+    prior_sources = [s for s in sources if s.get("entry_index", 0) < usage_entry]
+    if prior_sources:
+        return prior_sources[-1]
+
+    return sources[0]
+
+
 # === Phase 3: Orphan ID Detection ===
 
 def _is_id_like_param_name(param_name: str) -> bool:
