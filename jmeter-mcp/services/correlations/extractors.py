@@ -936,6 +936,47 @@ def detect_static_api_key_headers(
     return results
 
 
+def _collect_all_candidates(
+    entries: List[Tuple[int, int, str, Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """
+    Run the full source extraction pipeline across all entries.
+
+    Returns the raw, un-deduplicated list of candidates from every response
+    location (headers, redirect URLs, JSON bodies, Set-Cookie, HTML form_post).
+
+    This is the shared extraction core used by both extract_sources() and
+    extract_sources_multi().
+    """
+    all_candidates = []
+
+    for entry_index, step_number, step_label, entry in entries:
+        response_headers = entry.get("response_headers") or {}
+        response = entry.get("response", "")
+
+        all_candidates.extend(extract_from_response_headers(
+            response_headers, entry_index, step_number, step_label, entry
+        ))
+
+        all_candidates.extend(extract_from_redirect_url(
+            response_headers, entry_index, step_number, step_label, entry
+        ))
+
+        all_candidates.extend(extract_from_json_body(
+            response, response_headers, entry_index, step_number, step_label, entry
+        ))
+
+        all_candidates.extend(extract_from_set_cookie(
+            response_headers, entry_index, step_number, step_label, entry
+        ))
+
+        all_candidates.extend(extract_from_html_form_post(
+            response, response_headers, entry_index, step_number, step_label, entry
+        ))
+
+    return all_candidates
+
+
 def extract_sources(
     entries: List[Tuple[int, int, str, Dict[str, Any]]]
 ) -> List[Dict[str, Any]]:
@@ -951,36 +992,7 @@ def extract_sources(
     
     Deduplicates by value, keeping the FIRST occurrence (earliest source).
     """
-    all_candidates = []
-    
-    for entry_index, step_number, step_label, entry in entries:
-        response_headers = entry.get("response_headers") or {}
-        response = entry.get("response", "")
-        
-        # Extract from response headers
-        all_candidates.extend(extract_from_response_headers(
-            response_headers, entry_index, step_number, step_label, entry
-        ))
-        
-        # Extract from redirect URL
-        all_candidates.extend(extract_from_redirect_url(
-            response_headers, entry_index, step_number, step_label, entry
-        ))
-        
-        # Extract from JSON body (includes OAuth token fields)
-        all_candidates.extend(extract_from_json_body(
-            response, response_headers, entry_index, step_number, step_label, entry
-        ))
-        
-        # Extract OAuth nonce from Set-Cookie headers
-        all_candidates.extend(extract_from_set_cookie(
-            response_headers, entry_index, step_number, step_label, entry
-        ))
-        
-        # Extract OAuth tokens from HTML form_post responses
-        all_candidates.extend(extract_from_html_form_post(
-            response, response_headers, entry_index, step_number, step_label, entry
-        ))
+    all_candidates = _collect_all_candidates(entries)
     
     # Deduplicate by value - keep the FIRST occurrence (earliest source)
     seen_values: Dict[str, Dict[str, Any]] = {}
@@ -990,3 +1002,31 @@ def extract_sources(
             seen_values[value_key] = candidate
     
     return list(seen_values.values())
+
+
+def extract_sources_multi(
+    entries: List[Tuple[int, int, str, Dict[str, Any]]]
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Phase 1 (multi-source variant): Extract all candidate source values,
+    preserving every source occurrence grouped by value.
+
+    Unlike extract_sources() which keeps only the first occurrence per value,
+    this function retains all sources so that downstream resolution logic
+    (resolve_best_source) can pick the semantically correct source using
+    field-name affinity.
+
+    Returns:
+        Dict mapping value string -> list of candidate dicts (ordered by
+        entry_index, i.e. chronological appearance in the capture).
+    """
+    all_candidates = _collect_all_candidates(entries)
+
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for candidate in all_candidates:
+        value_key = str(candidate.get("value", ""))
+        if value_key not in grouped:
+            grouped[value_key] = []
+        grouped[value_key].append(candidate)
+
+    return grouped
