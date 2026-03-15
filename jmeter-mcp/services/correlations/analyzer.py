@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Set, Tuple
 from fastmcp import Context
 
 from utils.config import load_config, load_jmeter_config
-from utils.file_utils import save_correlation_spec
+from utils.file_utils import get_jmeter_artifacts_dir, save_correlation_spec, save_json_file
 
 from .classifiers import classify_parameterization_strategy
 from .extractors import (
@@ -26,9 +26,14 @@ from .extractors import (
     extract_oauth_from_request_headers,
     extract_oauth_params_from_request_body,
     extract_oauth_params_from_request_urls,
-    extract_sources,
+    extract_sources_multi,
 )
-from .matchers import detect_orphan_ids, find_usages
+from .matchers import detect_orphan_ids, find_usages, resolve_best_source
+from .naming import (
+    generate_correlation_naming_entry,
+    generate_variable_name,
+    reset_name_counter,
+)
 from .utils import init_exclude_domains, is_excluded_url
 
 
@@ -217,88 +222,133 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
     if not entries:
         return [], {}
     
-    # Phase 1: Extract sources from responses
-    source_candidates = extract_sources(entries)
-    
+    # Phase 1: Extract sources from responses (multi-source aware)
+    # Preserves all source candidates per value so ambiguous values
+    # (e.g. countryId=10 vs stateId=10) can be resolved correctly.
+    source_groups = extract_sources_multi(entries)
+
     # Track known source values for orphan detection
-    known_source_values: Set[str] = {str(c["value"]) for c in source_candidates}
-    
+    known_source_values: Set[str] = set(source_groups.keys())
+
     correlations: List[Dict[str, Any]] = []
     correlation_counter = 0
-    
-    # Phase 2: Find usages for each source candidate
-    for candidate in source_candidates:
-        usages = find_usages(candidate, entries)
-        
-        # Check if this is an OAuth form_post token (always include these)
-        is_oauth_form_post = (
-            candidate.get("source_location") == "response_html_form" and
-            candidate.get("source_key", "").lower() in {"id_token", "code", "access_token"}
+
+    # Phase 2: Find usages and resolve best source for ambiguous values
+    for value_str, sources in source_groups.items():
+        # Find usages forward from the earliest source for this value
+        earliest = min(sources, key=lambda s: s.get("entry_index", 0))
+        all_usages = find_usages(earliest, entries)
+
+        # Check for OAuth form_post tokens (always emit, even without usages)
+        form_post_source = next(
+            (s for s in sources
+             if s.get("source_location") == "response_html_form"
+             and s.get("source_key", "").lower() in {"id_token", "code", "access_token"}),
+            None,
         )
-        
-        # Emit correlations where value flows forward OR is an OAuth form_post token
-        if not usages and not is_oauth_form_post:
+
+        if not all_usages and not form_post_source:
             continue
-        
-        correlation_counter += 1
-        correlation_id = f"corr_{correlation_counter}"
-        
-        # Determine extractor type based on source location
-        extractor_type = "regex"
-        if candidate.get("source_location") == "response_json":
-            extractor_type = "json"
-        
-        # For form_post tokens without usages, use special hint
-        if is_oauth_form_post and not usages:
-            param_hint = {
-                "strategy": "extract_for_bearer",
-                "extractor_type": "regex",
-                "reason": "OAuth form_post token - typically used as Authorization: Bearer header"
+
+        # Special case: form_post token without detected usages
+        if not all_usages and form_post_source:
+            correlation_counter += 1
+            correlation = {
+                "correlation_id": f"corr_{correlation_counter}",
+                "type": form_post_source.get("candidate_type", "unknown"),
+                "value_type": form_post_source.get("value_type", "unknown"),
+                "confidence": "medium",
+                "correlation_found": False,
+                "source": {
+                    "step_number": form_post_source.get("step_number"),
+                    "step_label": form_post_source.get("step_label"),
+                    "entry_index": form_post_source.get("entry_index"),
+                    "request_id": form_post_source.get("request_id"),
+                    "request_method": form_post_source.get("request_method"),
+                    "request_url": form_post_source.get("request_url"),
+                    "response_status": form_post_source.get("response_status"),
+                    "source_location": form_post_source.get("source_location"),
+                    "source_key": form_post_source.get("source_key"),
+                    "source_json_path": form_post_source.get("source_json_path"),
+                    "response_example_value": form_post_source.get("value"),
+                },
+                "usages": [],
+                "parameterization_hint": {
+                    "strategy": "extract_for_bearer",
+                    "extractor_type": "regex",
+                    "reason": "OAuth form_post token - typically used as Authorization: Bearer header",
+                },
+                "notes": (
+                    "OAuth token extracted from form_post response. "
+                    "Typically used in subsequent requests as 'Authorization: Bearer {token}' header. "
+                    "Usage not detected in captured traffic - verify and parameterize manually if needed."
+                ),
             }
-            confidence = "medium"
-            correlation_found = False
-        else:
-            param_hint = classify_parameterization_strategy(True, len(usages))
+            if form_post_source.get("suggested_var_name"):
+                correlation["suggested_var_name"] = form_post_source["suggested_var_name"]
+            correlations.append(correlation)
+            continue
+
+        # Resolve best source per usage and group by resolved source.
+        # For values with a single source this is a no-op pass-through;
+        # for ambiguous values it applies field-name affinity.
+        source_usage_map: Dict[int, Tuple[Dict[str, Any], List[Dict[str, Any]]]] = {}
+        for usage in all_usages:
+            # Only consider sources chronologically before this usage
+            prior = [
+                s for s in sources
+                if s.get("entry_index", 0) < usage.get("entry_index", float("inf"))
+            ]
+            if not prior:
+                prior = sources
+            best = resolve_best_source(prior, usage)
+            src_key = id(best)
+            if src_key not in source_usage_map:
+                source_usage_map[src_key] = (best, [])
+            source_usage_map[src_key][1].append(usage)
+
+        # Emit one correlation per resolved source
+        for _src_key, (candidate, grouped_usages) in source_usage_map.items():
+            # Re-number usages sequentially within this correlation
+            for i, u in enumerate(grouped_usages, 1):
+                u["usage_number"] = i
+
+            correlation_counter += 1
+
+            extractor_type = "regex"
+            if candidate.get("source_location") == "response_json":
+                extractor_type = "json"
+
+            param_hint = classify_parameterization_strategy(True, len(grouped_usages))
             param_hint["extractor_type"] = extractor_type
-            confidence = "high"
-            correlation_found = True
-        
-        correlation = {
-            "correlation_id": correlation_id,
-            "type": candidate.get("candidate_type", "unknown"),
-            "value_type": candidate.get("value_type", "unknown"),
-            "confidence": confidence,
-            "correlation_found": correlation_found,
-            "source": {
-                "step_number": candidate.get("step_number"),
-                "step_label": candidate.get("step_label"),
-                "entry_index": candidate.get("entry_index"),
-                "request_id": candidate.get("request_id"),
-                "request_method": candidate.get("request_method"),
-                "request_url": candidate.get("request_url"),
-                "response_status": candidate.get("response_status"),
-                "source_location": candidate.get("source_location"),
-                "source_key": candidate.get("source_key"),
-                "source_json_path": candidate.get("source_json_path"),
-                "response_example_value": candidate.get("value"),
-            },
-            "usages": usages,
-            "parameterization_hint": param_hint,
-        }
-        
-        # Add suggested variable name for OAuth form_post tokens
-        if candidate.get("suggested_var_name"):
-            correlation["suggested_var_name"] = candidate.get("suggested_var_name")
-        
-        # Add note for form_post tokens without detected usages
-        if is_oauth_form_post and not usages:
-            correlation["notes"] = (
-                "OAuth token extracted from form_post response. "
-                "Typically used in subsequent requests as 'Authorization: Bearer {token}' header. "
-                "Usage not detected in captured traffic - verify and parameterize manually if needed."
-            )
-        
-        correlations.append(correlation)
+
+            correlation = {
+                "correlation_id": f"corr_{correlation_counter}",
+                "type": candidate.get("candidate_type", "unknown"),
+                "value_type": candidate.get("value_type", "unknown"),
+                "confidence": "high",
+                "correlation_found": True,
+                "source": {
+                    "step_number": candidate.get("step_number"),
+                    "step_label": candidate.get("step_label"),
+                    "entry_index": candidate.get("entry_index"),
+                    "request_id": candidate.get("request_id"),
+                    "request_method": candidate.get("request_method"),
+                    "request_url": candidate.get("request_url"),
+                    "response_status": candidate.get("response_status"),
+                    "source_location": candidate.get("source_location"),
+                    "source_key": candidate.get("source_key"),
+                    "source_json_path": candidate.get("source_json_path"),
+                    "response_example_value": candidate.get("value"),
+                },
+                "usages": grouped_usages,
+                "parameterization_hint": param_hint,
+            }
+
+            if candidate.get("suggested_var_name"):
+                correlation["suggested_var_name"] = candidate["suggested_var_name"]
+
+            correlations.append(correlation)
     
     # Phase 1b: Request-side OAuth/PKCE extraction
     # Detects OAuth parameters in request URLs, POST bodies, and custom headers
@@ -609,11 +659,52 @@ async def analyze_traffic(test_run_id: str, ctx: Context) -> Dict[str, Any]:
         msg = f"Correlation analysis complete: {len(correlations)} correlations found"
         await ctx.info(f"{msg}: {output_path}")
 
+        # Phase 4: Algorithmic naming → write correlation_naming.json
+        reset_name_counter()
+        naming_variables = []
+        naming_orphans = []
+
+        for corr in correlations:
+            source = corr.get("source", {}) or {}
+            if corr.get("correlation_found"):
+                entry = generate_correlation_naming_entry(corr)
+                entry["jmeter_scope"] = "thread"
+                naming_variables.append(entry)
+            else:
+                var_name = generate_variable_name(
+                    source_key=source.get("source_key"),
+                    value_type=corr.get("value_type"),
+                    source_location=source.get("source_location"),
+                    request_url=source.get("request_url"),
+                )
+                strategy = corr.get("parameterization_hint", {}).get(
+                    "strategy", "user_defined_variable"
+                )
+                naming_orphans.append({
+                    "correlation_id": corr.get("correlation_id"),
+                    "variable_name": var_name,
+                    "parameterization_strategy": strategy,
+                })
+
+        naming_output = {
+            "application": JMETER_CONFIG.get("application_name", "unknown"),
+            "spec_version": "2.0",
+            "naming_conventions": {"case_style": "snake_case"},
+            "variables": naming_variables,
+            "orphan_variables": naming_orphans,
+        }
+
+        naming_dir = get_jmeter_artifacts_dir(test_run_id)
+        naming_path = os.path.join(naming_dir, "correlation_naming.json")
+        save_json_file(naming_path, naming_output)
+        await ctx.info(f"Correlation naming generated: {naming_path}")
+
         return {
             "status": "OK",
             "message": msg,
             "test_run_id": test_run_id,
             "correlation_spec_path": output_path,
+            "correlation_naming_path": naming_path,
             "count": len(correlations),
             "summary": summary,
         }
