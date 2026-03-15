@@ -270,6 +270,7 @@ docs/*
 
 # Ignore local JMeter configuration files and all custom JMeter MCP test-spec files
 jmeter-mcp/jmeter_config.yaml
+jmeter-mcp/correlation_config.yaml
 jmeter-mcp/test-specs/*
 jmeter-mcp/test-specs/azure-devops/*.txt
 jmeter-mcp/test-specs/jira/*.txt
