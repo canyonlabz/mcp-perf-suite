@@ -199,7 +199,7 @@ def generate_variable_name(
             return _make_unique(var_name)
 
     # 4. Timestamp handling
-    if value_type == "timestamp" or key_lower in ("_t", "_", "cb", "ns"):
+    if value_type == "timestamp":
         return _make_unique(_resolve_timestamp_name(request_url, ts_patterns))
 
     # 5. Algorithmic conversion
