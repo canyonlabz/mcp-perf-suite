@@ -57,7 +57,7 @@ SKIP_HEADERS_SOURCE: Set[str] = {
 SKIP_HEADERS_USAGE: Set[str] = {
     "content-type", "content-length", "cache-control", "date", "expires",
     "accept", "accept-encoding", "accept-language", "connection",
-    "host", "origin", "referer", "user-agent", "cookie",
+    "host", "origin", "user-agent", "cookie",
     "priority", "sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform",
     "sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site", "sec-fetch-user",
     "upgrade-insecure-requests", "if-none-match", "if-modified-since",
