@@ -211,6 +211,8 @@ def generate_variable_name(
         return _make_unique("path_guid")
     if value_type == "business_id_numeric":
         return _make_unique("path_id")
+    if value_type == "email":
+        return _make_unique("user_email")
     return _make_unique("corr_var")
 
 

@@ -24,6 +24,9 @@ GUID_RE = re.compile(
 # JWT: three base64url segments separated by dots
 JWT_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
 
+# Email address
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+
 # JSON keys that likely contain IDs (for SOURCE extraction)
 # Matches: id, _id, userId, user_id, prodId, prod_id, uuid, guid, etc.
 ID_KEY_PATTERNS = re.compile(

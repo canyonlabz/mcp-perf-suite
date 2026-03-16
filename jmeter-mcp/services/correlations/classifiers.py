@@ -10,6 +10,7 @@ import re
 from typing import Any, Dict
 
 from .constants import (
+    EMAIL_RE,
     GUID_RE,
     JWT_RE,
     MIN_NUMERIC_ID_LENGTH,
@@ -41,6 +42,7 @@ def classify_value_type(value: Any) -> str:
     - business_id_numeric: Numeric string or integer
     - business_id_guid: UUID/GUID format
     - oauth_token: JWT format (for Phase 2)
+    - email: Email address
     - opaque_id: Long alphanumeric string
     - string_id: Other string identifiers
     - unknown: Unclassifiable
@@ -58,6 +60,8 @@ def classify_value_type(value: Any) -> str:
             return "business_id_guid"
         if JWT_RE.match(value):
             return "oauth_token"  # Flag for Phase 2
+        if EMAIL_RE.match(value):
+            return "email"
         if len(value) > 20 and value.isalnum():
             return "opaque_id"
         return "string_id"

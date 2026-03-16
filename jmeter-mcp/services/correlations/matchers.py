@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Set, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from .classifiers import classify_value_type
-from .constants import GUID_RE, NUMERIC_ID_RE, SKIP_HEADERS_USAGE, ID_KEY_PATTERNS
+from .constants import EMAIL_RE, GUID_RE, NUMERIC_ID_RE, SKIP_HEADERS_USAGE, ID_KEY_PATTERNS
 from .utils import value_matches, walk_json_all_values
 
 
@@ -292,6 +292,13 @@ def extract_ids_from_request_url(url: str) -> List[Dict[str, Any]]:
                 name_suggests_id = _is_id_like_param_name(param_name) and len(val) >= 2
                 
                 if value_is_id or name_suggests_id:
+                    ids.append({
+                        "value": val,
+                        "location": "request_query_param",
+                        "location_key": param_name,
+                        "pattern": f"{param_name}={{VALUE}}",
+                    })
+                elif EMAIL_RE.match(val):
                     ids.append({
                         "value": val,
                         "location": "request_query_param",
