@@ -142,8 +142,9 @@ def generate_variable_name(
     Generate a deterministic JMeter variable name for a correlation.
 
     Resolution order:
-      0. Suggested name (from cookie sanitization, form_post extraction, etc.)
+      0. Suggested name (from form_post extraction, etc.)
       1. Custom mappings (highest priority user overrides)
+      1.5. Set-Cookie sources: camel_to_snake on the full cookie name
       2. OAuth param lookup
       3. OAuth token field lookup
       4. Timestamp pattern lookup (for orphan epoch timestamps)
@@ -152,10 +153,11 @@ def generate_variable_name(
     Args:
         source_key: The field/parameter name from the response (e.g. "entityGuid")
         value_type: The classified value type (e.g. "oauth_nonce", "timestamp")
-        source_location: Where the value was found (e.g. "response_json")
+        source_location: Where the value was found (e.g. "response_json",
+                         "response_set_cookie")
         request_url: The request URL (used for timestamp URL-pattern matching)
-        suggested_name: Pre-computed name from upstream extraction (e.g. cookie
-                        sanitizer). Takes priority over all config lookups.
+        suggested_name: Pre-computed name from upstream extraction (e.g.
+                        form_post token). Takes priority over all config lookups.
 
     Returns:
         A unique snake_case variable name suitable for JMeter.
@@ -176,6 +178,10 @@ def generate_variable_name(
     for mapping_key, var_name in custom.items():
         if key_lower == mapping_key.lower():
             return _make_unique(var_name)
+
+    # 1.5 Set-Cookie sources: use the full cookie name (more descriptive)
+    if source_location == "response_set_cookie" and source_key:
+        return _make_unique(camel_to_snake(source_key))
 
     # 2. OAuth param lookup (match on source_key or value_type)
     for param_key, var_name in oauth_params.items():
@@ -294,6 +300,8 @@ def generate_correlation_naming_entry(
     request_url = source.get("request_url")
 
     suggested = correlation.get("suggested_var_name")
+    if source_location == "response_set_cookie":
+        suggested = None
 
     var_name = generate_variable_name(
         source_key=source_key,
