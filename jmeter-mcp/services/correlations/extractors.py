@@ -1009,16 +1009,20 @@ def extract_sources_multi(
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Phase 1 (multi-source variant): Extract all candidate source values,
-    preserving every source occurrence grouped by value.
+    preserving semantically distinct sources grouped by value.
 
     Unlike extract_sources() which keeps only the first occurrence per value,
-    this function retains all sources so that downstream resolution logic
-    (resolve_best_source) can pick the semantically correct source using
-    field-name affinity.
+    this function retains multiple sources when they have different field names
+    (source_key), enabling downstream resolution logic (resolve_best_source)
+    to pick the semantically correct source using field-name affinity.
+
+    Within each value group, sources with the same source_key are deduplicated
+    to the first chronological occurrence. This prevents duplicate extractors
+    when the same API is called multiple times returning the same value.
 
     Returns:
-        Dict mapping value string -> list of candidate dicts (ordered by
-        entry_index, i.e. chronological appearance in the capture).
+        Dict mapping value string -> list of candidate dicts (one per unique
+        source_key, ordered by entry_index).
     """
     all_candidates = _collect_all_candidates(entries)
 
@@ -1028,5 +1032,19 @@ def extract_sources_multi(
         if value_key not in grouped:
             grouped[value_key] = []
         grouped[value_key].append(candidate)
+
+    # Within each value group, keep only the first occurrence per source_key.
+    # Different source_keys are preserved (e.g. countryId vs industryId for
+    # value "10"), but duplicate extractions of the same field from repeated
+    # API calls are collapsed to the earliest.
+    for value_key, candidates in grouped.items():
+        seen_keys: Dict[str, bool] = {}
+        deduped: List[Dict[str, Any]] = []
+        for c in candidates:
+            sk = (c.get("source_key") or "").lower()
+            if sk not in seen_keys:
+                seen_keys[sk] = True
+                deduped.append(c)
+        grouped[value_key] = deduped
 
     return grouped
