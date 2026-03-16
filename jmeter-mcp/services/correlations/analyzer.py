@@ -666,7 +666,8 @@ async def analyze_traffic(test_run_id: str, ctx: Context) -> Dict[str, Any]:
 
         for corr in correlations:
             source = corr.get("source", {}) or {}
-            if corr.get("correlation_found"):
+            is_static_header = corr.get("type") == "static_header"
+            if corr.get("correlation_found") and not is_static_header:
                 entry = generate_correlation_naming_entry(corr)
                 entry["jmeter_scope"] = "thread"
                 naming_variables.append(entry)
