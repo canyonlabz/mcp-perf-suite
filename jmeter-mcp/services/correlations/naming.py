@@ -145,9 +145,10 @@ def generate_variable_name(
       0. Suggested name (from form_post extraction, etc.)
       1. Custom mappings (highest priority user overrides)
       1.5. Set-Cookie sources: camel_to_snake on the full cookie name
-      2. OAuth param lookup
-      3. OAuth token field lookup
+      2. OAuth token field lookup (non-incrementing per RFC 6749 s6)
+      3. OAuth param lookup (incremented for unique-per-step params)
       4. Timestamp pattern lookup (for orphan epoch timestamps)
+      4.5. SAML param handling
       5. Algorithmic camelCase/kebab → snake_case conversion
 
     Args:
@@ -163,7 +164,12 @@ def generate_variable_name(
         A unique snake_case variable name suitable for JMeter.
     """
     # 0. Suggested name from upstream extraction logic
+    # Per RFC 6749 s6, OAuth tokens are refreshable — reuse the same name
+    # so all extractors write to one variable (e.g. ${bearer_token}).
     if suggested_name:
+        if value_type == "oauth_token":
+            _name_counter[suggested_name] = _name_counter.get(suggested_name, 0) + 1
+            return suggested_name
         return _make_unique(suggested_name)
 
     cfg = _naming_section()
@@ -183,7 +189,17 @@ def generate_variable_name(
     if source_location == "response_set_cookie" and source_key:
         return _make_unique(camel_to_snake(source_key))
 
-    # 2. OAuth param lookup (match on source_key or value_type)
+    # 2. OAuth token field lookup (checked BEFORE params so refreshable
+    #    tokens like id_token are matched here, not in the param table).
+    # Per RFC 6749 s6, refreshed tokens replace the previous value.
+    # All extractors write to the same variable so ${bearer_token} always
+    # holds the latest valid token.
+    for token_key, var_name in oauth_tokens.items():
+        if key_lower == token_key.lower():
+            _name_counter[var_name] = _name_counter.get(var_name, 0) + 1
+            return var_name
+
+    # 3. OAuth param lookup (match on source_key or value_type)
     for param_key, var_name in oauth_params.items():
         if key_lower == param_key.lower():
             return _make_unique(var_name)
@@ -192,11 +208,6 @@ def generate_variable_name(
         for param_key, var_name in oauth_params.items():
             if vt_lower == f"oauth_{param_key.lower()}":
                 return _make_unique(var_name)
-
-    # 3. OAuth token field lookup
-    for token_key, var_name in oauth_tokens.items():
-        if key_lower == token_key.lower():
-            return _make_unique(var_name)
 
     # 4. Timestamp handling
     if value_type == "timestamp":
