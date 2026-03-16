@@ -155,6 +155,18 @@ OAUTH_PARAM_VALUE_TYPES: Dict[str, str] = {
 # PKCE-specific parameter names (subset of OAUTH_URL_PARAMS)
 PKCE_PARAMS: Set[str] = {"code_challenge", "code_challenge_method", "code_verifier"}
 
+# === SAML Configuration ===
+
+# SAML parameter names in redirect URLs (SSO flows)
+SAML_PARAMS: Set[str] = {"samlrequest", "samlresponse", "samlart"}
+
+# Mapping from SAML param name (lowercase) to value_type classification
+SAML_PARAM_VALUE_TYPES: Dict[str, str] = {
+    "samlrequest": "saml_request",
+    "samlresponse": "saml_response",
+    "samlart": "saml_artifact",
+}
+
 # Request headers that carry dynamic OAuth/SSO values (nonces, CSRF tokens).
 # These are custom headers where the VALUE is a token/nonce needing correlation.
 # Standard headers like Authorization (Bearer) are handled separately by config_elements.

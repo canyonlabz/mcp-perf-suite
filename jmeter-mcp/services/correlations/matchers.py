@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Set, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from .classifiers import classify_value_type
-from .constants import EMAIL_RE, GUID_RE, NUMERIC_ID_RE, SKIP_HEADERS_USAGE, ID_KEY_PATTERNS
+from .constants import EMAIL_RE, GUID_RE, JWT_RE, NUMERIC_ID_RE, SKIP_HEADERS_USAGE, ID_KEY_PATTERNS, SAML_PARAMS
 from .utils import value_matches, walk_json_all_values
 
 
@@ -305,9 +305,16 @@ def extract_ids_from_request_url(url: str) -> List[Dict[str, Any]]:
                         "location_key": param_name,
                         "pattern": f"{param_name}={{VALUE}}",
                     })
+                elif param_name.lower() in SAML_PARAMS and len(val) > 20:
+                    ids.append({
+                        "value": val,
+                        "location": "request_query_param",
+                        "location_key": param_name,
+                        "pattern": f"{param_name}={{VALUE}}",
+                    })
     except Exception:
         pass
-    
+
     return ids
 
 
@@ -355,5 +362,78 @@ def detect_orphan_ids(
                 "candidate_type": "orphan_id",
                 "location_pattern": id_info.get("pattern"),
             })
-    
+
+    return orphans
+
+
+# Auth endpoint URL substrings (case-insensitive) that indicate progressive auth flows
+_AUTH_URL_KEYWORDS = {"authenticate", "authn", "auth/token", "oauth2/token", "login"}
+
+
+def detect_progressive_auth_tokens(
+    entries: List[Tuple[int, int, str, Dict[str, Any]]],
+    known_source_values: Set[str]
+) -> List[Dict[str, Any]]:
+    """
+    Detect JWT tokens in POST bodies of authentication requests whose response
+    bodies were empty (common with Playwright/HAR captures of OAuth/SSO flows).
+
+    These are flagged as "progressive_auth" orphans so the PTE knows a manual
+    RegEx extractor is needed on the prior response to capture the token.
+    """
+    orphans: List[Dict[str, Any]] = []
+    seen_values: Set[str] = set()
+
+    for entry_index, step_number, step_label, entry in entries:
+        post_data = (entry.get("post_data") or "").strip()
+        if not post_data:
+            continue
+
+        url_lower = entry.get("url", "").lower()
+        if not any(kw in url_lower for kw in _AUTH_URL_KEYWORDS):
+            continue
+
+        if not post_data.startswith("{"):
+            continue
+
+        try:
+            body_json = json.loads(post_data)
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+        if not isinstance(body_json, dict):
+            continue
+
+        for field_name, field_value in body_json.items():
+            if not isinstance(field_value, str):
+                continue
+            if not JWT_RE.match(field_value):
+                continue
+            if field_value in known_source_values or field_value in seen_values:
+                continue
+            seen_values.add(field_value)
+
+            orphans.append({
+                "entry_index": entry_index,
+                "step_number": step_number,
+                "step_label": step_label,
+                "request_id": entry.get("request_id"),
+                "request_method": entry.get("method", "POST"),
+                "request_url": entry.get("url", ""),
+                "response_status": None,
+                "source_location": "request_body",
+                "source_key": field_name,
+                "source_json_path": None,
+                "value": field_value,
+                "value_type": "progressive_auth",
+                "candidate_type": "progressive_auth",
+                "location_pattern": f"$.{field_name}",
+                "note": (
+                    "JWT found in POST body of auth request. "
+                    "The response body for the prior step was likely empty "
+                    "(Playwright/HAR capture limitation). "
+                    "Add a RegEx extractor on the previous response to capture this token."
+                ),
+            })
+
     return orphans

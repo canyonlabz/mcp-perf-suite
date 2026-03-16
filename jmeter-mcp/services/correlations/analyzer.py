@@ -28,7 +28,7 @@ from .extractors import (
     extract_oauth_params_from_request_urls,
     extract_sources_multi,
 )
-from .matchers import detect_orphan_ids, find_usages, resolve_best_source
+from .matchers import detect_orphan_ids, detect_progressive_auth_tokens, find_usages, resolve_best_source
 from .naming import (
     generate_correlation_naming_entry,
     generate_variable_name,
@@ -589,7 +589,46 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
         }
         
         correlations.append(correlation)
-    
+
+    # Phase 3b: Detect progressive auth tokens (JWTs in POST bodies with empty responses)
+    progressive_orphans = detect_progressive_auth_tokens(entries, known_source_values)
+
+    for orphan in progressive_orphans:
+        correlation_counter += 1
+        correlation_id = f"corr_{correlation_counter}"
+
+        correlation = {
+            "correlation_id": correlation_id,
+            "type": "progressive_auth",
+            "value_type": "progressive_auth",
+            "confidence": "low",
+            "correlation_found": False,
+            "source": {
+                "step_number": orphan.get("step_number"),
+                "step_label": orphan.get("step_label"),
+                "entry_index": orphan.get("entry_index"),
+                "request_id": orphan.get("request_id"),
+                "request_method": orphan.get("request_method"),
+                "request_url": orphan.get("request_url"),
+                "response_status": None,
+                "source_location": orphan.get("source_location"),
+                "source_key": orphan.get("source_key"),
+                "source_json_path": None,
+                "response_example_value": "[REDACTED_JWT]",
+            },
+            "usages": [],
+            "parameterization_hint": {
+                "strategy": "extract_and_reuse",
+                "reason": (
+                    "Progressive auth token — response body was likely empty in capture. "
+                    "Add a RegEx extractor on the prior step's response to capture this JWT."
+                ),
+            },
+            "notes": orphan.get("note", ""),
+        }
+
+        correlations.append(correlation)
+
     # Build summary
     summary = {
         "total_correlations": len(correlations),
@@ -600,11 +639,12 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
         "token_chains": sum(1 for c in correlations if c.get("type") == "token_chain"),
         "static_headers": sum(1 for c in correlations if c.get("type") == "static_header"),
         "orphan_ids": sum(1 for c in correlations if c.get("type") == "orphan_id"),
+        "progressive_auth": sum(1 for c in correlations if c.get("type") == "progressive_auth"),
         "high_confidence": sum(1 for c in correlations if c.get("confidence") == "high"),
         "medium_confidence": sum(1 for c in correlations if c.get("confidence") == "medium"),
         "low_confidence": sum(1 for c in correlations if c.get("confidence") == "low"),
     }
-    
+
     return correlations, summary
 
 
@@ -681,12 +721,15 @@ async def analyze_traffic(test_run_id: str, ctx: Context) -> Dict[str, Any]:
                 strategy = corr.get("parameterization_hint", {}).get(
                     "strategy", "user_defined_variable"
                 )
-                naming_orphans.append({
+                orphan_entry = {
                     "correlation_id": corr.get("correlation_id"),
                     "variable_name": var_name,
                     "parameterization_strategy": strategy,
                     "source_request_id": source.get("request_id"),
-                })
+                }
+                if corr.get("type") == "progressive_auth":
+                    orphan_entry["note"] = corr.get("notes", "")
+                naming_orphans.append(orphan_entry)
 
         naming_output = {
             "application": JMETER_CONFIG.get("application_name", "unknown"),

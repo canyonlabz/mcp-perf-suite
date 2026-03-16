@@ -253,15 +253,24 @@ def _substitute_in_headers(headers: Dict[str, str], substitutions: List[Dict]) -
             continue
         
         jmeter_var = f"${{{var_name}}}"
-        
+        encoded_value = urllib.parse.quote(value, safe='')
+
         # If location_key specified, only substitute in that header
         if location_key and location_key in result_headers:
-            result_headers[location_key] = result_headers[location_key].replace(value, jmeter_var)
+            hdr_val = result_headers[location_key]
+            hdr_val = hdr_val.replace(value, jmeter_var)
+            if encoded_value != value:
+                hdr_val = hdr_val.replace(encoded_value, jmeter_var)
+            result_headers[location_key] = hdr_val
         else:
             # Otherwise, substitute in all headers
             for key in result_headers:
-                result_headers[key] = result_headers[key].replace(value, jmeter_var)
-    
+                hdr_val = result_headers[key]
+                hdr_val = hdr_val.replace(value, jmeter_var)
+                if encoded_value != value:
+                    hdr_val = hdr_val.replace(encoded_value, jmeter_var)
+                result_headers[key] = hdr_val
+
     return result_headers
 
 

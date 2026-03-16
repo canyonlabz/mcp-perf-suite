@@ -295,5 +295,18 @@ def _apply_orphan_substitutions_to_entry(
             entry["post_data"] = entry["post_data"].replace(encoded_value, jmeter_var)
             body = entry["post_data"]
             modified = True
-    
+
+        # Substitute in headers (e.g., orphan values in referer URLs)
+        headers = entry.get("headers")
+        if headers and isinstance(headers, dict):
+            for hdr_name, hdr_value in headers.items():
+                if not hdr_value or not isinstance(hdr_value, str):
+                    continue
+                if value in hdr_value:
+                    headers[hdr_name] = hdr_value.replace(value, jmeter_var)
+                    modified = True
+                elif encoded_value in hdr_value and encoded_value != value:
+                    headers[hdr_name] = hdr_value.replace(encoded_value, jmeter_var)
+                    modified = True
+
     return modified

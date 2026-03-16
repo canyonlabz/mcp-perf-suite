@@ -202,6 +202,12 @@ def generate_variable_name(
     if value_type == "timestamp":
         return _make_unique(_resolve_timestamp_name(request_url, ts_patterns))
 
+    # 4.5. SAML param handling — use source_key directly (e.g. SAMLRequest → saml_request)
+    if value_type and value_type.startswith("saml_"):
+        if source_key:
+            return _make_unique(camel_to_snake(source_key))
+        return _make_unique(value_type)
+
     # 5. Algorithmic conversion
     if source_key:
         return _make_unique(camel_to_snake(source_key))
@@ -213,6 +219,8 @@ def generate_variable_name(
         return _make_unique("path_id")
     if value_type == "email":
         return _make_unique("user_email")
+    if value_type == "progressive_auth":
+        return _make_unique("auth_token")
     return _make_unique("corr_var")
 
 

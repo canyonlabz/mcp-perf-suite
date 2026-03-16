@@ -28,6 +28,8 @@ from .constants import (
     OAUTH_TOKEN_FIELDS,
     OAUTH_URL_PARAMS,
     PKCE_PARAMS,
+    SAML_PARAMS,
+    SAML_PARAM_VALUE_TYPES,
     SKIP_HEADERS_SOURCE,
 )
 from .utils import walk_json
@@ -94,17 +96,29 @@ def extract_from_redirect_url(
         query_params = parse_qs(parsed.query)
         
         for param_name, values in query_params.items():
+            param_lower = param_name.lower()
             for val in values:
-                # Check if it's an OAuth param (flag for Phase 2)
-                is_oauth = param_name.lower() in OAUTH_PARAMS
-                
-                if is_id_like_value(val) or is_oauth:
-                    if is_oauth:
+                is_oauth = param_lower in OAUTH_PARAMS
+                is_saml = param_lower in SAML_PARAMS
+
+                if is_id_like_value(val) or is_oauth or is_saml:
+                    if is_saml:
+                        value_type = SAML_PARAM_VALUE_TYPES.get(
+                            param_lower, "saml_param"
+                        )
+                    elif is_oauth:
                         value_type = OAUTH_PARAM_VALUE_TYPES.get(
-                            param_name.lower(), "oauth_param"
+                            param_lower, "oauth_param"
                         )
                     else:
                         value_type = classify_value_type(val)
+
+                    if is_saml:
+                        candidate_type = "saml_param"
+                    elif is_oauth:
+                        candidate_type = "oauth_param"
+                    else:
+                        candidate_type = "business_id"
 
                     candidates.append({
                         "entry_index": entry_index,
@@ -119,7 +133,7 @@ def extract_from_redirect_url(
                         "source_json_path": None,
                         "value": val,
                         "value_type": value_type,
-                        "candidate_type": "oauth_param" if is_oauth else "business_id",
+                        "candidate_type": candidate_type,
                     })
     except Exception:
         pass  # Skip malformed URLs
@@ -531,7 +545,7 @@ def _extract_oauth_from_url(
         param_lower = param_name.lower()
 
         for val in values:
-            if param_lower in OAUTH_URL_PARAMS:
+            if param_lower in OAUTH_URL_PARAMS or param_lower in SAML_PARAMS:
                 results.append((param_name, val))
 
             # Recursively parse nested URLs (goto=, redirect_uri=, etc.)
