@@ -136,12 +136,14 @@ def generate_variable_name(
     value_type: Optional[str],
     source_location: Optional[str],
     request_url: Optional[str] = None,
+    suggested_name: Optional[str] = None,
 ) -> str:
     """
     Generate a deterministic JMeter variable name for a correlation.
 
     Resolution order:
-      1. Custom mappings (highest priority — user overrides)
+      0. Suggested name (from cookie sanitization, form_post extraction, etc.)
+      1. Custom mappings (highest priority user overrides)
       2. OAuth param lookup
       3. OAuth token field lookup
       4. Timestamp pattern lookup (for orphan epoch timestamps)
@@ -152,10 +154,16 @@ def generate_variable_name(
         value_type: The classified value type (e.g. "oauth_nonce", "timestamp")
         source_location: Where the value was found (e.g. "response_json")
         request_url: The request URL (used for timestamp URL-pattern matching)
+        suggested_name: Pre-computed name from upstream extraction (e.g. cookie
+                        sanitizer). Takes priority over all config lookups.
 
     Returns:
         A unique snake_case variable name suitable for JMeter.
     """
+    # 0. Suggested name from upstream extraction logic
+    if suggested_name:
+        return _make_unique(suggested_name)
+
     cfg = _naming_section()
     custom = cfg.get("custom_mappings", {}) or {}
     oauth_params = cfg.get("oauth_params", {}) or {}
@@ -285,11 +293,14 @@ def generate_correlation_naming_entry(
     source_json_path = source.get("source_json_path")
     request_url = source.get("request_url")
 
+    suggested = correlation.get("suggested_var_name")
+
     var_name = generate_variable_name(
         source_key=source_key,
         value_type=value_type,
         source_location=source_location,
         request_url=request_url,
+        suggested_name=suggested,
     )
 
     ext_cfg = generate_extractor_config(
