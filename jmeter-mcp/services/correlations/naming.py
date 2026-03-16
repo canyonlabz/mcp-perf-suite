@@ -206,7 +206,11 @@ def generate_variable_name(
     if source_key:
         return _make_unique(camel_to_snake(source_key))
 
-    # Fallback for correlations with no source_key
+    # Fallback for correlations with no source_key — use value_type for context
+    if value_type == "business_id_guid":
+        return _make_unique("path_guid")
+    if value_type == "business_id_numeric":
+        return _make_unique("path_id")
     return _make_unique("corr_var")
 
 
@@ -324,5 +328,6 @@ def generate_correlation_naming_entry(
         "jmeter_extractor_type": ext_cfg["extractor_type"],
         "jmeter_extractor_expression": ext_cfg["expression"],
         "jmeter_extractor_name": ext_cfg["extractor_name"],
+        "source_request_id": source.get("request_id"),
         "source_request_url": request_url,
     }

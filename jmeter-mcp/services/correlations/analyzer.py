@@ -685,6 +685,7 @@ async def analyze_traffic(test_run_id: str, ctx: Context) -> Dict[str, Any]:
                     "correlation_id": corr.get("correlation_id"),
                     "variable_name": var_name,
                     "parameterization_strategy": strategy,
+                    "source_request_id": source.get("request_id"),
                 })
 
         naming_output = {
