@@ -9,11 +9,24 @@ of the core JMeter component utilities.
 import xml.etree.ElementTree as ET
 import datetime
 import os
+import re
 import urllib.parse
 from xml.dom import minidom
 from services.jmx.config_elements import (
     create_header_manager
 )
+
+_JMETER_VAR_RE = re.compile(r'\$\{')
+
+
+def _sanitize_label(name: str) -> str:
+    """Strip the '$' from JMeter variable references in sampler names.
+
+    Converts '${var}' to '{var}' so JMeter treats the name as a literal
+    string at runtime, keeping aggregate report grouping intact across
+    multiple virtual users.
+    """
+    return _JMETER_VAR_RE.sub('{', name)
 
 # === HTTP Sampler for GET Requests ===
 def create_http_sampler_get(entry, hostname_var_map=None, exclude_http2_pseudo_headers=True, testname_prefix=None):
@@ -45,6 +58,7 @@ def create_http_sampler_get(entry, hostname_var_map=None, exclude_http2_pseudo_h
     # Build sampler name with optional prefix for naming convention
     base_name = f"{method.upper()} {base_path}"
     testname = f"{testname_prefix}_{base_name}" if testname_prefix else base_name
+    testname = _sanitize_label(testname)
     
     sampler = ET.Element("HTTPSamplerProxy", attrib={
         "guiclass": "HttpTestSampleGui",
@@ -91,6 +105,7 @@ def create_http_sampler_with_body(entry, hostname_var_map=None, exclude_http2_ps
     # Build sampler name with optional prefix for naming convention
     base_name = f"{method.upper()} {base_path}"
     testname = f"{testname_prefix}_{base_name}" if testname_prefix else base_name
+    testname = _sanitize_label(testname)
 
     # Create the HTTPSamplerProxy element
     sampler = ET.Element("HTTPSamplerProxy", attrib={
