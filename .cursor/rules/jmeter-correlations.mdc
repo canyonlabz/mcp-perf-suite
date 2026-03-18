@@ -6,9 +6,51 @@ alwaysApply: false
 
 ## Purpose
 
-Given a `correlation_spec.json` file produced by the JMeter MCP's `analyze_network_traffic` tool,
-generate a `correlation_naming.json` object that assigns meaningful, consistent JMeter variable 
-names and hints for each `correlation_id`.
+The `correlation_naming.json` file maps each `correlation_id` from the correlation spec to a
+meaningful JMeter variable name, extractor type, and extractor expression. This file is consumed
+by `generate_jmeter_script` to produce the parameterized JMX.
+
+### How `correlation_naming.json` Is Generated
+
+The `analyze_network_traffic` MCP tool **automatically generates** `correlation_naming.json` as
+Phase 4 of the correlation analysis pipeline. The algorithmic naming engine (`naming.py`) applies
+deterministic rules to assign variable names:
+
+1. **Custom mappings** from `correlation_config.yaml` (highest priority)
+2. **OAuth parameter lookups** (e.g., `state` → `oauth_state`)
+3. **OAuth token field lookups** (e.g., `cdssotoken` → `cdsso_token`)
+4. **Timestamp URL-pattern matching** (e.g., SignalR URLs → `signalr_timestamp_N`)
+5. **Algorithmic camelCase → snake_case conversion** (e.g., `entityGuid` → `entity_guid`)
+6. **De-duplication suffixes** when the same base name is assigned to multiple correlations
+
+### Configuration File: `correlation_config.yaml`
+
+The naming engine reads customizable mappings from `jmeter-mcp/correlation_config.yaml`.
+If that file does not exist, it falls back to `jmeter-mcp/correlation_config.example.yaml`.
+
+To customize naming for your application:
+1. Copy `correlation_config.example.yaml` to `correlation_config.yaml`
+2. Add entries under `naming.custom_mappings` for application-specific field names
+3. The local `correlation_config.yaml` is git-ignored
+
+Example custom mapping:
+```yaml
+naming:
+  custom_mappings:
+    entityGuid: "product_guid"
+    productDataSourceId: "data_source_id"
+```
+
+### When This Cursor Rule Applies
+
+This rule is used when:
+- The user wants to **review and adjust** the auto-generated `correlation_naming.json`
+- The user wants to **regenerate** the naming file manually (e.g., after adding custom mappings)
+- The user wants to **create** a `correlation_naming.json` from scratch for a `correlation_spec.json`
+  that was produced by an older version of the tool (before algorithmic naming was added)
+
+The naming conventions below serve as the reference standard for both the algorithmic engine
+and any manual AI-assisted adjustments.
 
 ## Input Schema (correlation_spec.json)
 
@@ -285,6 +327,23 @@ When `source_location: "request_url_path"` and `source_key: null`:
 
 ## Instructions
 
+### Scenario A: Reviewing Auto-Generated `correlation_naming.json`
+
+When `analyze_network_traffic` has already produced a `correlation_naming.json`:
+
+1. Read the existing `correlation_naming.json` and the corresponding `correlation_spec.json`.
+2. Review each variable name for clarity and accuracy:
+   - Does the name reflect the domain entity? (e.g., `entity_guid` for an entity GUID)
+   - Are OAuth parameters using the standard names from the table above?
+   - Are orphan variables descriptively named (not generic like `corr_var`)?
+3. If adjustments are needed, update the `correlation_naming.json` directly.
+4. If the same pattern will recur in future analyses, suggest adding a `custom_mappings`
+   entry to `correlation_config.yaml` so the algorithmic engine handles it automatically.
+
+### Scenario B: Generating `correlation_naming.json` from Scratch
+
+When no `correlation_naming.json` exists (e.g., older correlation specs):
+
 1. Read the entire `correlation_spec.json` file.
 
 2. For each correlation with `correlation_found: true`:
@@ -304,13 +363,15 @@ When `source_location: "request_url_path"` and `source_key: null`:
    - Provide `csv_column_suggestion`
    - **IMPORTANT:** Ensure orphan variable names are also unique
 
-4. **VALIDATE UNIQUENESS (MANDATORY STEP):**
-   - Before returning output, collect ALL variable_name values from both `variables` and `orphan_variables`
+### Validation (MANDATORY — Both Scenarios)
+
+4. **VALIDATE UNIQUENESS:**
+   - Collect ALL variable_name values from both `variables` and `orphan_variables`
    - Verify there are NO duplicates
    - If duplicates exist, rename using more specific context (source_key, location_key, step_number suffix)
    - Example: If two correlations both want `transaction_id`, rename to `request_transaction_id` and `response_transaction_id`
 
-5. **VALIDATE VARIABLE NAMES (MANDATORY STEP):**
+5. **VALIDATE VARIABLE NAMES:**
    - Check that NO variable_name is empty (`""`)
    - Check that NO variable_name is just a number suffix (`_22`, `_23`)
    - Check that NO variable_name is overly generic (`value`, `value_19`, `id`)
