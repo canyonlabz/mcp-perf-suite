@@ -198,7 +198,10 @@ def extract_from_json_body(
         # Skip if already added as OAuth token
         if key_name.lower() in oauth_token_fields_lower:
             continue
-            
+
+        if value is None:
+            continue
+
         value_str = str(value) if value is not None else ""
         
         if is_id_like_value(value):

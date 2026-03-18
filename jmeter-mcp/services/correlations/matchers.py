@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Set, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from .classifiers import classify_value_type
-from .constants import EMAIL_RE, GUID_RE, JWT_RE, NUMERIC_ID_RE, SKIP_HEADERS_USAGE, ID_KEY_PATTERNS, SAML_PARAMS
+from .constants import EMAIL_RE, GUID_RE, JWT_RE, NUMERIC_ID_RE, SKIP_HEADERS_USAGE, SKIP_VALUES, ID_KEY_PATTERNS, SAML_PARAMS
 from .utils import value_matches, walk_json_all_values
 
 
@@ -106,6 +106,8 @@ def find_usage_in_body(value_str: str, post_data: str) -> List[Dict[str, Any]]:
         # Search ALL values in JSON, not just ID-like keys
         for json_path, value, key_name in walk_json_all_values(json_data):
             str_value = str(value)
+            if str_value.lower() in SKIP_VALUES:
+                continue
             # Use EXACT match for JSON values to avoid false positives
             if str_value == value_str:
                 usages.append({
