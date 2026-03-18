@@ -75,6 +75,14 @@ MIN_NUMERIC_ID_LENGTH = 2
 # Maximum depth for JSON traversal
 MAX_JSON_DEPTH = 5
 
+# Static sentinel values that should never be treated as dynamic correlations.
+# Covers JSON null/true/false, Python str(None), empty strings, and common
+# default integers. All comparisons should use .lower() before checking.
+SKIP_VALUES: frozenset = frozenset({
+    "null", "true", "false", "", "none", "undefined",
+    "0", "-1",
+})
+
 
 # === OAuth Configuration ===
 

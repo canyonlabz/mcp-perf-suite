@@ -121,7 +121,7 @@ def walk_json(obj: Any, path: str = "$", depth: int = 0) -> List[Tuple[str, Any,
             # Check if key looks like an ID field
             if ID_KEY_PATTERNS.search(key):
                 # Only add if value is a primitive
-                if isinstance(value, (str, int, float, bool)) or value is None:
+                if isinstance(value, (str, int, float, bool)):
                     results.append((new_path, value, key))
             # Recurse into nested objects
             if isinstance(value, (dict, list)):
@@ -153,7 +153,7 @@ def walk_json_all_values(obj: Any, path: str = "$", depth: int = 0) -> List[Tupl
         for key, value in obj.items():
             new_path = f"{path}.{key}"
             # Add all primitive values
-            if isinstance(value, (str, int, float, bool)) or value is None:
+            if isinstance(value, (str, int, float, bool)):
                 results.append((new_path, value, key))
             # Recurse into nested objects
             if isinstance(value, (dict, list)):
@@ -162,7 +162,7 @@ def walk_json_all_values(obj: Any, path: str = "$", depth: int = 0) -> List[Tupl
     elif isinstance(obj, list):
         for i, item in enumerate(obj):
             new_path = f"{path}[{i}]"
-            if isinstance(item, (str, int, float, bool)) or item is None:
+            if isinstance(item, (str, int, float, bool)):
                 results.append((new_path, item, f"[{i}]"))
             if isinstance(item, (dict, list)):
                 results.extend(walk_json_all_values(item, new_path, depth + 1))
