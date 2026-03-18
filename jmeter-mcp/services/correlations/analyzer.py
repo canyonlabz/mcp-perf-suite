@@ -20,6 +20,7 @@ from utils.config import load_config, load_jmeter_config
 from utils.file_utils import get_jmeter_artifacts_dir, save_correlation_spec, save_json_file
 
 from .classifiers import classify_parameterization_strategy
+from .constants import SKIP_VALUES
 from .extractors import (
     detect_static_api_key_headers,
     detect_token_exchanges,
@@ -536,6 +537,8 @@ def _find_correlations(network_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any
     for orphan in orphan_candidates:
         # Count occurrences of this value across all entries
         value_str = str(orphan["value"])
+        if value_str.strip().lower() in SKIP_VALUES:
+            continue
         occurrence_count = 1
         for _, _, _, entry in entries:
             url = entry.get("url", "")

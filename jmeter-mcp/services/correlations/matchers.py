@@ -286,6 +286,8 @@ def extract_ids_from_request_url(url: str) -> List[Dict[str, Any]]:
         query_params = parse_qs(parsed.query)
         for param_name, values in query_params.items():
             for val in values:
+                if val.strip().lower() in SKIP_VALUES:
+                    continue
                 # Extract if value looks like an ID (numeric or GUID)
                 value_is_id = NUMERIC_ID_RE.match(val) or GUID_RE.match(val)
                 
