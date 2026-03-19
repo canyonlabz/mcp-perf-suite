@@ -17,7 +17,7 @@ This document explains how the JMeter MCP Server's correlation analysis engine d
    - [Phase 3: Orphan ID Detection](#phase-3-orphan-id-detection)
 4. [Value Classification](#value-classification)
 5. [Parameterization Strategies](#parameterization-strategies)
-6. [AI Human-in-the-Loop (HITL) Naming](#ai-human-in-the-loop-hitl-naming)
+6. [Correlation Naming](#correlation-naming)
 7. [JMX Script Generation](#jmx-script-generation)
 8. [Helper Module Reference](#helper-module-reference)
 9. [End-to-End Workflow Example](#end-to-end-workflow-example)
@@ -83,21 +83,28 @@ The design is **vendor-agnostic** -- no infrastructure-specific references, vari
 │   ┌──────────────────────────────────────────────────┐  │
 │   │  Phase 3: detect_orphan_ids() ← matchers.py      │  │
 │   │  Values in requests with no identifiable source  │  │
+│   │  (SKIP_VALUES sentinel filter applied)           │  │
 │   └───────────────────────┬──────────────────────────┘  │
 │                           ▼                             │
 │   ┌──────────────────────────────────────────────────┐  │
 │   │  classify_parameterization_strategy()            │  │
 │   │  ← classifiers.py                                │  │
+│   └───────────────────────┬──────────────────────────┘  │
+│                           ▼                             │
+│   ┌──────────────────────────────────────────────────┐  │
+│   │  Phase 4: generate_naming() ← naming.py          │  │
+│   │  Algorithmic variable naming + de-duplication    │  │
 │   └──────────────────────────────────────────────────┘  │
 └────────────────────────┬────────────────────────────────┘
                          │
                          ▼
-              correlation_spec.json
+    correlation_spec.json + correlation_naming.json
                          │
+                    (optional)
                          ▼
          ┌───────────────────────────────┐
-         │  AI HITL: correlation_naming  │
-         │  (human reviews & confirms)   │
+         │  Human review: adjust names,  │
+         │  remove false positives       │
          └───────────────┬───────────────┘
                          │
                          ▼
@@ -119,8 +126,10 @@ The design is **vendor-agnostic** -- no infrastructure-specific references, vari
 | `extractors.py` | `services/correlations/` | Phase 1a/1b/1c/1d: source value extraction from responses and requests |
 | `matchers.py` | `services/correlations/` | Phase 2 & 3: forward usage detection, orphan ID detection |
 | `classifiers.py` | `services/correlations/` | Value type classification, parameterization strategy rules |
-| `constants.py` | `services/correlations/` | Regex patterns, header lists, OAuth parameter sets |
+| `naming.py` | `services/correlations/` | Algorithmic naming engine: config loading, camelCase→snake_case, variable generation |
+| `constants.py` | `services/correlations/` | Regex patterns, header lists, OAuth parameter sets, `SKIP_VALUES` sentinel filter |
 | `utils.py` | `services/correlations/` | URL normalization, value matching, JSON walking, domain exclusion |
+| `correlation_config.yaml` | `jmeter-mcp/` | Custom naming configuration: OAuth params, token fields, timestamp patterns, extractor templates |
 | `script_generator.py` | `services/` | Consumes spec + naming files to produce parameterized JMX |
 | `extractor_helpers.py` | `services/helpers/` | Correlation extractor element creation |
 | `substitution_helpers.py` | `services/helpers/` | Variable substitution in URLs, bodies, headers |
@@ -349,8 +358,9 @@ After all other phases have run, this phase catches ID-like values in request UR
 1. Scan all request URLs for ID-like values:
    - **Path segments**: numeric IDs or GUIDs
    - **Query parameters**: values that are numeric/GUID format, OR parameters whose name matches ID patterns (e.g., `appGuid`, `userId`) with non-trivial values (length ≥ 2)
-2. Skip values already in `known_source_values` (detected by earlier phases)
-3. Deduplicate by value (keep first occurrence)
+2. **Sentinel value filter (`SKIP_VALUES`)**: skip values that represent null/empty/boolean sentinels rather than real dynamic IDs. The following values are excluded (case-insensitive): `"null"`, `"true"`, `"false"`, `""`, `"none"`, `"undefined"`, `"0"`, `"-1"`. This filter is also applied defense-in-depth in the JSON walkers (`utils.py`), source extractors (`extractors.py`), and usage matchers (`matchers.py`).
+3. Skip values already in `known_source_values` (detected by earlier phases)
+4. Deduplicate by value (keep first occurrence)
 
 Orphan IDs are classified as `low` confidence since no source was found.
 
@@ -406,16 +416,46 @@ Each correlation is assigned a parameterization strategy that tells the JMX gene
 
 ---
 
-## AI Human-in-the-Loop (HITL) Naming
+## Correlation Naming
 
-The correlation analysis engine produces raw correlation data with auto-generated IDs (`corr_1`, `corr_2`, ...). Before JMX generation, a human-reviewed step maps each correlation to a meaningful JMeter variable name.
+The correlation analysis engine produces raw correlation data with auto-generated IDs (`corr_1`, `corr_2`, ...). Before JMX generation, each correlation is mapped to a meaningful JMeter variable name.
+
+### Algorithmic Naming (Default)
+
+The `analyze_network_traffic` tool **automatically generates** `correlation_naming.json` as Phase 4 of the pipeline. The naming engine (`services/correlations/naming.py`) applies deterministic rules:
+
+1. **Custom mappings** from `correlation_config.yaml` (highest priority, user-local)
+2. **OAuth parameter lookups** (e.g., `state` → `oauth_state`)
+3. **OAuth token field lookups** (e.g., `cdssotoken` → `cdsso_token`)
+4. **Timestamp URL-pattern matching** (e.g., SignalR URLs → `signalr_timestamp_N`)
+5. **Algorithmic camelCase → snake_case conversion** (e.g., `entityGuid` → `entity_guid`)
+6. **De-duplication suffixes** when the same base name is assigned to multiple correlations
+
+### Configuration: `correlation_config.yaml`
+
+The naming engine reads customizable mappings from `jmeter-mcp/correlation_config.yaml`. If that file does not exist, it falls back to `jmeter-mcp/correlation_config.example.yaml`. The config supports:
+
+- `naming.custom_mappings` — application-specific field-to-variable overrides
+- `naming.oauth_params` — OAuth parameter → variable name table
+- `naming.oauth_token_fields` — token response field → variable name table
+- `naming.timestamp_patterns` — URL substring → timestamp variable prefix
+- `naming.extractor_types` — source location → JMeter extractor type
+- `naming.regex_templates` — regex expression templates per source location
+
+### Optional Human Review
+
+After auto-generation, the user can review and adjust `correlation_naming.json`:
+- Rename variables for domain clarity
+- Remove false positives
+- Add entries to `correlation_config.yaml` for recurring patterns
+
+The Cursor Skill at `.cursor/skills/jmeter-correlation-naming/` provides guidance for reviewing and adjusting the auto-generated output.
 
 ### Workflow
 
-1. **`analyze_network_traffic`** (MCP tool) → produces `correlation_spec.json`
-2. **AI generates** `correlation_naming.json` following naming rules in `.cursor/rules/jmeter-correlations.mdc`
-3. **Human reviews** the naming file: confirms, adjusts variable names, or removes false positives
-4. **`generate_jmeter_script`** (MCP tool) → consumes both files to produce the JMX
+1. **`analyze_network_traffic`** (MCP tool) → produces `correlation_spec.json` + `correlation_naming.json`
+2. **Human reviews** (optional): adjusts variable names or removes false positives
+3. **`generate_jmeter_script`** (MCP tool) → consumes both files to produce the JMX
 
 ### `correlation_spec.json` Structure
 
@@ -599,9 +639,9 @@ The analyzer detects:
 - `corr_6`: `api_key` from static header `x-api-key` → `user_defined_variable`
 - `corr_7`: `timestamp` orphan from SignalR `_` parameter → `timestamp_preprocessor`
 
-### 3. AI HITL Naming
+### 3. Algorithmic Naming (Phase 4)
 
-The AI generates `correlation_naming.json` mapping each correlation to a JMeter variable:
+The naming engine auto-generates `correlation_naming.json` mapping each correlation to a JMeter variable:
 
 | Correlation | Variable Name | Extractor |
 |-------------|---------------|-----------|
@@ -631,4 +671,4 @@ The generated JMX includes:
 
 ---
 
-*Last Updated: March 7, 2026*
+*Last Updated: March 18, 2026*

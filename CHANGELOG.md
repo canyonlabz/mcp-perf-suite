@@ -44,6 +44,10 @@ This document summarizes the enhancements and new features added to the MCP Perf
   - [6.3 Design Decisions](#63-design-decisions)
   - [6.4 Configuration](#64-configuration)
   - [6.5 Files Created/Modified](#65-files-createdmodified)
+- [7. Correlation Analysis Improvements (v0.7.0)](#7-correlation-analysis-improvements-v070)
+  - [7.1 Algorithmic Correlation Naming](#71-algorithmic-correlation-naming)
+  - [7.2 Sampler Name Sanitization](#72-sampler-name-sanitization)
+  - [7.3 Correlation Null Value Filter](#73-correlation-null-value-filter)
 - [Previous Changelogs](#previous-changelogs)
 
 ---
@@ -538,6 +542,89 @@ blazemeter:
 
 ---
 
+## 7. Correlation Analysis Improvements (v0.7.0)
+
+### 7.1 Algorithmic Correlation Naming
+
+Replaced the non-deterministic AI-generated correlation naming workflow with a deterministic algorithmic engine. The `analyze_network_traffic` tool now **auto-generates** `correlation_naming.json` as Phase 4 of the correlation analysis pipeline, eliminating the need for a separate AI naming step.
+
+**Naming resolution order:**
+
+1. Custom mappings from `correlation_config.yaml` (user-local, highest priority)
+2. OAuth parameter lookups (e.g., `state` → `oauth_state`)
+3. OAuth token field lookups (e.g., `cdssotoken` → `cdsso_token`)
+4. Timestamp URL-pattern matching (e.g., SignalR URLs → `signalr_timestamp_N`)
+5. Algorithmic camelCase → snake_case conversion (e.g., `entityGuid` → `entity_guid`)
+6. De-duplication suffixes when the same base name is assigned to multiple correlations
+
+**Configuration file:** `jmeter-mcp/correlation_config.yaml` (falls back to `correlation_config.example.yaml`). Supports custom field-to-variable mappings, OAuth param tables, timestamp patterns, and extractor type/regex templates.
+
+The Cursor Rule (`jmeter-correlations.mdc`) has been migrated to a Cursor Skill (`.cursor/skills/jmeter-correlation-naming/`) for reduced context overhead. The rule file remains as a thin redirect for backward compatibility.
+
+#### Files Created
+
+| File | Purpose |
+|------|---------|
+| `jmeter-mcp/services/correlations/naming.py` | Algorithmic naming engine: config loading, camelCase→snake_case, variable generation, extractor config, de-duplication |
+| `jmeter-mcp/correlation_config.example.yaml` | Default naming configuration: OAuth params, token fields, custom mappings, timestamp patterns, extractor templates |
+| `.cursor/skills/jmeter-correlation-naming/SKILL.md` | Cursor Skill for correlation naming review/adjustment |
+| `.cursor/skills/jmeter-correlation-naming/naming-conventions.md` | Reference: schemas, naming tables, OAuth params, orphan rules, examples |
+
+#### Files Modified
+
+| File | Changes |
+|------|---------|
+| `jmeter-mcp/services/correlations/analyzer.py` | Added Phase 4: algorithmic naming generation after correlation detection |
+| `.cursor/rules/jmeter-correlations.mdc` | Replaced 477-line rule with thin stub redirecting to the Cursor Skill |
+
+---
+
+### 7.2 Sampler Name Sanitization
+
+HTTP Sampler `testname` attributes previously contained JMeter variable references (e.g., `${product_guid_2}`) because sampler names were derived from the URL path after variable substitution. At runtime, JMeter resolved these to unique values per virtual user, fracturing aggregate report grouping — each user produced a separate row instead of grouping under a single label.
+
+**Fix:** A `_sanitize_label()` helper strips the `$` from `${variable}` references in sampler names, converting them to `{variable}`. JMeter does not evaluate `{...}` (only `${...}`), so all virtual users share the same static label while preserving variable-name readability.
+
+| Aspect | Before | After |
+|--------|--------|-------|
+| Sampler name in JMX | `TC01_S03_GET /app/api/products/${product_guid_2}` | `TC01_S03_GET /app/api/products/{product_guid_2}` |
+| Aggregate report rows (100 users) | 100 rows per parameterized sampler | 1 row per sampler |
+
+#### Files Modified
+
+| File | Changes |
+|------|---------|
+| `jmeter-mcp/services/jmx/samplers.py` | Added `_JMETER_VAR_RE` regex, `_sanitize_label()` helper; applied to `testname` in both `create_http_sampler_get` and `create_http_sampler_with_body` |
+
+---
+
+### 7.3 Correlation Null Value Filter
+
+The correlation algorithm incorrectly treated JSON `null` values, empty strings, booleans, and common sentinel values (`0`, `-1`, `"undefined"`) as dynamic values requiring parameterization. This produced orphan correlations with no source extractor, breaking requests at runtime.
+
+**Fix:** Added a `SKIP_VALUES` frozenset of static sentinel values and applied guards at four levels of the pipeline (defense-in-depth):
+
+| Level | File | Guard |
+|-------|------|-------|
+| JSON walkers | `utils.py` | Stopped yielding `None` values from `walk_json` and `walk_json_all_values` |
+| Source extraction | `extractors.py` | Explicit `None` guard in `extract_from_json_body` |
+| Usage detection | `matchers.py` | `SKIP_VALUES` check in `find_usage_in_body` |
+| Orphan detection | `matchers.py` + `analyzer.py` | `SKIP_VALUES` check in `extract_ids_from_request_url` (primary fix) and Phase 3 orphan loop (defense-in-depth) |
+
+**SKIP_VALUES:** `"null"`, `"true"`, `"false"`, `""`, `"none"`, `"undefined"`, `"0"`, `"-1"`
+
+#### Files Modified
+
+| File | Changes |
+|------|---------|
+| `jmeter-mcp/services/correlations/constants.py` | Added `SKIP_VALUES` frozenset |
+| `jmeter-mcp/services/correlations/utils.py` | Removed `or value is None` from `walk_json` and `walk_json_all_values` (3 locations) |
+| `jmeter-mcp/services/correlations/extractors.py` | Added `None` guard in `extract_from_json_body` |
+| `jmeter-mcp/services/correlations/matchers.py` | Added `SKIP_VALUES` checks in `find_usage_in_body` and `extract_ids_from_request_url` |
+| `jmeter-mcp/services/correlations/analyzer.py` | Added `SKIP_VALUES` import and check in Phase 3 orphan loop |
+
+---
+
 ## Previous Changelogs
 
 | Month | File | Highlights |
@@ -547,4 +634,4 @@ blazemeter:
 
 ---
 
-*Last Updated: March 8, 2026*
+*Last Updated: March 18, 2026*
