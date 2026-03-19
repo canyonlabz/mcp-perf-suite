@@ -324,8 +324,8 @@ streamlit-ui/config.yaml
 
 # Ignore all custom Cursor Skills files, except the below
 .cursor/skills/*
-!cursor/skills/jmeter-correlation-naming/SKILL.md
-!cursor/skills/jmeter-correlation-naming/naming-conventions.md
+!.cursor/skills/jmeter-correlation-naming/SKILL.md
+!.cursor/skills/jmeter-correlation-naming/naming-conventions.md
 
 # Temp test files
 scripts/*
