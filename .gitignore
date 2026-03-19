@@ -322,6 +322,11 @@ streamlit-ui/config.yaml
 !.cursor/rules/jmeter-hitl-editing.mdc
 !.cursor/rules/jmeter-script-debugging.mdc
 
+# Ignore all custom Cursor Skills files, except the below
+.cursor/skills/*
+!cursor/skills/jmeter-correlation-naming/SKILL.md
+!cursor/skills/jmeter-correlation-naming/naming-conventions.md
+
 # Temp test files
 scripts/*
 test_datadog.py
