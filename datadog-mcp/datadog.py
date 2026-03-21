@@ -9,6 +9,7 @@ from services.datadog_api import (
 )
 from services.datadog_logs import collect_logs
 from services.datadog_apm import collect_apm_traces
+from services.datadog_timeseries import collect_kpi_timeseries
 
 mcp = FastMCP(name="datadog")
 
@@ -68,14 +69,23 @@ async def get_kubernetes_metrics(env_name: str, start_time: str, end_time: str, 
     """
     return await collect_kubernetes_metrics(env_name, start_time, end_time, run_id, ctx)
 
-@mcp.tool(enabled=False)
-async def get_kpi_timeseries(env_name: str, start_time: str, end_time: str, run_id: str, ctx: Context) -> Dict[str, Any]:
+@mcp.tool()
+async def get_kpi_timeseries(
+    env_name: str,
+    query_names: List[str],
+    start_time: str,
+    end_time: str,
+    run_id: str,
+    ctx: Context,
+    scope: Optional[str] = None,
+) -> Dict[str, Any]:
     """
-    Retrieves one or more KPI timeseries from Datadog for the specified environment
-    and time window using custom query definitions.
+    Retrieves KPI timeseries from Datadog using custom query definitions
+    from the kpi_queries section in custom_queries.json.
 
     Args:
         env_name (str): Environment short name (e.g., 'QA', 'UAT').
+        query_names (List[str]): List of query group keys from kpi_queries in custom_queries.json.
         start_time (str): Start timestamp in UTC. Accepts:
             - Epoch seconds ("1761933994")
             - ISO 8601 ("2025-10-31T14:06:34Z")
@@ -84,12 +94,12 @@ async def get_kpi_timeseries(env_name: str, start_time: str, end_time: str, run_
         end_time (str): End timestamp in UTC, same formats as start_time.
         run_id (str): Test run identifier for artifacts (e.g., BlazeMeter run_id).
         ctx (Context, optional): Workflow context for chaining state/status/errors.
+        scope (str, optional): "host" or "k8s". Auto-detected from environment if omitted.
 
     Returns:
-        dict: Contains a list of CSV output files for KPI timeseries
-              and high-level summary statistics per KPI.
+        dict: Contains list of CSV output files and high-level summary per KPI.
     """
-    #return await collect_kpi_timeseries(env_name, start_time, end_time, run_id, ctx)
+    return await collect_kpi_timeseries(env_name, query_names, start_time, end_time, run_id, ctx, scope)
 
 @mcp.tool()
 async def get_logs(env_name: str, start_time: str, end_time: str, query_type: str, run_id: str, ctx: Context, custom_query: Optional[str] = None) -> dict:

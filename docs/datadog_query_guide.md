@@ -1,4 +1,4 @@
-# 📘 Datadog APM & Log Query Guide
+# 📘 Datadog APM, Log & KPI Timeseries Query Guide
 
 ### *A visual & intuitive guide to building queries inside the Datadog MCP Server*
 
@@ -207,5 +207,183 @@ datadog-mcp/custom_queries.json
   "query_type": "service_errors",
   "start_time": "2024-12-05T00:00:00Z",
   "end_time": "2024-12-05T23:59:59Z"
+}
+```
+
+---
+
+## 📈 10. KPI Timeseries Queries (`kpi_queries`)
+
+The `get_kpi_timeseries` tool executes custom Datadog V2 timeseries queries defined in the `kpi_queries` section of `custom_queries.json`. It outputs standardized CSV files using the same 10-column schema as CPU/Memory tools.
+
+---
+
+### 📈 10.1 Template Syntax: Double Curly Braces `{{placeholder}}`
+
+KPI queries use `{{placeholder}}` syntax for dynamic value substitution. Double curly braces are used to avoid conflicts with Datadog's native tag filter syntax which uses single curly braces `{}`.
+
+**Supported Placeholders:**
+
+| Placeholder | Source | Used For |
+| --- | --- | --- |
+| `{{env_tag}}` | `env_config["env_tag"]` | All queries |
+| `{{service_filter}}` | k8s service's `service_filter` or `kube_service` | K8s service queries |
+| `{{hostname}}` | host's `hostname` | Host-based queries |
+| `{{kube_namespace}}` | `env_config["kube_namespace"]` or `namespace` | K8s pod queries |
+| `{{pod_filter}}` | pod's `pod_filter` or `kube_service` | K8s pod queries |
+
+**Placeholder-driven iteration:** The presence of entity-level placeholders determines how many times the query executes. For example, a query containing `{{service_filter}}` will automatically iterate over all k8s services defined in the environment.
+
+---
+
+### 📈 10.2 Query Group Structure
+
+Each entry in `kpi_queries` is a **query group** — one or more related Datadog queries sent together in a single API call. The structure mirrors the Datadog V2 timeseries API body.
+
+```jsonc
+{
+  "kpi_queries": {
+    "latency_percentiles": {
+      "description": "Latency P90, P95, P99, Max",
+      "scope": "k8s",
+      "interval": 300000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "p90",
+          "query": "p90:trace.aspnet_core.request{env:{{env_tag}},service:{{service_filter}},span.kind:server}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "p95",
+          "query": "p95:trace.aspnet_core.request{env:{{env_tag}},service:{{service_filter}},span.kind:server}"
+        }
+      ],
+      "formulas": [
+        { "formula": "p90" },
+        { "formula": "p95" }
+      ]
+    }
+  }
+}
+```
+
+**Field Reference:**
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `description` | Yes | Human-readable label for the query group |
+| `scope` | No | `"k8s"` or `"host"`. Auto-detected from placeholders if omitted. |
+| `interval` | No | Rollup interval in milliseconds. Default: `300000` (5 min). |
+| `target_entity` | No | Entity name for static queries. Used in CSV filename. |
+| `queries` | Yes | Array of Datadog query objects. |
+| `queries[].data_source` | Yes | Always `"metrics"` for timeseries. |
+| `queries[].name` | Yes | Query reference name — becomes the `metric` column in CSV output. **Must be unique within the group.** |
+| `queries[].query` | Yes | Datadog metric query string. May contain `{{placeholders}}`. |
+| `formulas` | Yes | Array of formula objects referencing query names. |
+
+---
+
+### 📈 10.3 Naming Conventions for `queries[].name`
+
+The `name` field serves as both the formula reference for the Datadog API and the `metric` column value in CSV output. Use descriptive, unique names.
+
+When copying queries from Chrome DevTools, **replace generic names** like `"query1"` with meaningful identifiers:
+
+| Instead of | Use |
+| --- | --- |
+| `query1` (GC gen0) | `gc_size_gen0` |
+| `query1` (CPU user) | `dotnet_cpu_user` |
+| `query1` (connections) | `connections_total` |
+
+**Duplicate names are blocked:** If duplicate `name` values are found within a query group, the tool stops and requires you to fix the names before re-running.
+
+---
+
+### 📈 10.4 Static vs Template Queries
+
+**Template queries** contain `{{placeholder}}` tokens and iterate automatically over all matching entities in the environment.
+
+**Static queries** have hardcoded values (no placeholders) and execute once. They require a `target_entity` field for the CSV filename and are validated against the loaded environment's `env_tag` — a mismatch produces a **blocking error** that stops execution.
+
+**Static query example:**
+
+```jsonc
+{
+  "my_app_latency": {
+    "description": "My App - Latency P90 (hardcoded for QA)",
+    "scope": "k8s",
+    "target_entity": "my-app-web",
+    "interval": 300000,
+    "queries": [
+      {
+        "data_source": "metrics",
+        "name": "p90",
+        "query": "p90:trace.aspnet_core.request{env:my-qa-env.tag,service:my-app-web,span.kind:server}"
+      }
+    ],
+    "formulas": [{ "formula": "p90" }]
+  }
+}
+```
+
+---
+
+### 📈 10.5 CSV Output
+
+**Filename pattern:** `kpi_metrics_[entity_name].csv`
+
+**Schema (same 10-column format as CPU/Memory):**
+
+```csv
+env_name,env_tag,scope,hostname,filter,container_or_pod,timestamp_utc,metric,value,unit
+```
+
+**Data ordering:** Metric-type blocks — all datapoints for one metric are written chronologically before the next metric.
+
+**Group tag handling:**
+- Container/pod tags (`kube_container_name`, `kube_pod_name`, `kube_service`) go into the `container_or_pod` column
+- Non-container tags (e.g., `http.status_code`) are encoded into the `metric` column as `name[tag_key:tag_value]`
+
+**Example output (HTTP Errors with group tags):**
+
+```csv
+env_name,env_tag,scope,hostname,filter,container_or_pod,timestamp_utc,metric,value,unit
+NGC-QA,my.env.tag,k8s,,my-service,,2026-02-20T15:57:30,errors[http.status_code:415],4,errors
+NGC-QA,my.env.tag,k8s,,my-service,,2026-02-20T15:58:00,errors[http.status_code:415],3,errors
+```
+
+---
+
+### 📈 10.6 Backup on Re-Run
+
+When `get_kpi_timeseries` is invoked and KPI CSV files already exist, they are automatically backed up to `artifacts/{run_id}/datadog/backups/` with an incrementing suffix (e.g., `kpi_metrics_[entity]_000001.csv`) **before** any new API calls are made.
+
+---
+
+### 📈 10.7 Chrome DevTools Workflow
+
+To capture new KPI queries from Datadog:
+
+1. Open the Datadog dashboard with the desired KPI widget
+2. Open Chrome DevTools → Network tab
+3. Filter requests to `timeseries`
+4. Find the V2 timeseries request and copy the JSON payload
+5. Extract the `queries` and `formulas` arrays
+6. Replace hardcoded `env:` and `service:` values with `{{env_tag}}` and `{{service_filter}}` placeholders
+7. Rename any generic `"query1"` names to descriptive identifiers
+8. Add the entry to `kpi_queries` in `custom_queries.json`
+
+---
+
+### 📈 10.8 Example MCP Tool Usage
+
+```json
+{
+  "env_name": "QA",
+  "query_names": ["latency_percentiles", "gc_heap_size"],
+  "start_time": "2026-02-20T15:00:00Z",
+  "end_time": "2026-02-20T16:30:00Z",
+  "run_id": "81380224"
 }
 ```

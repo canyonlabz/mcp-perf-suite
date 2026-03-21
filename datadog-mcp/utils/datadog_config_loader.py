@@ -53,25 +53,26 @@ async def load_environment_json(env_name: str, ctx: Context) -> Dict[str, Any]:
 
 async def load_custom_queries_json() -> dict:
     """
-    Load custom Datadog APM and Log queries from custom_queries.json.
+    Load custom Datadog APM, Log, and KPI queries from custom_queries.json.
 
     The path is defined in config["datadog"]["custom_queries_json_path"].
-    Returns a dict with at least: { "apm_queries": {}, "log_queries": {} }.
+    Returns a dict with at least:
+        { "apm_queries": {}, "log_queries": {}, "kpi_queries": {} }.
     """
     if not queries_json_path:
-        # No custom queries configured; return empty structure
         return {
-            "schema_version": "1.0",
+            "schema_version": "2.0",
             "apm_queries": {},
-            "log_queries": {}
+            "log_queries": {},
+            "kpi_queries": {}
         }
 
     if not os.path.exists(queries_json_path):
-        # Fail soft – you can also choose to raise if you want
         return {
-            "schema_version": "1.0",
+            "schema_version": "2.0",
             "apm_queries": {},
-            "log_queries": {}
+            "log_queries": {},
+            "kpi_queries": {}
         }
 
     with open(queries_json_path, "r", encoding="utf-8") as f:
@@ -80,5 +81,6 @@ async def load_custom_queries_json() -> dict:
     # Normalize expected keys
     data.setdefault("apm_queries", {})
     data.setdefault("log_queries", {})
+    data.setdefault("kpi_queries", {})
 
     return data
