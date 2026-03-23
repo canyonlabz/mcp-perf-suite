@@ -1,0 +1,42 @@
+---
+description: MCP tool error handling — API retry policy, code tool no-retry, never modify MCP source code
+alwaysApply: true
+---
+
+# MCP Error Handling
+
+## API-Based MCP Tools (BlazeMeter, Datadog, Confluence)
+
+- Retry up to 3 times on transient failures (network errors, timeouts, 5xx responses)
+- Wait briefly between retries
+- After 3 failed retries, stop and report the error to the user
+
+## Code-Based MCP Tools (PerfAnalysis, PerfReport, JMeter)
+
+- Do NOT retry on failure
+- Report the error immediately with:
+  - The full error message
+  - Missing file paths (if applicable)
+  - Expected vs actual structure (if applicable)
+- Ask the user for next steps
+
+## Never Modify MCP Source Code
+
+- Never attempt to fix MCP tool code or modify source files to work around errors
+- The MCP tools are external dependencies — treat them as read-only
+- If a tool produces unexpected output, report it to the user
+
+## Stop on Unrecoverable Failures
+
+- Stop the workflow and report to the user on any unrecoverable failure
+- Do not proceed to the next workflow step if the current one fails
+- Provide enough context for the user to diagnose the issue
+
+## Error Reporting Format
+
+When reporting errors, include:
+- Which MCP tool failed
+- The full error message or status
+- What step in the workflow failed
+- What was expected vs what happened
+- Suggested next steps (if obvious)

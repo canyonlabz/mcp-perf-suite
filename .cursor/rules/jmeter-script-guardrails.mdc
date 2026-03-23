@@ -1,0 +1,85 @@
+---
+description: JMeter script guardrails — smoke test limits, dry run first, backup protection, debug iteration caps
+alwaysApply: false
+globs:
+  - "jmeter-mcp/**"
+  - "artifacts/**/jmeter/**"
+  - "test-specs/**"
+---
+
+# JMeter Script Guardrails
+
+## Core Principle
+
+Think and act like a performance test engineer. Follow the same diagnostic workflow
+a human engineer would: run a smoke test, find the first failure, diagnose it with
+real data, apply a targeted fix, re-test, and repeat.
+
+## Smoke Test Configuration
+
+- Smoke tests MUST use exactly: **1 thread, 1 second ramp-up, 1 loop**
+- No exceptions. This is a validation run, not a load test.
+- Never run a load/stress test to confirm a script edit works
+- If the Thread Group has higher values, temporarily override to 1/1/1 before running
+
+## Analyze Before Edit
+
+- Always call `analyze_jmeter_script` before any add/edit operation
+- Use the analysis output to get current `node_id` values
+- Do not guess node IDs or component structure
+
+## Dry Run First
+
+- Always use `dry_run=true` first on add/edit operations to preview changes
+- Review the dry run output before applying
+- Repeat with `dry_run=false` only after confirming the preview is correct
+
+## Re-Analyze After Edits
+
+- After applying any edit, re-analyze the script to verify structure
+- Confirm the change took effect as expected
+
+## One Fix at a Time
+
+- During debugging, fix only the first failing sampler
+- Re-test after each fix before moving to the next issue
+- Do not batch-fix multiple samplers blind
+
+## Backup Protection
+
+- The HITL tools create automatic backups on every non-dry-run mutation
+- Backups are stored in `artifacts/{test_run_id}/jmeter/backups/`
+- Never delete backups
+
+## Debug Iteration Limit
+
+- Maximum 5 debug iterations per debugging session
+- If the script is not clean after 5 cycles, stop and report to the user
+- Provide: summary of fixes applied, remaining errors, recommendation for manual investigation
+
+## Debug Post-Processor
+
+- Use the built-in `jsr223_debug_postprocessor` component type for debugging
+- Discover it via `list_jmeter_component_types`
+- Add it via `add_jmeter_component` with `component_type="jsr223_debug_postprocessor"`
+- Never create custom JSR223 PostProcessor debug scripts from scratch
+- After debugging is complete, **disable** (do not delete) debug post-processors
+- Set `VERBOSE_LOGGING` back to `false`
+
+## Log Source Mapping
+
+- `log_source="jmeter"` for local smoke tests
+- `log_source="blazemeter"` for BlazeMeter cloud tests
+
+## User Consent
+
+- Never start a debugging workflow unless the user explicitly requests it
+- Close JMeter GUI during HITL edits — advise the user before starting
+
+## Stop on Environment Issues
+
+Stop debugging immediately and report to the user if:
+- HTTP 401/403 on login/auth samplers (credential or permission failure)
+- HTTP 5xx on all or most samplers (environment down or deployment in progress)
+- Connection refused/timeout on all samplers (environment unreachable)
+- Repeated identical errors across all samplers (systemic issue, not script bug)

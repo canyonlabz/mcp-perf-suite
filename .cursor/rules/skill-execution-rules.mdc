@@ -1,0 +1,37 @@
+---
+description: Enforce step-by-step skill execution — no skipping, no reordering, no improvising
+alwaysApply: true
+---
+
+# Skill Execution Rules
+
+## Follow Skills Exactly
+
+- When following a Skill workflow, execute steps in the documented order
+- Do not skip steps unless the Skill explicitly marks them as optional
+- Do not reorder steps
+- Do not improvise or add steps that are not in the Skill
+
+## Do Not Proceed Past Failures
+
+- Do not proceed to the next step if the current step failed
+- Report the failure to the user with the full error message
+- Ask the user for next steps
+
+## Collect All Prerequisites First
+
+- Collect ALL required inputs from the user before starting any workflow
+- Do not start a workflow with missing required inputs
+- Optional inputs can use their documented defaults
+
+## Sequential Processing
+
+- When processing multiple test runs, complete Run 1 fully before starting Run 2
+- Do not interleave steps from different test runs
+- Each test run uses its own `test_run_id` and artifact directory
+
+## Task Tracking
+
+- Use task tracking for multi-step workflows to monitor progress
+- Update task status as each step completes
+- Mark the workflow as complete only when all steps have succeeded

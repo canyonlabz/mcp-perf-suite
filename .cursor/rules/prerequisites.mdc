@@ -1,0 +1,63 @@
+---
+description: Pre-flight validation for all workflows — API keys, artifact structure, environment config
+alwaysApply: true
+---
+
+# Prerequisites & Pre-Flight Checks
+
+## API Key / Credential Validation
+
+Before starting any workflow that uses an MCP server, verify the required credentials exist.
+Do not proceed if credentials are missing — inform the user immediately.
+
+| MCP Server | Required Credentials | Config Location |
+|------------|---------------------|----------------|
+| BlazeMeter | `BLAZEMETER_API_KEY`, `BLAZEMETER_API_SECRET` | `.env` or environment variables |
+| Datadog | `DD_API_KEY`, `DD_APP_KEY` | `.env` or environment variables |
+| Confluence | `CONFLUENCE_TOKEN`, `CONFLUENCE_USER` (cloud) or `CONFLUENCE_PAT` (onprem) | `.env` or environment variables |
+| Azure DevOps | ADO MCP configured, or manual access to ADO | ADO MCP config or manual |
+
+## Artifact Structure
+
+- `test_run_id` is always required for any workflow
+- If the user does not provide one, ask. As a fallback, generate as `YYYY-MM-DD-HH-MM-SS`
+- Artifacts directory: `artifacts/{test_run_id}/`
+- Canonical subfolder structure:
+
+```
+artifacts/{test_run_id}/
+├── blazemeter/       # BlazeMeter CSV, logs, session data
+├── datadog/          # Host/k8s metrics, logs, APM traces
+├── analysis/         # PerfAnalysis JSON outputs
+├── reports/          # Generated reports, revisions, metadata
+├── charts/           # Generated PNG chart images
+└── jmeter/           # JMX scripts, network captures, correlation files
+```
+
+- Comparison artifacts use: `artifacts/comparisons/{comparison_id}/`
+- File existence checks are mandatory gates between workflows
+
+## Environment Configuration
+
+- Verify the environment name exists in Datadog MCP configuration before starting
+  a Datadog workflow
+- Missing environments cause mid-workflow failures — validate upfront
+
+## MCP Server Availability
+
+- If an MCP server is not available, skip the step that requires it
+- Inform the user which MCP server is unavailable and what steps were skipped
+- Do not fail silently
+
+## Configuration Files Reference
+
+| Config File | MCP Server | Purpose |
+|------------|------------|---------|
+| `config.yaml` / `config.mac.yaml` / `config.windows.yaml` | JMeter | JMeter paths, browser settings, think time |
+| `jmeter_config.yaml` | JMeter | JMX generation settings, verbose logging |
+| `correlation_config.yaml` | JMeter | Custom naming mappings for correlations |
+| `report_config.yaml` | PerfReport | Report sections, revisable sections, unit display |
+| `chart_schema.yaml` | PerfReport | Chart definitions, unit configuration |
+| `chart_colors.yaml` | PerfReport | Color palettes for charts |
+| `custom_queries.json` | Datadog | Custom log/APM query templates |
+| Environment YAMLs | Datadog | Host/k8s resource definitions per environment |
