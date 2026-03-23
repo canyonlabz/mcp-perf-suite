@@ -1,0 +1,45 @@
+---
+description: Browser automation safety — think time, keep browser open, snapshot before interact, dialog handling
+alwaysApply: false
+globs:
+  - "test-specs/**"
+---
+
+# Browser Automation Safety
+
+## Think Time Between Steps
+
+- Apply a wait between browser automation steps to simulate realistic user behavior
+- Read `think_time` from `jmeter-mcp/config.windows.yaml` (or `config.yaml`) under
+  `browser.think_time`
+- Default: 5000 milliseconds (5 seconds)
+- Apply after each step completes, except after the final step
+
+## Keep Browser Open
+
+- Never close the browser on error or completion
+- Leave the browser open for manual inspection
+- Notify the user that the browser remains open
+
+## Snapshot Before Interact
+
+- Use `browser_snapshot` to get current page state and element references before
+  any interaction (click, type, hover, etc.)
+- Do not guess element references — use exact refs from the snapshot
+
+## Dialog and Pop-Up Handling
+
+- Handle dialogs and pop-ups immediately when they appear
+- Use `browser_handle_dialog` for alerts, confirms, and prompts
+
+## Trace Management
+
+- Archive old traces using `archive_playwright_traces` before starting new runs
+- Do not overwrite existing traces without archiving first
+
+## Error Recovery
+
+- If an element is not found, take a new snapshot and retry once
+- If a step cannot be completed after retry, report the failure and continue
+  to the next step
+- Do not close the browser on errors
