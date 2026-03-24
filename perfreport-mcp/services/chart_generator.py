@@ -217,9 +217,9 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
     # Infrastructure (Datadog) charts
     if data_source == "infrastructure":
         env_info = await load_environment_details(run_id, env_name)
-        env_type = env_info['env_type']     # Environment type can be either 'host' or 'k8s'
         if not env_info:
             return {"error": f"Missing environment info for: {env_name}"}
+        env_type = env_info['env_type']
 
         resources = env_info["resources"]
 
