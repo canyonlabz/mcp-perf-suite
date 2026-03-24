@@ -198,22 +198,26 @@ async def load_environment_details(run_id: str, env_name: str) -> Optional[Dict]
 
     env_entry = environments[env_name]
 
-    # Identify environment type
+    # Identify environment type and collect resources
     env_type = "unknown"
     resources: List[str] = []
     if env_entry.get("hosts"):
         env_type = "host"
         resources = [h["hostname"] for h in env_entry["hosts"]]
-    elif env_entry.get("kubernetes", {}).get("services"):
+
+    k8s_cfg = env_entry.get("kubernetes", {})
+    if k8s_cfg.get("services") or k8s_cfg.get("pods"):
         env_type = "k8s"
-        resources = [
-            _normalize_k8s_filter(s["service_filter"]) for s in env_entry["kubernetes"]["services"]
-        ]
-    elif env_entry.get("kubernetes", {}).get("pods"):
-        env_type = "k8s"
-        resources = [
-            _normalize_k8s_filter(p["pod_filter"]) for p in env_entry["kubernetes"]["pods"]
-        ]
+        if k8s_cfg.get("services"):
+            resources.extend([
+                _normalize_k8s_filter(s["service_filter"])
+                for s in k8s_cfg["services"]
+            ])
+        if k8s_cfg.get("pods"):
+            resources.extend([
+                _normalize_k8s_filter(p["pod_filter"])
+                for p in k8s_cfg["pods"]
+            ])
 
     return {
         "env_name": env_name,
