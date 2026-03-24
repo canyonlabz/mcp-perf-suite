@@ -225,13 +225,16 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
 
         metric_files = await get_metric_files(run_id, env_type, resources)
 
-        for resource, metric_file in zip(resources, metric_files):
-            try:
-                df = pd.read_csv(metric_file)
-                out = await chart_handler(df, chart_spec, env_type, resource, run_id)
-                results.append(out)
-            except Exception as e:
-                errors.append({"resource": resource, "error": str(e)})
+        if not metric_files:
+            errors.append({"error": f"No metric files found for environment '{env_name}' resources: {resources}"})
+        else:
+            for resource, metric_file in zip(resources, metric_files):
+                try:
+                    df = pd.read_csv(metric_file)
+                    out = await chart_handler(df, chart_spec, env_type, resource, run_id)
+                    results.append(out)
+                except Exception as e:
+                    errors.append({"resource": resource, "error": str(e)})
 
     # Performance (BlazeMeter or JMeter) charts
     elif data_source == "performance":
