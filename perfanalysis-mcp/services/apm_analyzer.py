@@ -132,7 +132,10 @@ async def analyze_kubernetes_metrics(
             
             if not entity_config:
                 entity_config = next(
-                    (p for p in pods_config if p.get('pod_filter') == filter_name or p.get('kube_service') == filter_name),
+                    (p for p in pods_config
+                     if p.get('pod_filter') == filter_name
+                     or p.get('pod_filter', '').rstrip('*') == filter_name
+                     or p.get('kube_service') == filter_name),
                     None
                 )
                 entity_type = "pod" if entity_config else "unknown"
