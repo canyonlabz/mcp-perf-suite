@@ -236,6 +236,10 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
                 except Exception as e:
                     errors.append({"resource": resource, "error": str(e)})
 
+            if len(metric_files) < len(resources):
+                for r in resources[len(metric_files):]:
+                    errors.append({"resource": r, "error": "No metric CSV file found"})
+
     # Performance (BlazeMeter or JMeter) charts
     elif data_source == "performance":
         perf_path = ARTIFACTS_PATH / run_id / "blazemeter" / "test-results.csv"
@@ -283,6 +287,10 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
                     dataframes[resource] = df
             except Exception as e:
                 errors.append({"resource": resource, "error": str(e)})
+
+        if len(metric_files) < len(resources):
+            for r in resources[len(metric_files):]:
+                errors.append({"resource": r, "error": "No metric CSV file found"})
         
         if dataframes:
             try:
@@ -349,6 +357,10 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
                     
             except Exception as e:
                 errors.append({"resource": resource, "error": str(e)})
+
+        if len(metric_files) < len(resources):
+            for r in resources[len(metric_files):]:
+                errors.append({"resource": r, "error": "No metric CSV file found"})
         
         if not results and not errors:
             errors.append({"error": "No valid data found for any resource"})
