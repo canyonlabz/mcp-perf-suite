@@ -745,7 +745,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                     for pod_id, pts in per_pod.items():
                         for ts_ms, val in pts:
                             dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                            w.writerow([env_name, env_tag, "k8s", "", pod_filter, pod_id, dt_iso, metric_name, val, unit])
+                            w.writerow([env_name, env_tag, "k8s", "", normalized_filter, pod_id, dt_iso, metric_name, val, unit])
 
                 # Raw CPU/Memory usage metrics
                 write_pod_series("kubernetes.cpu.usage.total", "nanocores", pod_cpu_usage_series)
