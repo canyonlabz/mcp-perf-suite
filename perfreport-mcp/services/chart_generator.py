@@ -314,13 +314,18 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
             return {"error": "Stacked area charts are only supported for Kubernetes environments. Host-based environments are not applicable."}
         
         resources = env_info["resources"]
-        metric_files = await get_metric_files(run_id, env_type, resources)
+        matched_files = await get_metric_files(run_id, env_type, resources)
         
+        matched_resources = {r for r, _ in matched_files}
+        for r in resources:
+            if r not in matched_resources:
+                errors.append({"resource": r, "error": "No metric CSV file found"})
+
         # Get metric filter from chart mapping (e.g., "cpu_util_pct", "kubernetes.cpu.usage.total")
         metric_filter = mapping.get("metric_filter")
         is_utilization_pct = metric_filter in ("cpu_util_pct", "mem_util_pct")
         
-        for resource, metric_file in zip(resources, metric_files):
+        for resource, metric_file in matched_files:
             try:
                 df = pd.read_csv(metric_file)
                 
@@ -359,10 +364,6 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
                     
             except Exception as e:
                 errors.append({"resource": resource, "error": str(e)})
-
-        if len(metric_files) < len(resources):
-            for r in resources[len(metric_files):]:
-                errors.append({"resource": r, "error": "No metric CSV file found"})
         
         if not results and not errors:
             errors.append({"error": "No valid data found for any resource"})
