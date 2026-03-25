@@ -7,7 +7,7 @@ import asyncio
 import pypandoc
 import re
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 
 # Import config at module level
 from utils.config import load_config, load_chart_colors, _get_mcp_suite_root
@@ -226,33 +226,37 @@ async def load_environment_details(run_id: str, env_name: str) -> Optional[Dict]
         "config": env_entry,
     }
 
-async def get_metric_files(run_id: str, env_type: str, resources: List[str]) -> List[Path]:
+async def get_metric_files(
+    run_id: str, env_type: str, resources: List[str]
+) -> List[Tuple[str, Path]]:
     """
-    Discover APM metric files corresponding to environment resources.
+    Discover metric CSV files corresponding to environment resources.
 
-    For K8s resources the canonical filename is now ``k8s_metrics_[<resource>].csv``
-    (no trailing underscore).  A fallback check for the legacy format
-    ``k8s_metrics_[<resource>_].csv`` is included so that artifacts produced
-    before this fix are still picked up automatically.
+    Returns a list of ``(resource_name, file_path)`` tuples — only for
+    resources that have a matching CSV on disk.  Resources without a file
+    are omitted, which avoids positional-alignment issues when the caller
+    iterates.
+
+    For K8s resources the canonical filename is ``k8s_metrics_[<resource>].csv``.
+    A fallback check for the legacy format ``k8s_metrics_[<resource>_].csv``
+    is included so that artifacts produced before this fix are still picked
+    up automatically.
 
     Args:
-        run_id (str):
-            Unique test run identifier (used in artifacts folder resolution).
-        env_type (str):
-            Environment type. One of ['host', 'k8s'].
-        resources (List[str]):
-            List of discovered resource identifiers (hostnames or K8s filters,
+        run_id:  Unique test run identifier (artifacts folder resolution).
+        env_type:  Environment type — ``'host'`` or ``'k8s'``.
+        resources:  Resource identifiers (hostnames or K8s filters,
             already normalised via ``_normalize_k8s_filter``).
 
     Returns:
-        List[Path]:
-            List of valid CSV paths under artifacts/<run_id>/<APM_TOOL>/.
+        List of ``(resource_name, csv_path)`` tuples for resources that
+        have a matching CSV under ``artifacts/<run_id>/<APM_TOOL>/``.
 
     Example:
         >>> await get_metric_files("run_12345", "k8s", ["app-api"])
-        [Path("artifacts/run_12345/datadog/k8s_metrics_[app-api].csv")]
+        [("app-api", Path("artifacts/run_12345/datadog/k8s_metrics_[app-api].csv"))]
         >>> await get_metric_files("run_12345", "host", ["web01"])
-        [Path("artifacts/run_12345/datadog/host_metrics_[web01].csv")]
+        [("web01", Path("artifacts/run_12345/datadog/host_metrics_[web01].csv"))]
     """
     base_dir = ARTIFACTS_PATH / run_id / APM_TOOL
     print(f"DEBUG: base_dir={base_dir}, exists={base_dir.exists()}, APM_TOOL={APM_TOOL}")
@@ -264,7 +268,7 @@ async def get_metric_files(run_id: str, env_type: str, resources: List[str]) -> 
     print(f"DEBUG: Found {len(csv_files)} CSV files in {base_dir}")
     csv_names = {f.name: f for f in csv_files}
 
-    discovered_files = []
+    discovered: List[Tuple[str, Path]] = []
     for resource in resources:
         canonical = f"{env_type}_metrics_[{resource}].csv"
         legacy = f"{env_type}_metrics_[{resource}_].csv" if env_type != "host" else None
@@ -283,11 +287,11 @@ async def get_metric_files(run_id: str, env_type: str, resources: List[str]) -> 
 
         if matched:
             print(f"DEBUG: Matched {matched.name}")
-            discovered_files.append(matched)
+            discovered.append((resource, matched))
         else:
             print(f"DEBUG: No match found for resource '{resource}'")
 
-    return discovered_files
+    return discovered
 
 def get_chart_output_path(run_id: str, chart_name: str) -> Path:
     """
