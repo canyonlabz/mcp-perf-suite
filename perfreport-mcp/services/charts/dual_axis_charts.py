@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from matplotlib.ticker import MaxNLocator
 import pandas as pd
 from typing import Dict, Optional
 from fastmcp import Context
@@ -53,7 +54,7 @@ async def generate_p90_vusers_chart(df: pd.DataFrame, chart_spec: dict, run_id: 
                 "error": "Missing required columns: 'elapsed' and/or 'allThreads'."}
 
     p90_ms = grouped["elapsed"].quantile(0.90)
-    vusers = grouped["allThreads"].mean()
+    vusers = grouped["allThreads"].max()
 
     # ---- 3) Labels, colors, figure sizing ----------------------------------
     # Titles & axis labels (with interpolation support if you wired it in)
@@ -94,6 +95,8 @@ async def generate_p90_vusers_chart(df: pd.DataFrame, chart_spec: dict, run_id: 
     ax_right.plot(vusers.index, vusers.values, color=right_color, linewidth=1.8, label=y_right_label)
     ax_right.set_ylabel(y_right_label, color=right_color)
     ax_right.tick_params(axis="y", labelcolor=right_color)
+    ax_right.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax_right.set_ylim(bottom=0, top=int(vusers.max()) + 1)
 
     # ---- 6) Time axis formatting & rotation --------------------------------
     locator = mdates.AutoDateLocator(minticks=5, maxticks=10)
@@ -182,7 +185,7 @@ async def generate_cpu_utilization_vusers_chart(
     perf_df["timeStamp"] = pd.to_datetime(perf_df["timeStamp"], unit="ms", errors="coerce")
     perf_df = perf_df.dropna(subset=["timeStamp"]).sort_values("timeStamp")
     perf_df["minute"] = perf_df["timeStamp"].dt.floor("min")
-    vusers = perf_df.groupby("minute")["allThreads"].mean()
+    vusers = perf_df.groupby("minute")["allThreads"].max()
     
     # ---- 2) Process infrastructure data (CPU %) ------------------------------
     # Aggregate CPU utilization across all resources by computing the mean
@@ -252,6 +255,8 @@ async def generate_cpu_utilization_vusers_chart(
     ax_right.plot(vusers.index, vusers.values, color=right_color, linewidth=1.8, label=y_right_label)
     ax_right.set_ylabel(y_right_label, color=right_color)
     ax_right.tick_params(axis="y", labelcolor=right_color)
+    ax_right.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax_right.set_ylim(bottom=0, top=int(vusers.max()) + 1)
     
     # ---- 6) Time axis formatting ---------------------------------------------
     locator = mdates.AutoDateLocator(minticks=5, maxticks=10)
@@ -338,7 +343,7 @@ async def generate_memory_utilization_vusers_chart(
     perf_df["timeStamp"] = pd.to_datetime(perf_df["timeStamp"], unit="ms", errors="coerce")
     perf_df = perf_df.dropna(subset=["timeStamp"]).sort_values("timeStamp")
     perf_df["minute"] = perf_df["timeStamp"].dt.floor("min")
-    vusers = perf_df.groupby("minute")["allThreads"].mean()
+    vusers = perf_df.groupby("minute")["allThreads"].max()
     
     # ---- 2) Process infrastructure data (Memory %) ---------------------------
     # Aggregate Memory utilization across all resources by computing the mean
@@ -408,6 +413,8 @@ async def generate_memory_utilization_vusers_chart(
     ax_right.plot(vusers.index, vusers.values, color=right_color, linewidth=1.8, label=y_right_label)
     ax_right.set_ylabel(y_right_label, color=right_color)
     ax_right.tick_params(axis="y", labelcolor=right_color)
+    ax_right.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax_right.set_ylim(bottom=0, top=int(vusers.max()) + 1)
     
     # ---- 6) Time axis formatting ---------------------------------------------
     locator = mdates.AutoDateLocator(minticks=5, maxticks=10)
