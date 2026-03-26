@@ -12,6 +12,7 @@ Four chart variants:
   - MEM_USAGE_STACKED        (raw MB/GB, always available)
 """
 
+import math
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
@@ -104,13 +105,19 @@ def _render_stacked_area(
     aligned = aligned.fillna(0)
 
     # Plot stacked area
+    fill_alpha = float(chart_spec.get("fill_alpha", 0.4))
+
     ax.stackplot(
         aligned.index,
         [aligned[name].values for name in container_names],
         labels=container_names,
         colors=colors[:len(container_names)],
-        alpha=0.7,
+        alpha=fill_alpha,
     )
+
+    for i, name in enumerate(container_names):
+        ax.plot(aligned.index, aligned[name].values,
+                color=colors[i % len(colors)], linewidth=1.2)
 
     ax.set_title(display_title)
     ax.set_xlabel(x_label)
@@ -118,7 +125,18 @@ def _render_stacked_area(
     ax.set_ylim(bottom=0)
 
     if y_max is not None:
-        ax.set_ylim(top=y_max)
+        data_max = aligned[container_names].sum(axis=1).max()
+        if data_max > 0 and data_max < (y_max * 0.3):
+            auto_top = data_max * 1.2
+            if auto_top <= 10:
+                auto_top = math.ceil(auto_top)
+            elif auto_top <= 50:
+                auto_top = math.ceil(auto_top / 5) * 5
+            else:
+                auto_top = math.ceil(auto_top / 10) * 10
+            ax.set_ylim(top=auto_top)
+        else:
+            ax.set_ylim(top=y_max)
 
     if chart_spec.get("show_grid", True):
         ax.grid(True, linewidth=0.5, alpha=0.6)

@@ -357,6 +357,7 @@ charts:
     y_axis:
       label: "CPU Utilization (%)"
       max: 100
+    fill_alpha: 0.4
     colors: ["primary", "secondary", "info", "warning"]
     show_grid: true
     include_legend: true
@@ -372,6 +373,7 @@ charts:
     y_axis:
       label: "Memory Utilization (%)"
       max: 100
+    fill_alpha: 0.4
     colors: ["warning", "info", "secondary", "primary"]
     show_grid: true
     include_legend: true
@@ -391,6 +393,7 @@ charts:
     # Unit configuration: "cores" or "millicores" (default)
     unit:
       type: "millicores"  # Options: "cores", "millicores"
+    fill_alpha: 0.4
     colors: ["primary", "secondary", "info", "warning"]
     show_grid: true
     include_legend: true
@@ -408,6 +411,7 @@ charts:
     # Unit configuration: "gb" or "mb" (default)
     unit:
       type: "mb"  # Options: "gb", "mb"
+    fill_alpha: 0.4
     colors: ["warning", "info", "secondary", "primary"]
     show_grid: true
     include_legend: true
