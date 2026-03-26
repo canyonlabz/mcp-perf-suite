@@ -95,6 +95,22 @@
       ]
     },
 
+    "gc_memory_load": {
+      "description": "GC Memory Load (%)",
+      "scope": "k8s",
+      "interval": 300000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "gc_memory_load",
+          "query": "avg:runtime.dotnet.gc.memory_load{env:{{env_tag}},service:{{service_filter}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "gc_memory_load" }
+      ]
+    },
+
     "request_hits": {
       "description": "ASP.NET Core Request Hits",
       "scope": "k8s",
