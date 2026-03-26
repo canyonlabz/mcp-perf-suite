@@ -338,6 +338,12 @@ streamlit-ui/config.yaml
 !.cursor/skills/jmeter-swagger-conversion/
 !.cursor/skills/jmeter-swagger-conversion/SKILL.md
 
+# Ignore all custom Cursor Agents files, except the below
+.cursor/agents/*
+
+# Ignore all custom Cursor Plans files, except the below
+.cursor/plans/*
+
 # Temp test files
 scripts/*
 test_datadog.py
