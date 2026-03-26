@@ -34,30 +34,30 @@
       "queries": [
         {
           "data_source": "metrics",
-          "name": "p90",
+          "name": "p90_latency",
           "query": "p90:trace.aspnet_core.request{env:{{env_tag}},service:{{service_filter}},span.kind:server}"
         },
         {
           "data_source": "metrics",
-          "name": "p95",
+          "name": "p95_latency",
           "query": "p95:trace.aspnet_core.request{env:{{env_tag}},service:{{service_filter}},span.kind:server}"
         },
         {
           "data_source": "metrics",
-          "name": "p99",
+          "name": "p99_latency",
           "query": "p99:trace.aspnet_core.request{env:{{env_tag}},service:{{service_filter}},span.kind:server}"
         },
         {
           "data_source": "metrics",
-          "name": "max",
+          "name": "max_latency",
           "query": "max:trace.aspnet_core.request{env:{{env_tag}},service:{{service_filter}},span.kind:server}"
         }
       ],
       "formulas": [
-        { "formula": "p90" },
-        { "formula": "p95" },
-        { "formula": "p99" },
-        { "formula": "max" }
+        { "formula": "p90_latency" },
+        { "formula": "p95_latency" },
+        { "formula": "p99_latency" },
+        { "formula": "max_latency" }
       ]
     },
 
@@ -102,12 +102,12 @@
       "queries": [
         {
           "data_source": "metrics",
-          "name": "hits",
+          "name": "request_hits",
           "query": "sum:trace.aspnet_core.request.hits{env:{{env_tag}},service:{{service_filter}},span.kind:server}.as_count()"
         }
       ],
       "formulas": [
-        { "formula": "hits" }
+        { "formula": "request_hits" }
       ]
     },
 
@@ -118,12 +118,12 @@
       "queries": [
         {
           "data_source": "metrics",
-          "name": "errors",
+          "name": "http_errors",
           "query": "sum:trace.http.request.errors{env:{{env_tag}},service:{{service_filter}},span.kind:client} by {http.status_code}.as_count()"
         }
       ],
       "formulas": [
-        { "formula": "errors" }
+        { "formula": "http_errors" }
       ]
     },
 
