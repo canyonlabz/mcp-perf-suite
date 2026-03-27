@@ -34,6 +34,8 @@ from utils.file_processor import (
     write_csv_output,
     write_markdown_output,
 )
+from utils.kpi_utils import discover_kpi_files, load_kpi_pivoted
+from services.kpi_analyzer import detect_kpi_bottlenecks
 
 # ---------------------------------------------------------------------------
 # Module-level configuration
@@ -272,6 +274,33 @@ async def analyze_bottlenecks(
                 await ctx.info("Phase 2b", "No capacity risks detected")
         else:
             await ctx.info("Phase 2b", "No infrastructure data -- skipping capacity risk detection")
+
+        # ------------------------------------------------------------------
+        # 5c2. Phase 3 -- KPI-driven bottleneck detection (optional)
+        # ------------------------------------------------------------------
+        apm_tool = PA_CONFIG.get("apm_tool", "datadog").lower()
+        kpi_dir = ARTIFACTS_PATH / test_run_id / apm_tool
+        kpi_files = discover_kpi_files(kpi_dir)
+        if kpi_files:
+            kpi_df = load_kpi_pivoted(kpi_files, convert_units=True)
+            if kpi_df is not None and not kpi_df.empty:
+                kpi_findings = detect_kpi_bottlenecks(
+                    kpi_df, buckets_df, baseline, cfg, test_run_id,
+                    test_start_time, _make_finding, _onset_fields, _classify_severity_v2,
+                )
+                if kpi_findings:
+                    findings.extend(kpi_findings)
+                    await ctx.info(
+                        "Phase 3",
+                        f"KPI bottleneck detection: {len(kpi_findings)} finding(s) from "
+                        f"{len(kpi_files)} KPI file(s)",
+                    )
+                else:
+                    await ctx.info("Phase 3", "KPI data analyzed — no KPI-driven bottlenecks detected")
+            else:
+                await ctx.info("Phase 3", "KPI files found but contained no usable data")
+        else:
+            await ctx.info("Phase 3", "No KPI data available -- skipping KPI bottleneck detection")
 
         await ctx.info("Detection", f"Identified {len(findings)} finding(s) total")
 

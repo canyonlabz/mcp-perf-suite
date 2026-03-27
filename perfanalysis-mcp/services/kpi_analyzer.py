@@ -12,13 +12,16 @@ Technology-neutral: works with any runtime/APM tool.  Metric categorization
 is pattern-based via the shared CATEGORY_REGISTRY in kpi_utils.
 """
 import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from fastmcp import Context
 from pathlib import Path
 import pandas as pd
+import numpy as np
 
 from utils.kpi_utils import (
     load_kpi_dataframe,
+    load_kpi_pivoted,
+    discover_kpi_files,
     categorize_metric,
     get_display_unit,
     compute_metric_summary,
@@ -424,3 +427,489 @@ def _format_kpi_markdown(kpi_analysis: Dict[str, Any], test_run_id: str) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+# ===================================================================
+# Tool 3: identify_bottlenecks — KPI-driven bottleneck detection
+# ===================================================================
+
+# Minimum data-point thresholds to avoid false positives on thin data
+_MIN_SAMPLES_TREND = 6
+_MIN_SAMPLES_SPIKE = 3
+
+
+def detect_kpi_bottlenecks(
+    kpi_df: pd.DataFrame,
+    buckets_df: pd.DataFrame,
+    baseline: Dict[str, Any],
+    cfg: Dict[str, Any],
+    test_run_id: str,
+    test_start_time,
+    make_finding_fn,
+    onset_fields_fn,
+    classify_severity_fn,
+) -> List[Dict[str, Any]]:
+    """Orchestrate all KPI-driven bottleneck detectors.
+
+    Called from ``bottleneck_analyzer.analyze_bottlenecks`` after
+    Phase 2b (capacity risks).  The KPI DataFrame is in pivoted form
+    (one column per metric, with units already converted).
+
+    Args:
+        kpi_df:              Pivoted KPI DataFrame from ``load_kpi_pivoted()``.
+        buckets_df:          JTL time-bucketed DataFrame (has ``bucket_start``,
+                             ``p90``, ``concurrency``, ``throughput_rps``, etc.).
+        baseline:            Baseline dict from ``_compute_baseline()``.
+        cfg:                 Bottleneck analysis config dict.
+        test_run_id:         Current test run ID.
+        test_start_time:     First bucket timestamp (for elapsed calc).
+        make_finding_fn:     Reference to ``_make_finding`` from bottleneck_analyzer.
+        onset_fields_fn:     Reference to ``_onset_fields`` from bottleneck_analyzer.
+        classify_severity_fn: Reference to ``_classify_severity_v2`` from bottleneck_analyzer.
+
+    Returns:
+        List of finding dicts, ready to extend the main findings list.
+    """
+    findings: List[Dict[str, Any]] = []
+
+    kpi_aligned = _align_kpi_to_buckets(kpi_df, buckets_df, cfg)
+    if kpi_aligned is None or kpi_aligned.empty:
+        return findings
+
+    findings.extend(_detect_gc_pressure(
+        kpi_aligned, buckets_df, baseline, cfg, test_run_id,
+        test_start_time, make_finding_fn, onset_fields_fn, classify_severity_fn,
+    ))
+    findings.extend(_detect_gc_heap_growth(
+        kpi_df, cfg, test_run_id, test_start_time,
+        make_finding_fn, onset_fields_fn, classify_severity_fn,
+    ))
+    findings.extend(_detect_server_latency_spikes(
+        kpi_aligned, buckets_df, baseline, cfg, test_run_id,
+        test_start_time, make_finding_fn, onset_fields_fn, classify_severity_fn,
+    ))
+    findings.extend(_detect_throughput_divergence(
+        kpi_aligned, buckets_df, baseline, cfg, test_run_id,
+        test_start_time, make_finding_fn, onset_fields_fn, classify_severity_fn,
+    ))
+
+    return findings
+
+
+# -------------------------------------------------------------------
+# KPI ↔ JTL time alignment
+# -------------------------------------------------------------------
+
+def _align_kpi_to_buckets(
+    kpi_df: pd.DataFrame,
+    buckets_df: pd.DataFrame,
+    cfg: Dict[str, Any],
+) -> Optional[pd.DataFrame]:
+    """Resample KPI data into the same time buckets used by JTL analysis.
+
+    Returns a DataFrame indexed by ``bucket_start`` with one column per
+    KPI metric (aggregated by mean within each bucket).
+    """
+    if kpi_df is None or kpi_df.empty:
+        return None
+
+    bucket_seconds = cfg.get("bucket_seconds", 60)
+
+    numeric_cols = [
+        c for c in kpi_df.columns if c not in ("timestamp", "identifier")
+    ]
+    if not numeric_cols:
+        return None
+
+    kpi_work = kpi_df.copy()
+    kpi_work["timestamp"] = pd.to_datetime(kpi_work["timestamp"], utc=True)
+    kpi_indexed = kpi_work.set_index("timestamp")[numeric_cols]
+
+    resampled = kpi_indexed.resample(f"{bucket_seconds}s").mean(numeric_only=True)
+    resampled = resampled.dropna(how="all")
+
+    return resampled
+
+
+# -------------------------------------------------------------------
+# Detector: GC pressure
+# -------------------------------------------------------------------
+
+def _detect_gc_pressure(
+    kpi_aligned: pd.DataFrame,
+    buckets_df: pd.DataFrame,
+    baseline: Dict,
+    cfg: Dict,
+    test_run_id: str,
+    test_start_time,
+    make_finding_fn,
+    onset_fields_fn,
+    classify_severity_fn,
+) -> List[Dict]:
+    """Detect GC memory load exceeding threshold concurrent with latency degradation."""
+    gc_col = _find_column(kpi_aligned, "gc_memory")
+    if gc_col is None:
+        return []
+
+    gc_threshold = cfg.get("gc_pressure_threshold", 85.0)
+    baseline_p90 = baseline.get("p90", 0)
+    if baseline_p90 <= 0:
+        return []
+
+    latency_factor = 1.5
+    warmup = cfg.get("warmup_buckets", 2)
+    findings: List[Dict] = []
+
+    for ts, row in kpi_aligned.iterrows():
+        gc_val = row.get(gc_col)
+        if pd.isna(gc_val) or gc_val <= gc_threshold:
+            continue
+
+        concurrent_bucket = _get_concurrent_bucket(buckets_df, ts)
+        if concurrent_bucket is None:
+            continue
+
+        bucket_p90 = concurrent_bucket.get("p90", 0)
+        if pd.isna(bucket_p90) or bucket_p90 <= baseline_p90 * latency_factor:
+            continue
+
+        bucket_idx = concurrent_bucket.get("_bucket_idx", 0)
+        delta_pct = (gc_val - gc_threshold) / gc_threshold * 100
+
+        findings.append(make_finding_fn(
+            bottleneck_type="gc_pressure",
+            scope="service",
+            scope_name="kpi_service",
+            concurrency=float(concurrent_bucket.get("concurrency", 0)),
+            metric_name=gc_col,
+            metric_value=float(gc_val),
+            baseline_value=gc_threshold,
+            severity=classify_severity_fn(
+                delta_pct=delta_pct,
+                persistence_ratio=None,
+                classification="bottleneck",
+                scope="service",
+                bottleneck_type="gc_pressure",
+            ),
+            confidence="high" if gc_val > 95 else "medium",
+            classification="bottleneck",
+            evidence=(
+                f"GC memory load reached {gc_val:.1f}% (threshold {gc_threshold:.0f}%) "
+                f"while P90 latency was {bucket_p90:.0f}ms "
+                f"(baseline {baseline_p90:.0f}ms, {bucket_p90/baseline_p90:.1f}x). "
+                f"GC pressure is likely contributing to latency degradation."
+            ),
+            test_run_id=test_run_id,
+            **onset_fields_fn(
+                concurrent_bucket.get("bucket_start", ts),
+                warmup + bucket_idx,
+                test_start_time,
+            ),
+        ))
+        break  # report first occurrence
+
+    return findings
+
+
+# -------------------------------------------------------------------
+# Detector: GC heap growth (potential memory leak)
+# -------------------------------------------------------------------
+
+def _detect_gc_heap_growth(
+    kpi_df: pd.DataFrame,
+    cfg: Dict,
+    test_run_id: str,
+    test_start_time,
+    make_finding_fn,
+    onset_fields_fn,
+    classify_severity_fn,
+) -> List[Dict]:
+    """Detect sustained Gen2 heap growth via linear regression."""
+    gen2_col = _find_column(kpi_df, "gc_size_gen2")
+    if gen2_col is None:
+        return []
+
+    kpi_work = kpi_df.copy()
+    kpi_work["timestamp"] = pd.to_datetime(kpi_work["timestamp"], utc=True)
+
+    gen2 = kpi_work[["timestamp", gen2_col]].dropna()
+    if len(gen2) < _MIN_SAMPLES_TREND:
+        return []
+
+    x = (gen2["timestamp"] - gen2["timestamp"].min()).dt.total_seconds().values.astype(float)
+    y = gen2[gen2_col].values.astype(float)
+
+    try:
+        slope, intercept = np.polyfit(x, y, 1)
+    except (np.linalg.LinAlgError, ValueError):
+        return []
+
+    predicted_start = float(intercept)
+    predicted_end = float(slope * x[-1] + intercept)
+
+    if predicted_start <= 0:
+        return []
+
+    growth_pct = (predicted_end - predicted_start) / predicted_start * 100
+    growth_threshold = cfg.get("gc_heap_growth_threshold_pct", 10.0)
+
+    if growth_pct < growth_threshold:
+        return []
+
+    duration_minutes = x[-1] / 60 if x[-1] > 0 else 1
+    growth_rate_per_min = slope * 60
+
+    severity = classify_severity_fn(
+        delta_pct=growth_pct,
+        persistence_ratio=1.0,
+        classification="bottleneck",
+        scope="service",
+        bottleneck_type="gc_heap_growth",
+    )
+
+    return [make_finding_fn(
+        bottleneck_type="gc_heap_growth",
+        scope="service",
+        scope_name="kpi_service",
+        concurrency=0,
+        metric_name=gen2_col,
+        metric_value=predicted_end,
+        baseline_value=predicted_start,
+        severity=severity,
+        confidence="high" if growth_pct > 50 else "medium",
+        classification="bottleneck",
+        evidence=(
+            f"GC Gen2 heap grew from {predicted_start:.1f}MB to {predicted_end:.1f}MB "
+            f"({growth_pct:.1f}% increase over {duration_minutes:.0f} minutes, "
+            f"rate: {growth_rate_per_min:.2f}MB/min). "
+            f"Sustained monotonic growth may indicate a memory leak."
+        ),
+        test_run_id=test_run_id,
+        onset_timestamp=str(gen2["timestamp"].iloc[0]),
+        onset_bucket_index=0,
+        test_elapsed_seconds=0.0,
+    )]
+
+
+# -------------------------------------------------------------------
+# Detector: Server-side latency spikes
+# -------------------------------------------------------------------
+
+def _detect_server_latency_spikes(
+    kpi_aligned: pd.DataFrame,
+    buckets_df: pd.DataFrame,
+    baseline: Dict,
+    cfg: Dict,
+    test_run_id: str,
+    test_start_time,
+    make_finding_fn,
+    onset_fields_fn,
+    classify_severity_fn,
+) -> List[Dict]:
+    """Detect server-side P99/max latency spikes that correlate with client degradation."""
+    p99_col = _find_column(kpi_aligned, "p99_latency")
+    max_col = _find_column(kpi_aligned, "max_latency")
+
+    check_col = p99_col or max_col
+    if check_col is None:
+        return []
+
+    baseline_p90 = baseline.get("p90", 0)
+    if baseline_p90 <= 0:
+        return []
+
+    spike_factor = cfg.get("kpi_latency_spike_factor", 3.0)
+    warmup = cfg.get("warmup_buckets", 2)
+    findings: List[Dict] = []
+
+    series = kpi_aligned[check_col].dropna()
+    if len(series) < _MIN_SAMPLES_SPIKE:
+        return []
+
+    kpi_baseline = float(series.iloc[:max(2, len(series) // 5)].median())
+    if kpi_baseline <= 0:
+        return []
+
+    spike_threshold = kpi_baseline * spike_factor
+
+    for ts, val in series.items():
+        if val <= spike_threshold:
+            continue
+
+        concurrent_bucket = _get_concurrent_bucket(buckets_df, ts)
+        if concurrent_bucket is None:
+            continue
+
+        bucket_p90 = concurrent_bucket.get("p90", 0)
+        if pd.isna(bucket_p90) or bucket_p90 <= baseline_p90:
+            continue
+
+        bucket_idx = concurrent_bucket.get("_bucket_idx", 0)
+        delta_pct = (val - kpi_baseline) / kpi_baseline * 100
+
+        findings.append(make_finding_fn(
+            bottleneck_type="server_latency_spike",
+            scope="service",
+            scope_name="kpi_service",
+            concurrency=float(concurrent_bucket.get("concurrency", 0)),
+            metric_name=check_col,
+            metric_value=float(val),
+            baseline_value=float(kpi_baseline),
+            severity=classify_severity_fn(
+                delta_pct=delta_pct,
+                persistence_ratio=None,
+                classification="bottleneck",
+                scope="service",
+                bottleneck_type="server_latency_spike",
+            ),
+            confidence="high",
+            classification="bottleneck",
+            evidence=(
+                f"Server-side {check_col} spiked to {val:.1f}ms "
+                f"(baseline {kpi_baseline:.1f}ms, {val/kpi_baseline:.1f}x) "
+                f"while client P90 was {bucket_p90:.0f}ms at "
+                f"{concurrent_bucket.get('concurrency', 0):.0f} concurrent users. "
+                f"Server latency spike preceded/coincided with client-side degradation."
+            ),
+            test_run_id=test_run_id,
+            **onset_fields_fn(
+                concurrent_bucket.get("bucket_start", ts),
+                warmup + bucket_idx,
+                test_start_time,
+            ),
+        ))
+        break  # report first spike
+
+    return findings
+
+
+# -------------------------------------------------------------------
+# Detector: Throughput divergence
+# -------------------------------------------------------------------
+
+def _detect_throughput_divergence(
+    kpi_aligned: pd.DataFrame,
+    buckets_df: pd.DataFrame,
+    baseline: Dict,
+    cfg: Dict,
+    test_run_id: str,
+    test_start_time,
+    make_finding_fn,
+    onset_fields_fn,
+    classify_severity_fn,
+) -> List[Dict]:
+    """Detect divergence between server-side hits and client-side request count."""
+    hits_col = _find_column(kpi_aligned, "request_hits") or _find_column(kpi_aligned, "hits")
+    if hits_col is None:
+        return []
+
+    warmup = cfg.get("warmup_buckets", 2)
+    divergence_threshold = cfg.get("kpi_throughput_divergence_pct", 30.0)
+    findings: List[Dict] = []
+
+    matched_count = 0
+    divergent_count = 0
+    worst_divergence_pct = 0.0
+    worst_ts = None
+    worst_bucket = None
+
+    for ts, row in kpi_aligned.iterrows():
+        server_hits = row.get(hits_col)
+        if pd.isna(server_hits) or server_hits <= 0:
+            continue
+
+        concurrent_bucket = _get_concurrent_bucket(buckets_df, ts)
+        if concurrent_bucket is None:
+            continue
+
+        client_rps = concurrent_bucket.get("throughput_rps", 0)
+        if client_rps <= 0:
+            continue
+
+        matched_count += 1
+
+        ratio_diff = abs(server_hits - client_rps) / client_rps * 100
+        if ratio_diff > divergence_threshold:
+            divergent_count += 1
+            if ratio_diff > worst_divergence_pct:
+                worst_divergence_pct = ratio_diff
+                worst_ts = ts
+                worst_bucket = concurrent_bucket
+
+    if divergent_count == 0 or matched_count < _MIN_SAMPLES_SPIKE:
+        return []
+
+    divergence_ratio = divergent_count / matched_count
+    if divergence_ratio < 0.3:
+        return []
+
+    bucket_idx = worst_bucket.get("_bucket_idx", 0) if worst_bucket else 0
+    server_val = float(kpi_aligned.loc[worst_ts, hits_col]) if worst_ts is not None else 0
+    client_val = float(worst_bucket.get("throughput_rps", 0)) if worst_bucket else 0
+
+    findings.append(make_finding_fn(
+        bottleneck_type="throughput_divergence",
+        scope="service",
+        scope_name="kpi_service",
+        concurrency=float(worst_bucket.get("concurrency", 0)) if worst_bucket else 0,
+        metric_name=f"{hits_col}_vs_client_rps",
+        metric_value=server_val,
+        baseline_value=client_val,
+        severity="medium" if worst_divergence_pct < 50 else "high",
+        confidence="medium" if divergence_ratio < 0.5 else "high",
+        classification="bottleneck",
+        evidence=(
+            f"Server-side {hits_col} diverged from client throughput in "
+            f"{divergent_count}/{matched_count} windows ({divergence_ratio:.0%}). "
+            f"Worst divergence: server {server_val:.1f} vs client {client_val:.1f} RPS "
+            f"({worst_divergence_pct:.1f}% difference). "
+            f"Requests may be dropped or load-balanced unevenly."
+        ),
+        test_run_id=test_run_id,
+        **onset_fields_fn(
+            worst_bucket.get("bucket_start", worst_ts) if worst_bucket else worst_ts,
+            warmup + bucket_idx,
+            test_start_time,
+        ),
+    ))
+
+    return findings
+
+
+# -------------------------------------------------------------------
+# Shared helpers for bottleneck detectors
+# -------------------------------------------------------------------
+
+def _find_column(df: pd.DataFrame, pattern: str) -> Optional[str]:
+    """Find the first DataFrame column whose name contains ``pattern``.
+
+    Returns the column name, or ``None`` if no match.
+    """
+    for col in df.columns:
+        if pattern in col:
+            return col
+    return None
+
+
+def _get_concurrent_bucket(
+    buckets_df: pd.DataFrame, kpi_timestamp
+) -> Optional[Dict[str, Any]]:
+    """Find the JTL time bucket that overlaps with a KPI timestamp.
+
+    Returns a dict of the bucket row's values (with ``_bucket_idx`` added),
+    or ``None`` if no match within tolerance.
+    """
+    kpi_ts = pd.Timestamp(kpi_timestamp)
+    if kpi_ts.tzinfo is None:
+        kpi_ts = kpi_ts.tz_localize("UTC")
+
+    bucket_starts = pd.to_datetime(buckets_df["bucket_start"], utc=True)
+    diffs = (bucket_starts - kpi_ts).abs()
+    min_idx = diffs.idxmin()
+
+    if diffs.loc[min_idx].total_seconds() > 120:
+        return None
+
+    row = buckets_df.loc[min_idx].to_dict()
+    row["_bucket_idx"] = int(min_idx) if isinstance(min_idx, (int, np.integer)) else 0
+    return row
