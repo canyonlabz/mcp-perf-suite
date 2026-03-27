@@ -24,6 +24,7 @@ from utils.kpi_utils import (
     discover_kpi_files,
     categorize_metric,
     get_display_unit,
+    get_conversion_factor,
     compute_metric_summary,
     CATEGORY_REGISTRY,
 )
@@ -95,7 +96,9 @@ async def analyze_kpi_metrics(
             original_unit = str(metric_rows["unit"].iloc[0]) if "unit" in metric_rows.columns else "unknown"
             display_unit = get_display_unit(metric_name, original_unit)
 
-            stats = compute_metric_summary(metric_rows["value"])
+            factor = get_conversion_factor(metric_name)
+            converted_values = metric_rows["value"] * factor if factor != 1.0 else metric_rows["value"]
+            stats = compute_metric_summary(converted_values)
 
             service_summary[metric_name] = {
                 "category": category,

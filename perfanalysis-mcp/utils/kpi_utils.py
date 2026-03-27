@@ -297,6 +297,17 @@ def get_display_unit(metric_name: str, original_unit: str) -> str:
     return original_unit
 
 
+def get_conversion_factor(metric_name: str) -> float:
+    """Return the numeric conversion factor for a metric, or 1.0 if none applies."""
+    category = categorize_metric(metric_name)
+    if category == "custom":
+        return 1.0
+    conversion = CATEGORY_REGISTRY.get(category, {}).get("unit_conversion")
+    if conversion is not None:
+        return conversion["factor"]
+    return 1.0
+
+
 # -----------------------------------------------
 # Statistical Summaries
 # -----------------------------------------------
