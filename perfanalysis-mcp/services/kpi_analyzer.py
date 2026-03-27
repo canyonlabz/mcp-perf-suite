@@ -430,6 +430,127 @@ def _format_kpi_markdown(kpi_analysis: Dict[str, Any], test_run_id: str) -> str:
 
 
 # ===================================================================
+# Tool 2: correlate_test_results — KPI correlation dimensions
+# ===================================================================
+
+def build_kpi_correlation_pairs(
+    kpi_columns: List[str],
+    available_columns: List[str],
+) -> List[Dict[str, Any]]:
+    """Dynamically build KPI correlation pairs using the CATEGORY_REGISTRY.
+
+    For each KPI metric column present, looks up its category's
+    ``correlate_with`` targets and includes any pair where both
+    the KPI column and the target column exist in the merged DataFrame.
+
+    Args:
+        kpi_columns:       KPI metric column names present in the merged data.
+        available_columns: All column names in the merged DataFrame (perf + infra + KPI).
+
+    Returns:
+        List of dicts, each with ``kpi_metric``, ``target``, ``category``,
+        and ``interpretation``.
+    """
+    pairs: List[Dict[str, Any]] = []
+    available_set = set(available_columns)
+
+    for kpi_col in kpi_columns:
+        category = categorize_metric(kpi_col)
+        if category == "custom":
+            continue
+        reg = CATEGORY_REGISTRY.get(category, {})
+        targets = reg.get("correlate_with", [])
+        interpretation = reg.get("interpretation", "")
+
+        for target in targets:
+            if target in available_set:
+                pairs.append({
+                    "kpi_metric": kpi_col,
+                    "target": target,
+                    "category": category,
+                    "interpretation": interpretation,
+                })
+
+    return pairs
+
+
+def compute_kpi_correlations(
+    merged_df: pd.DataFrame,
+    kpi_pairs: List[Dict[str, Any]],
+    significance_threshold: float = 0.3,
+) -> Dict[str, Any]:
+    """Compute Pearson correlations for KPI metric pairs.
+
+    Args:
+        merged_df:               Merged DataFrame with all columns available.
+        kpi_pairs:               List from :func:`build_kpi_correlation_pairs`.
+        significance_threshold:  Minimum |coefficient| to flag as significant.
+
+    Returns:
+        Dict with ``pairs`` (list of correlation results), ``kpi_metrics_available``,
+        and ``kpi_insights``.
+    """
+    results: List[Dict[str, Any]] = []
+    metrics_seen: set = set()
+    insights: List[str] = []
+
+    for pair in kpi_pairs:
+        kpi_col = pair["kpi_metric"]
+        target = pair["target"]
+        category = pair["category"]
+        interpretation = pair["interpretation"]
+        metrics_seen.add(kpi_col)
+
+        if kpi_col not in merged_df.columns or target not in merged_df.columns:
+            continue
+
+        valid = merged_df[[kpi_col, target]].dropna()
+        if len(valid) < 5:
+            continue
+
+        coeff = float(valid[kpi_col].corr(valid[target]))
+        if pd.isna(coeff):
+            coeff = 0.0
+
+        abs_coeff = abs(coeff)
+        if abs_coeff >= 0.7:
+            strength = "strong"
+        elif abs_coeff >= significance_threshold:
+            strength = "moderate"
+        else:
+            strength = "weak"
+
+        direction = "positive" if coeff > 0 else "negative"
+
+        result_entry = {
+            "kpi_metric": kpi_col,
+            "compared_with": target,
+            "category": category,
+            "coefficient": round(coeff, 4),
+            "strength": strength,
+            "direction": direction,
+            "samples": len(valid),
+            "interpretation": (
+                f"{kpi_col} shows {strength} {direction} correlation "
+                f"({coeff:.3f}) with {target} — {interpretation}"
+            ),
+        }
+        results.append(result_entry)
+
+        if abs_coeff >= significance_threshold:
+            insights.append(
+                f"KPI: {kpi_col} {strength}ly correlates with {target} "
+                f"(r={coeff:.3f}, {direction})"
+            )
+
+    return {
+        "pairs": results,
+        "kpi_metrics_available": sorted(metrics_seen),
+        "kpi_insights": insights,
+    }
+
+
+# ===================================================================
 # Tool 3: identify_bottlenecks — KPI-driven bottleneck detection
 # ===================================================================
 

@@ -12,6 +12,8 @@ from scipy.stats import pearsonr, spearmanr
 # Import config at module level (global)
 from utils.config import load_config
 from utils.sla_config import get_sla_for_api, validate_sla_patterns
+from utils.kpi_utils import discover_kpi_files, load_kpi_pivoted
+from services.kpi_analyzer import build_kpi_correlation_pairs, compute_kpi_correlations
 
 # Load configuration globally
 CONFIG = load_config()
@@ -563,6 +565,9 @@ def analyze_temporal_kubernetes_correlations(correlations: Dict, performance_dat
             correlations["error"] = f"Datadog data files not found in {artifacts_path / 'datadog'}"
             return correlations
 
+        # Discover KPI timeseries files (optional)
+        kpi_files = discover_kpi_files(datadog_dir)
+
         # Process the data
         perf_df = load_and_process_performance_data(blazemeter_file, sla_threshold=sla_threshold)
         infra_df = load_and_process_infrastructure_data(datadog_files, granularity_window)
@@ -587,6 +592,7 @@ def analyze_temporal_kubernetes_correlations(correlations: Dict, performance_dat
             sla_threshold,
             resource_thresholds,
             environment_type="k8s",
+            kpi_files=kpi_files,
         )
         
         # Update correlations with temporal results
@@ -594,6 +600,10 @@ def analyze_temporal_kubernetes_correlations(correlations: Dict, performance_dat
         correlations["correlation_matrix"] = temporal_results.get("correlation_matrix", {})
         correlations["significant_correlations"] = temporal_results.get("significant_correlations", [])
         correlations["insights"].extend(temporal_results.get("insights", []))
+        
+        # KPI correlations (additive section)
+        if "kpi_correlations" in temporal_results:
+            correlations["kpi_correlations"] = temporal_results["kpi_correlations"]
         
         # Generate summary
         correlations["summary"] = generate_temporal_correlation_summary(temporal_results)
@@ -636,6 +646,9 @@ def analyze_temporal_host_correlations(correlations: Dict, performance_data: Dic
             correlations["error"] = f"Datadog data files not found in {artifacts_path / 'datadog'}"
             return correlations    
 
+        # Discover KPI timeseries files (optional)
+        kpi_files = discover_kpi_files(datadog_dir)
+
         # Process the data
         perf_df = load_and_process_performance_data(blazemeter_file, sla_threshold=sla_threshold)
         infra_df = load_and_process_infrastructure_data(datadog_files, granularity_window)
@@ -660,6 +673,7 @@ def analyze_temporal_host_correlations(correlations: Dict, performance_data: Dic
             sla_threshold,
             resource_thresholds,
             environment_type="host",
+            kpi_files=kpi_files,
         )
 
         # Update correlations with temporal results
@@ -667,6 +681,10 @@ def analyze_temporal_host_correlations(correlations: Dict, performance_data: Dic
         correlations["correlation_matrix"] = temporal_results.get("correlation_matrix", {})
         correlations["significant_correlations"] = temporal_results.get("significant_correlations", [])
         correlations["insights"].extend(temporal_results.get("insights", []))
+        
+        # KPI correlations (additive section)
+        if "kpi_correlations" in temporal_results:
+            correlations["kpi_correlations"] = temporal_results["kpi_correlations"]
         
         # Generate summary
         correlations["summary"] = generate_temporal_correlation_summary(temporal_results)
@@ -811,7 +829,8 @@ def load_and_process_infrastructure_data(infra_csv_files, granularity_window):
 def perform_temporal_correlation_analysis(perf_df: pd.DataFrame, infra_df: pd.DataFrame, 
                                         granularity_window: int, sla_threshold: float, 
                                         resource_thresholds: Dict,
-                                        environment_type: str = "k8s") -> Dict:
+                                        environment_type: str = "k8s",
+                                        kpi_files: Optional[List[Path]] = None) -> Dict:
     """Perform temporal correlation analysis - OPTIMIZED with pandas vectorization"""
     
     results = {
@@ -845,10 +864,10 @@ def perform_temporal_correlation_analysis(perf_df: pd.DataFrame, infra_df: pd.Da
         
         # Resample performance data to time windows (vectorized aggregation)
         perf_resampled = perf_indexed.resample(f'{granularity_window}s').agg({
-            'elapsed': ['mean', 'max', 'count'],
+            'elapsed': ['mean', 'max', 'count', lambda x: x.quantile(0.90) if len(x) else np.nan],
             'sla_violation': 'sum'
         })
-        perf_resampled.columns = ['avg_response_time', 'max_response_time', 'request_count', 'sla_violations']
+        perf_resampled.columns = ['avg_response_time', 'max_response_time', 'request_count', 'p90_response_time', 'sla_violations']
         
         # Resample infrastructure data to same windows (vectorized aggregation)
         infra_resampled = infra_indexed.resample(f'{granularity_window}s').mean(numeric_only=True)
@@ -1008,6 +1027,30 @@ def perform_temporal_correlation_analysis(perf_df: pd.DataFrame, infra_df: pd.Da
                 environment_type,
             )
         )
+        
+        # === KPI CORRELATION ANALYSIS (optional, additive) ===
+        if kpi_files:
+            kpi_pivoted = load_kpi_pivoted(kpi_files, convert_units=True)
+            if kpi_pivoted is not None and not kpi_pivoted.empty:
+                kpi_indexed = kpi_pivoted.set_index(
+                    pd.to_datetime(kpi_pivoted["timestamp"], utc=True)
+                )
+                kpi_numeric = kpi_indexed.select_dtypes(include="number")
+                kpi_resampled = kpi_numeric.resample(f"{granularity_window}s").mean(numeric_only=True)
+
+                kpi_merged = pd.merge(
+                    merged, kpi_resampled,
+                    left_index=True, right_index=True, how="left",
+                )
+
+                kpi_columns = [c for c in kpi_resampled.columns if c in kpi_merged.columns]
+                if kpi_columns:
+                    kpi_pairs = build_kpi_correlation_pairs(
+                        kpi_columns, list(kpi_merged.columns)
+                    )
+                    kpi_corr_results = compute_kpi_correlations(kpi_merged, kpi_pairs)
+                    results["kpi_correlations"] = kpi_corr_results
+                    results["insights"].extend(kpi_corr_results.get("kpi_insights", []))
         
         return results
         
