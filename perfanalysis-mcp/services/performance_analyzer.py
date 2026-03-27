@@ -17,6 +17,11 @@ from utils.config import (
     load_config,
     load_environments_config
 )
+from utils.kpi_utils import discover_kpi_files
+from services.kpi_analyzer import (
+    analyze_kpi_metrics,
+    generate_kpi_outputs,
+)
 from utils.file_processor import (
     load_jmeter_results,
     load_datadog_metrics,
@@ -182,6 +187,7 @@ async def analyze_apm_metrics(test_run_id: str, environment: str, ctx: Context) 
         # Find metrics CSV files
         k8s_files = list(apm_path.glob("k8s_metrics_*.csv"))
         host_files = list(apm_path.glob("host_metrics_*.csv"))
+        kpi_files = discover_kpi_files(apm_path)
         
         if not k8s_files and not host_files:
             error_msg = f"No metrics CSV files found in {apm_path}. Expected k8s_metrics_*.csv or host_metrics_*.csv"
@@ -204,28 +210,53 @@ async def analyze_apm_metrics(test_run_id: str, environment: str, ctx: Context) 
             k8s_files, host_files, environments_config, config, test_run_id, ctx
         )
         
-        # Generate output files
+        # KPI timeseries analysis (optional — only if kpi_metrics_*.csv files exist)
+        kpi_output_files: Dict = {}
+        if kpi_files:
+            kpi_analysis = await analyze_kpi_metrics(
+                kpi_files, environments_config, config, ctx
+            )
+            analysis_result["kpi_analysis"] = kpi_analysis
+        
+        # Generate infrastructure output files (includes kpi_analysis section if present)
         output_files = await generate_infrastructure_outputs(
             analysis_result, analysis_path, test_run_id, ctx
         )
         
+        # Generate standalone KPI output files
+        if kpi_files:
+            kpi_output_files = await generate_kpi_outputs(
+                analysis_result.get("kpi_analysis", {}), analysis_path, test_run_id, ctx
+            )
+            output_files.update({f"kpi_{k}": v for k, v in kpi_output_files.items()})
+        
         await ctx.info("Infrastructure Analysis Complete",
-                      f"Analysis completed for {len(k8s_files)} K8s + {len(host_files)} Host files. "
+                      f"Analysis completed for {len(k8s_files)} K8s + {len(host_files)} Host files"
+                      f"{f' + {len(kpi_files)} KPI files' if kpi_files else ''}. "
                       f"Files saved to {analysis_path}")
         
         # Return lightweight summary (not full analysis data)
         infrastructure_summary = analysis_result.get('infrastructure_summary', {})
         resource_insights = analysis_result.get('resource_insights', {})
         
+        summary = {
+            "infrastructure_overview": infrastructure_summary,
+            "resource_utilization": resource_insights,
+            "environments_analyzed": analysis_result.get('environments_analyzed', []),
+            "assumptions_made": analysis_result.get('assumptions_made', [])
+        }
+        if kpi_files:
+            kpi_analysis_result = analysis_result.get("kpi_analysis", {})
+            summary["kpi_overview"] = {
+                "total_services": kpi_analysis_result.get("total_services", 0),
+                "metric_categories_found": kpi_analysis_result.get("metric_categories_found", []),
+                "kpi_insights": kpi_analysis_result.get("kpi_insights", []),
+            }
+        
         return {
             "status": "success",
             "test_run_id": test_run_id,
-            "summary": {
-                "infrastructure_overview": infrastructure_summary,
-                "resource_utilization": resource_insights,
-                "environments_analyzed": analysis_result.get('environments_analyzed', []),
-                "assumptions_made": analysis_result.get('assumptions_made', [])
-            },
+            "summary": summary,
             "output_files": output_files,
             "data_source": f"{apm_tool}_metrics"
         }
