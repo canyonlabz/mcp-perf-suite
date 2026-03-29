@@ -1,21 +1,36 @@
 ---
-description: Pre-flight validation for all workflows — API keys, artifact structure, environment config
+description: Pre-flight validation for all workflows — artifact structure, MCP server availability, config file reference
 alwaysApply: true
 ---
 
 # Prerequisites & Pre-Flight Checks
 
-## API Key / Credential Validation
+## API Keys & Credentials — Graceful Failure
 
-Before starting any workflow that uses an MCP server, verify the required credentials exist.
-Do not proceed if credentials are missing — inform the user immediately.
+MCP tools handle missing or invalid credentials gracefully. If an API key or credential
+is not configured, the MCP tool will return an error at call time. **Do not** attempt to
+read or validate `.env` files before starting a workflow.
+
+- `.env` files are **gitignored** and not available in the repository. Only `.env.example`
+  files are committed as reference templates.
+- Cursor may not be able to read `.env` files. This is expected — assume credentials are
+  configured by the Performance Test Engineer. If they are not, MCP tools will fail with
+  a clear error message.
+- Do not block a workflow due to inability to verify credentials. Proceed and let the
+  MCP tool report any authentication failures.
+
+**Credential reference** (for documentation purposes only — do not validate these):
 
 | MCP Server | Required Credentials | Config Location |
 |------------|---------------------|----------------|
 | BlazeMeter | `BLAZEMETER_API_KEY`, `BLAZEMETER_API_SECRET` | `.env` or environment variables |
 | Datadog | `DD_API_KEY`, `DD_APP_KEY` | `.env` or environment variables |
 | Confluence | `CONFLUENCE_TOKEN`, `CONFLUENCE_USER` (cloud) or `CONFLUENCE_PAT` (onprem) | `.env` or environment variables |
-| Azure DevOps | ADO MCP configured, or manual access to ADO | ADO MCP config or manual |
+
+**Azure DevOps (optional):** ADO integration is only relevant for users who use Azure
+DevOps. It is not a universal requirement. Users who use JIRA or other systems will not
+have ADO configured. If ADO access is needed for a specific workflow (e.g., ADO test case
+conversion), the skill will state this as a prerequisite.
 
 ## Artifact Structure
 
@@ -39,8 +54,9 @@ artifacts/{test_run_id}/
 
 ## Environment Configuration
 
-- Verify the environment name exists in Datadog MCP configuration before starting a Datadog workflow
-- Missing environments cause mid-workflow failures — validate upfront
+- Environment names are defined in each MCP server's configuration files (see table below)
+- If an environment name is invalid, the MCP tool will return an error at call time
+- Do not attempt to read or validate environment config files upfront
 
 ## MCP Server Availability
 

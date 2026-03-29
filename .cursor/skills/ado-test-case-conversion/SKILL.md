@@ -109,7 +109,7 @@ These Cursor Rules apply when using this skill:
 
 - **`prerequisites.mdc`** — Azure DevOps access validation (see prerequisite table above)
 - **`skill-execution-rules.mdc`** — Follow steps in order, collect inputs first, do not skip
-- **`browser-safety.mdc`** — Applies when the converted spec is used in Playwright browser automation
+- **`browser-automation-guardrails.mdc`** — Applies when the converted spec is used in Playwright browser automation
 
 ### Tips and Lessons Learned
 

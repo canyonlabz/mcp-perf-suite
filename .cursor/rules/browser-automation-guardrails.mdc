@@ -1,11 +1,11 @@
 ---
-description: Browser automation safety — think time, keep browser open, snapshot before interact, dialog handling
+description: Browser automation guardrails — think time, keep browser open, snapshot before interact, dialog handling
 alwaysApply: false
 globs:
   - "test-specs/**"
 ---
 
-# Browser Automation Safety
+# Browser Automation Guardrails
 
 ## Think Time Between Steps
 
