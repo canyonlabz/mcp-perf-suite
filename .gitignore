@@ -326,6 +326,8 @@ streamlit-ui/config.yaml
 .cursor/skills/*
 !.cursor/skills/ado-test-case-conversion/
 !.cursor/skills/ado-test-case-conversion/SKILL.md
+!.cursor/skills/comparison-report-workflow/
+!.cursor/skills/comparison-report-workflow/SKILL.md
 !.cursor/skills/jmeter-correlation-naming/
 !.cursor/skills/jmeter-correlation-naming/SKILL.md
 !.cursor/skills/jmeter-correlation-naming/naming-conventions.md
@@ -337,8 +339,12 @@ streamlit-ui/config.yaml
 !.cursor/skills/jmeter-hitl-editing/SKILL.md
 !.cursor/skills/jmeter-swagger-conversion/
 !.cursor/skills/jmeter-swagger-conversion/SKILL.md
+!.cursor/skills/performance-testing-workflow/
+!.cursor/skills/performance-testing-workflow/SKILL.md
 !.cursor/skills/playwright-browser-automation/
 !.cursor/skills/playwright-browser-automation/SKILL.md
+!.cursor/skills/report-revision-workflow/
+!.cursor/skills/report-revision-workflow/SKILL.md
 
 # Ignore all custom Cursor Agents files, except the below
 .cursor/agents/*
