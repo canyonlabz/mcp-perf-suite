@@ -34,30 +34,34 @@ artifacts/{test_run_id}/
 └── jmeter/           # JMX scripts, network captures, correlation files
 ```
 
-- Comparison artifacts use: `artifacts/comparisons/{comparison_id}/`
+- Test comparison artifacts use: `artifacts/comparisons/{comparison_id}/`
 - File existence checks are mandatory gates between workflows
 
 ## Environment Configuration
 
-- Verify the environment name exists in Datadog MCP configuration before starting
-  a Datadog workflow
+- Verify the environment name exists in Datadog MCP configuration before starting a Datadog workflow
 - Missing environments cause mid-workflow failures — validate upfront
 
 ## MCP Server Availability
 
-- If an MCP server is not available, skip the step that requires it
-- Inform the user which MCP server is unavailable and what steps were skipped
+- If an MCP server is not available, inform the user which MCP server is unavailable and ask for next steps (e.g. skip the unavailable MCP workflow? Stop and wait for the MCP to become available?)
 - Do not fail silently
 
 ## Configuration Files Reference
 
-| Config File | MCP Server | Purpose |
-|------------|------------|---------|
-| `config.yaml` / `config.mac.yaml` / `config.windows.yaml` | JMeter | JMeter paths, browser settings, think time |
-| `jmeter_config.yaml` | JMeter | JMX generation settings, verbose logging |
-| `correlation_config.yaml` | JMeter | Custom naming mappings for correlations |
-| `report_config.yaml` | PerfReport | Report sections, revisable sections, unit display |
-| `chart_schema.yaml` | PerfReport | Chart definitions, unit configuration |
-| `chart_colors.yaml` | PerfReport | Color palettes for charts |
-| `custom_queries.json` | Datadog | Custom log/APM query templates |
-| Environment YAMLs | Datadog | Host/k8s resource definitions per environment |
+| MCP Server   | Config File                                               | Purpose                                        |
+|--------------|-----------------------------------------------------------|------------------------------------------------|
+| JMeter       | `config.yaml` / `config.mac.yaml` / `config.windows.yaml` | JMeter paths, browser settings, think time     |
+| JMeter       | `jmeter_config.yaml`                                      | JMX generation settings, verbose logging       |
+| JMeter       | `correlation_config.yaml`                                 | Custom naming mappings for correlations        |
+| BlazeMeter   | `config.yaml` / `config.mac.yaml` / `config.windows.yaml` | BlazeMeter API settings, max artifact download retries, shared folder allowed extensions |
+| Datadog      | `config.yaml` / `config.mac.yaml` / `config.windows.yaml` | Datadog API pagination limits                  |
+| Datadog      | `environments.json`                                       | Host/k8s/services definitions per environment  |
+| Datadog      | `custom_queries.json`                                     | Custom log, APM, and timeseries metric queries |
+| PerfAnalysis | `config.yaml` / `config.mac.yaml` / `config.windows.yaml` | Analysis settings, resouce thresholds, bottleneck analysis settings |
+| PerfAnalysis | `slas.yaml`                                               | SLA configurations for response times and error rate thresholds     |
+| PerfReport   | `report_config.yaml`                                      | Report sections, revisable sections, unit display                   |
+| PerfReport   | `chart_schema.yaml`                                       | Chart definitions, unit configuration                               |
+| PerfReport   | `chart_colors.yaml`                                       | Color palettes for charts                                           |
+| Confluence   | `config.yaml` / `config.mac.yaml` / `config.windows.yaml` | Pagination limits                              |
+| Streamlit    | `config.yaml` / `config.mac.yaml` / `config.windows.yaml` | Port settings, page title                      |

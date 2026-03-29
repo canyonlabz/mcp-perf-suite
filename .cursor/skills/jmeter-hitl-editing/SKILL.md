@@ -38,7 +38,7 @@ A JMX script can arrive in the artifacts folder from any of these sources:
 
 - **External / Pre-existing JMX** — User provides a path to an existing JMX file.
   Copy it into `artifacts/{test_run_id}/jmeter/` with an `imported_` prefix.
-- **Playwright browser automation** — Follow the browser-automation skill.
+- **Playwright browser automation** — Follow the skill at `.cursor/skills/playwright-browser-automation/SKILL.md`.
 - **HAR file conversion** — Follow the skill at `.cursor/skills/jmeter-har-conversion/SKILL.md`.
 - **Swagger/OpenAPI conversion** — Follow the skill at `.cursor/skills/jmeter-swagger-conversion/SKILL.md`.
 
@@ -52,8 +52,10 @@ A JMX script can arrive in the artifacts folder from any of these sources:
 | `edit_jmeter_component` | Edit an existing component | `test_run_id`, `target_node_id`, `operations`, `dry_run` |
 | `list_jmeter_scripts` | List JMX scripts for a test run | `test_run_id` |
 | `start_jmeter_test` | Run a headless JMeter test | `test_run_id`, `jmx_path` |
+| `stop_jmeter_test` | Stop a JMeter test | `test_run_id` | 
 | `get_jmeter_run_status` | Poll running test for metrics | `test_run_id`, `pid` |
 | `generate_aggregate_report` | Generate aggregate CSV report | `test_run_id` |
+| `analyze_jmeter_log` | Analyze a JMeter log for test execution errors | `test_run_id`, `log_source` (e.g. "jmeter"/"blazemeter") |
 
 ### Edit Operations
 

@@ -312,10 +312,10 @@ streamlit-ui/config.yaml
 # Ignore all custom Cursor Rules files, except the below
 .cursor/rules/*.mdc
 !.cursor/rules/prerequisites.mdc
-!.cursor/rules/skill-execution-rules.mdc
-!.cursor/rules/browser-safety.mdc
-!.cursor/rules/mcp-error-handling.mdc
+!.cursor/rules/browser-automation-guardrails.mdc
 !.cursor/rules/jmeter-script-guardrails.mdc
+!.cursor/rules/mcp-error-handling.mdc
+!.cursor/rules/skill-execution-rules.mdc
 
 # Legacy rules that will be deprecated.
 !.cursor/rules/performance-testing-workflow.mdc

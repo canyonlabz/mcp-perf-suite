@@ -43,21 +43,21 @@ perf_analysis:
   # Bottleneck analysis settings
   # Answers: "At what concurrency does performance degrade, and what is the limiting factor?"
   bottleneck_analysis:
-    bucket_seconds: 60          # Time bucket width in seconds
-    warmup_buckets: 2           # Buckets to skip at test start (JMeter ramp-up)
-    sustained_buckets: 2        # Consecutive buckets required to confirm a finding
-    persistence_ratio: 0.6      # Min fraction of remaining test that must stay degraded
-    rolling_window_buckets: 3   # Window size for rolling median smoothing (outlier filtering)
-    latency_degrade_pct: 25.0   # P90 latency increase % over baseline to flag degradation
-    error_rate_degrade_abs: 5.0 # Absolute error rate % to flag as degraded
-    throughput_plateau_pct: 5.0 # Throughput growth % below which is considered a plateau
+    bucket_seconds: 60            # Time bucket width in seconds
+    warmup_buckets: 2             # Buckets to skip at test start (JMeter ramp-up)
+    sustained_buckets: 2          # Consecutive buckets required to confirm a finding
+    persistence_ratio: 0.6        # Min fraction of remaining test that must stay degraded
+    rolling_window_buckets: 3     # Window size for rolling median smoothing (outlier filtering)
+    latency_degrade_pct: 25.0     # P90 latency increase % over baseline to flag degradation
+    error_rate_degrade_abs: 5.0   # Absolute error rate % to flag as degraded
+    throughput_plateau_pct: 5.0   # Throughput growth % below which is considered a plateau
     # DEPRECATED: sla_p90_ms is no longer used.
     # SLA thresholds are resolved dynamically from slas.yaml.
     # sla_p90_ms: null
-    cpu_high_pct: null          # CPU saturation threshold. null = use resource_thresholds.cpu.high
-    memory_high_pct: null       # Memory saturation threshold. null = use resource_thresholds.memory.high
-    raw_metric_degrade_pct: 50.0 # Relative increase from baseline to flag when utilization % unavailable (no K8s limits)
-    max_jtl_rows: null          # null = load all rows; set to e.g. 2000000 to cap memory on very large JTL files
+    cpu_high_pct: null            # CPU saturation threshold. null = use resource_thresholds.cpu.high
+    memory_high_pct: null         # Memory saturation threshold. null = use resource_thresholds.memory.high
+    raw_metric_degrade_pct: 50.0  # Relative increase from baseline to flag when utilization % unavailable (no K8s limits)
+    max_jtl_rows: null            # null = load all rows; set to e.g. 2000000 to cap memory on very large JTL files
 
 # Output Settings
 output:

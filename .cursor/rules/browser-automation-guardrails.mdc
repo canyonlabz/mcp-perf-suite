@@ -9,9 +9,8 @@ globs:
 
 ## Think Time Between Steps
 
-- Apply a wait between browser automation steps to simulate realistic user behavior
-- Read `think_time` from `jmeter-mcp/config.windows.yaml` (or `config.yaml`) under
-  `browser.think_time`
+- Apply a wait time between browser automation steps to simulate realistic user behavior
+- Read `think_time` from `jmeter-mcp/config.windows.yaml`/`jmeter-mcp/config.mac.yaml` (or `config.yaml`) under `browser.think_time`
 - Default: 5000 milliseconds (5 seconds)
 - Apply after each step completes, except after the final step
 
