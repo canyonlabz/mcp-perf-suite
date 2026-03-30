@@ -317,11 +317,6 @@ streamlit-ui/config.yaml
 !.cursor/rules/mcp-error-handling.mdc
 !.cursor/rules/skill-execution-rules.mdc
 
-# Legacy rules that will be deprecated.
-!.cursor/rules/performance-testing-workflow.mdc
-!.cursor/rules/comparison-report-workflow.mdc
-!.cursor/rules/report-revision-workflow.mdc
-
 # Ignore all custom Cursor Skills files, except the below
 .cursor/skills/*
 !.cursor/skills/ado-test-case-conversion/
@@ -346,8 +341,14 @@ streamlit-ui/config.yaml
 !.cursor/skills/report-revision-workflow/
 !.cursor/skills/report-revision-workflow/SKILL.md
 
+# Proof of concept files for new Cursor features, to be removed before release
+!.cursor/skills/subagent-poc-orchestrator/
+!.cursor/skills/subagent-poc-orchestrator/SKILL.md
+
 # Ignore all custom Cursor Agents files, except the below
 .cursor/agents/*
+!.cursor/agents/blazemeter-extractor.md
+!.cursor/agents/datadog-extractor.md
 
 # Ignore all custom Cursor Plans files, except the below
 .cursor/plans/*
