@@ -133,7 +133,25 @@ blazemeter-mcp
 
 ---
 
-### 📊 **7. Large File Handling (`large_file_handling.md`)**
+### 🔬 **7. PerfAnalysis Analytical Techniques Guide (`perfanalysis_techniques_guide.md`)**
+
+A comprehensive reference explaining every statistical algorithm and data science technique used by the PerfAnalysis MCP server, including:
+
+* All statistical algorithms: percentiles, Pearson correlation, linear regression, Z-score anomaly detection, rolling median smoothing, Median Absolute Deviation (MAD), and more
+* All data science techniques: SLA validation, temporal correlation, trend classification, outlier suppression, sustained degradation detection, multi-factor severity scoring
+* The five-step analysis pipeline with workflow diagrams
+* Deep-dive into the bottleneck detection engine: Phase 1 core detectors, Phase 2 infrastructure cross-reference, Phase 3 KPI-driven bottlenecks
+* What PerfAnalysis produces (all output files and JSON structures)
+* Configuration knobs that drive analysis behavior
+* A glossary of performance testing and data science terms
+
+Written in plain language for junior-to-mid-level Performance Test Engineers.
+
+➡️ *Use this to understand how PerfAnalysis analyzes test results and what techniques it uses to identify bottlenecks.*
+
+---
+
+### 📊 **8. Large File Handling (`large_file_handling.md`)**
 
 A technical reference explaining how the PerfAnalysis MCP handles large JTL/CSV files (200+ MB), including:
 
@@ -147,7 +165,7 @@ A technical reference explaining how the PerfAnalysis MCP handles large JTL/CSV 
 
 ---
 
-### 🧩 **8. Architecture & Flow Docs (Future Expansion)**
+### 🧩 **9. Architecture & Flow Docs (Future Expansion)**
 
 Potential documents coming later:
 
@@ -155,7 +173,6 @@ Potential documents coming later:
 * `data_flow_across_mcp_servers.md`
 * `report_generation_pipeline.md`
 * `how_network_capture_integrates_with_jmeter.md`
-* `performance_analysis_pipeline.md`
 
 ➡️ *These give new contributors a high-level picture of the entire ecosystem.*
 
@@ -172,6 +189,7 @@ docs/
 ├── jmeter_hitl_user_guide.md         ← AI HITL editing guide
 ├── report_template_guidelines.md     ← Performance report template rules
 ├── large_file_handling.md            ← Large JTL file handling & limitations
+├── perfanalysis_techniques_guide.md ← Analytical techniques & algorithms reference
 │
 ├── config_reference.md        ← (Planned)
 ├── mcp_tools_index.md         ← (Planned)

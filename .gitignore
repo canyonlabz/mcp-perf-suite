@@ -260,6 +260,7 @@ docs/*
 !docs/jmeter_hitl_user_guide.md
 !docs/large_file_handling.md
 !docs/correlation_analysis_guide.md
+!docs/perfanalysis_techniques_guide.md
 !docs/README.md
 
 # Re-include the changelogs directory itself
