@@ -341,10 +341,8 @@ streamlit-ui/config.yaml
 !.cursor/skills/playwright-browser-automation/SKILL.md
 !.cursor/skills/report-revision-workflow/
 !.cursor/skills/report-revision-workflow/SKILL.md
-
-# Proof of concept files for new Cursor features, to be removed before release
-!.cursor/skills/subagent-poc-orchestrator/
-!.cursor/skills/subagent-poc-orchestrator/SKILL.md
+!.cursor/skills/subagent-orchestrator/
+!.cursor/skills/subagent-orchestrator/SKILL.md
 
 # Ignore all custom Cursor Agents files, except the below
 .cursor/agents/*
