@@ -51,7 +51,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./data/pgvectordb:/var/lib/postgresql
+      - ./data/pgvectordb:/var/lib/postgresql/18/docker
     environment:
       - POSTGRES_USER=perfadmin
       - POSTGRES_PASSWORD=mypassword
