@@ -239,6 +239,9 @@ perfanalysis-mcp/uv.lock
 confluence-mcp/.env
 msgraph-mcp/.env
 
+# Ignore docker data created by the test suite
+docker/data/*
+
 # ignore performance test results and logs
 artifacts/*
 !artifacts/.gitkeep
@@ -261,6 +264,7 @@ docs/*
 !docs/large_file_handling.md
 !docs/correlation_analysis_guide.md
 !docs/perfanalysis_techniques_guide.md
+!docs/pgvector_installation_guide.md
 !docs/README.md
 
 # Re-include the changelogs directory itself

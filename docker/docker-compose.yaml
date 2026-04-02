@@ -1,0 +1,13 @@
+services:
+  pgvectordb:
+    image: pgvector/pgvector:pg18
+    container_name: pgvector
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/pgvectordb:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=perfadmin
+      - POSTGRES_PASSWORD=mypassword
+      - POSTGRES_DB=perfmemory
+    restart: unless-stopped
