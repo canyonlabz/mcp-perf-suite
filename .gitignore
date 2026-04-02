@@ -238,8 +238,10 @@ perfanalysis-mcp/.env
 perfanalysis-mcp/uv.lock
 confluence-mcp/.env
 msgraph-mcp/.env
+docker/.env
+streamlit-ui/.env
 
-# Ignore docker data created by the test suite
+# Ignore docker data and local YAML files for Docker Compose, which may contain sensitive information or be specific to individual environments
 docker/data/*
 
 # ignore performance test results and logs
