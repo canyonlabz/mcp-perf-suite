@@ -132,3 +132,40 @@ SELECT * FROM pg_extension;
 ```
 
 You should see `vector` listed among the installed extensions.
+
+## Step 7: Creating the PerfMemory Schema
+
+Schema creation scripts are located in `perfmemory-mcp/sql/schema/`. Choose the script that matches your embedding provider:
+
+| Provider | Script | Vector Dimensions |
+|---|---|---|
+| OpenAI / Azure OpenAI | `schema_openai.sql` | 1536 |
+| Ollama (nomic-embed-text) | `schema_ollama.sql` | 768 |
+
+> **Important:** Choose one provider and stick with it. Vectors from different embedding models cannot be mixed in the same database. See `docs/plans/pgvector-schema-design.md` for full details.
+
+Run the script from the command line (example using the OpenAI schema):
+
+```bash
+psql -h localhost -U perfadmin -d perfmemory -f perfmemory-mcp/sql/schema/schema_openai.sql
+```
+
+Or if already connected via `psql`:
+
+```sql
+\i perfmemory-mcp/sql/schema/schema_openai.sql
+```
+
+### Verifying the Schema
+
+After running the script, verify the tables were created:
+
+```sql
+\dt
+```
+
+You should see `debug_sessions` and `debug_attempts` listed. To verify the indexes:
+
+```sql
+\di
+```
