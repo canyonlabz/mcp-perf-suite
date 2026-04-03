@@ -236,6 +236,7 @@ datadog-mcp/.env
 datadog-mcp/uv.lock
 perfanalysis-mcp/.env
 perfanalysis-mcp/uv.lock
+perfmemory-mcp/.env
 confluence-mcp/.env
 msgraph-mcp/.env
 docker/.env
