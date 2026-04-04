@@ -174,12 +174,13 @@ def create_session(
                 """
                 INSERT INTO debug_sessions
                     (system_under_test, test_run_id, script_name, auth_flow_type,
-                     environment, created_by, notes, started_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     environment, created_by, notes, final_outcome, started_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (system_under_test, test_run_id, script_name, auth_flow_type,
-                 environment, created_by, notes, datetime.now(timezone.utc)),
+                 environment, created_by, notes, "in_progress",
+                 datetime.now(timezone.utc)),
             )
             session_id = str(cur.fetchone()[0])
         conn.commit()

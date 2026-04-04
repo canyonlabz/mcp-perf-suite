@@ -24,6 +24,10 @@ This repository hosts multiple MCP servers, each designed for a specific role in
 - **Performance Test Analysis MCP Server:**  
   Perform deep analysis of BlazeMeter test results alongside Datadog system metrics (e.g., CPU, Memory). Includes log analysis of both JMeter and Datadog logs, followed by time-series correlation across datasets to detect anomalies and provide actionable insights.
 
+### 🧠 AI Memory & Learning
+- **PerfMemory MCP Server:**  
+  Persistent memory and lessons-learned layer backed by PostgreSQL with pgvector. Stores debug sessions, attempts, and vector embeddings of symptoms so AI agents can recall past fixes and avoid repeating mistakes. Supports OpenAI, Azure OpenAI, and Ollama embedding providers.
+
 ### 📑 Reporting & Collaboration
 - **Performance Reporting MCP Server:**  
   Generate formatted reports (e.g. PDF, Word, Markdown) from test data and analysis files for presentation and decision-making.
@@ -50,13 +54,13 @@ The MCP servers in this repository (and external integrations like Playwright MC
                 └───────────┬────────────┘
                             │ JSON traffic
                             ▼
-                ┌────────────────────────┐
-                │   JMeter MCP Server    │
-                │  - Generate JMX scripts│
-                │  - Run smoke tests to  │
-                │    validate correctness│
-                └───────────┬────────────┘
-                            │ Validated JMX
+                ┌────────────────────────┐       ┌─────────────────────────┐
+                │   JMeter MCP Server    │◄─────►│  PerfMemory MCP Server  │
+                │  - Generate JMX scripts│       │  - Recall past fixes    │
+                │  - Run smoke tests to  │       │  - Store new lessons    │
+                │    validate correctness│       │  - Vector similarity    │
+                └───────────┬────────────┘       │    search (pgvector)    │
+                            │ Validated JMX      └─────────────────────────┘
                             ▼
                 ┌────────────────────────┐
                 │   BlazeMeter MCP Server│
@@ -117,6 +121,7 @@ mcp-perf-suite/
 ├── jmeter-mcp/              # JMeter MCP server (current)
 ├── msgraph-mcp/             # Microsoft Graph MCP server (future)
 ├── perfanalysis-mcp/        # LLM-powered test analysis MCP (current)
+├── perfmemory-mcp/          # AI memory & lessons learned MCP (current)
 ├── perfreport-mcp/          # Reporting and formatting MCP (current)
 ├── README.md                # This file: repo overview and guidance
 └── LICENSE                  # Repository license (e.g., MIT)
@@ -161,6 +166,12 @@ reports as either PDF or Word format.
 Navigate to the `confluence-mcp/` folder for detailed setup and usage instructions specific to the Confluence MCP server.
 
 The Confluence MCP server uses FastMCP, Python 3.12+, and exposes actions to publish performance test reports to Confluence. It also supports listing and retrieving Confluence spaces and pages, searching pages, and managing available reports and charts for publication.
+
+## ▶️ Getting Started with PerfMemory MCP Server
+
+Navigate to the `perfmemory-mcp/` folder for detailed setup and usage instructions specific to the PerfMemory MCP server.
+
+The PerfMemory MCP server uses FastMCP, Python 3.12+, and PostgreSQL with the pgvector extension. It provides persistent memory for JMeter script debugging — storing debug sessions, attempts, and vector embeddings so AI agents can recall past fixes via semantic similarity search. Supports OpenAI, Azure OpenAI, and Ollama embedding providers. See `docs/pgvector_installation_guide.md` for database setup instructions.
 
 ## ▶️ Getting Started with Microsoft Graph MCP Server
 
