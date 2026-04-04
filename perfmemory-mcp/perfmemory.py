@@ -1,11 +1,40 @@
 # PerfMemory MCP Server
 # Persistent memory and lessons learned layer for JMeter script debugging.
+import asyncio
+import atexit
+import logging
+
 from fastmcp import FastMCP, Context
 from typing import Optional, Dict, Any
+
+from services.embeddings import EmbeddingProvider
+from services import session_manager as sm
+from utils.config import load_config
+
+log = logging.getLogger(__name__)
 
 mcp = FastMCP(
     name="perfmemory",
 )
+
+_config = load_config()
+_embedder = EmbeddingProvider(_config["embedding"])
+
+
+def _shutdown():
+    """Release database connections and HTTP clients on exit."""
+    log.info("PerfMemory shutdown — releasing resources")
+    sm.close_pool()
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(_embedder.close())
+        else:
+            loop.run_until_complete(_embedder.close())
+    except RuntimeError:
+        pass
+
+atexit.register(_shutdown)
 
 
 # =============================================================================
@@ -43,7 +72,24 @@ async def store_debug_session(
         dict with keys: status, session_id, message
     """
     _ = ctx
-    return {"status": "NOT_IMPLEMENTED", "message": "store_debug_session is not yet implemented"}
+    try:
+        session_id = sm.create_session(
+            _config["database"],
+            system_under_test=system_under_test,
+            test_run_id=test_run_id,
+            script_name=script_name,
+            auth_flow_type=auth_flow_type,
+            environment=environment,
+            created_by=created_by,
+            notes=notes,
+        )
+        return {
+            "status": "OK",
+            "session_id": session_id,
+            "message": f"Debug session created (id={session_id})",
+        }
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
 
 
 @mcp.tool()
@@ -102,7 +148,46 @@ async def store_debug_attempt(
         If matched_attempt_id provided: also confirmed_match_id, new_confirmed_count.
     """
     _ = ctx
-    return {"status": "NOT_IMPLEMENTED", "message": "store_debug_attempt is not yet implemented"}
+    try:
+        embedding = await _embedder.embed(symptom_text)
+        model_name = _embedder.get_model_name()
+
+        attempt_id = sm.create_attempt(
+            _config["database"],
+            session_id=session_id,
+            iteration_number=iteration_number,
+            symptom_text=symptom_text,
+            outcome=outcome,
+            embedding=embedding,
+            embedding_model=model_name,
+            error_category=error_category,
+            severity=severity,
+            response_code=response_code,
+            hostname=hostname,
+            sampler_name=sampler_name,
+            api_endpoint=api_endpoint,
+            diagnosis=diagnosis,
+            fix_description=fix_description,
+            fix_type=fix_type,
+            component_type=component_type,
+            manifest_excerpt=manifest_excerpt,
+        )
+
+        result: Dict[str, Any] = {
+            "status": "OK",
+            "attempt_id": attempt_id,
+            "embedding_model": model_name,
+            "message": f"Debug attempt stored (id={attempt_id})",
+        }
+
+        if matched_attempt_id:
+            new_count = sm.increment_confirmed(_config["database"], matched_attempt_id)
+            result["confirmed_match_id"] = matched_attempt_id
+            result["new_confirmed_count"] = new_count
+
+        return result
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
 
 
 @mcp.tool()
@@ -135,13 +220,43 @@ async def find_similar_attempts(
         recommendation is one of: apply_known_fix, review_suggestions, no_match.
     """
     _ = ctx
-    return {
-        "status": "NOT_IMPLEMENTED",
-        "message": "find_similar_attempts is not yet implemented",
-        "matches_found": 0,
-        "matches": [],
-        "recommendation": "no_match",
-    }
+    try:
+        search_config = _config["search"]
+        effective_top_k = top_k if top_k is not None else search_config["top_k"]
+        effective_threshold = threshold if threshold is not None else search_config["threshold"]
+
+        embedding = await _embedder.embed(symptom_text)
+
+        matches = sm.find_similar(
+            _config["database"],
+            embedding=embedding,
+            system_under_test=system_under_test,
+            error_category=error_category,
+            threshold=effective_threshold,
+            top_k=effective_top_k,
+        )
+
+        if matches and matches[0]["similarity"] > 0.85:
+            recommendation = "apply_known_fix"
+        elif matches and matches[0]["similarity"] > 0.60:
+            recommendation = "review_suggestions"
+        else:
+            recommendation = "no_match"
+
+        return {
+            "status": "OK",
+            "matches_found": len(matches),
+            "matches": matches,
+            "recommendation": recommendation,
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "message": str(e),
+            "matches_found": 0,
+            "matches": [],
+            "recommendation": "no_match",
+        }
 
 
 # =============================================================================
@@ -174,7 +289,21 @@ async def close_debug_session(
         dict with keys: status, message, total_iterations
     """
     _ = ctx
-    return {"status": "NOT_IMPLEMENTED", "message": "close_debug_session is not yet implemented"}
+    try:
+        total_iterations = sm.close_session(
+            _config["database"],
+            session_id=session_id,
+            final_outcome=final_outcome,
+            resolution_attempt_id=resolution_attempt_id,
+            notes=notes,
+        )
+        return {
+            "status": "OK",
+            "message": f"Session closed with outcome: {final_outcome}",
+            "total_iterations": total_iterations,
+        }
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
 
 
 @mcp.tool()
@@ -201,12 +330,21 @@ async def list_sessions(
         dict with keys: status, count, sessions (list of session metadata dicts)
     """
     _ = ctx
-    return {
-        "status": "NOT_IMPLEMENTED",
-        "message": "list_sessions is not yet implemented",
-        "count": 0,
-        "sessions": [],
-    }
+    try:
+        sessions = sm.list_sessions_filtered(
+            _config["database"],
+            system_under_test=system_under_test,
+            environment=environment,
+            final_outcome=final_outcome,
+            limit=limit or 20,
+        )
+        return {
+            "status": "OK",
+            "count": len(sessions),
+            "sessions": sessions,
+        }
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e), "count": 0, "sessions": []}
 
 
 @mcp.tool()
@@ -229,12 +367,27 @@ async def get_session_detail(
         iteration_number)
     """
     _ = ctx
-    return {
-        "status": "NOT_IMPLEMENTED",
-        "message": "get_session_detail is not yet implemented",
-        "session": {},
-        "attempts": [],
-    }
+    try:
+        result = sm.get_session(_config["database"], session_id)
+        if not result:
+            return {
+                "status": "ERROR",
+                "message": f"Session not found: {session_id}",
+                "session": {},
+                "attempts": [],
+            }
+        return {
+            "status": "OK",
+            "session": result["session"],
+            "attempts": result["attempts"],
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "message": str(e),
+            "session": {},
+            "attempts": [],
+        }
 
 
 # =============================================================================
@@ -262,7 +415,16 @@ async def archive_attempt(
         dict with keys: status, message
     """
     _ = ctx
-    return {"status": "NOT_IMPLEMENTED", "message": "archive_attempt is not yet implemented"}
+    try:
+        found = sm.archive_attempt_by_id(_config["database"], attempt_id)
+        if not found:
+            return {"status": "ERROR", "message": f"Attempt not found: {attempt_id}"}
+        msg = f"Attempt archived (id={attempt_id})"
+        if reason:
+            msg += f" — reason: {reason}"
+        return {"status": "OK", "message": msg}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
 
 
 @mcp.tool()
@@ -283,7 +445,13 @@ async def verify_attempt(
         dict with keys: status, message
     """
     _ = ctx
-    return {"status": "NOT_IMPLEMENTED", "message": "verify_attempt is not yet implemented"}
+    try:
+        found = sm.verify_attempt_by_id(_config["database"], attempt_id)
+        if not found:
+            return {"status": "ERROR", "message": f"Attempt not found: {attempt_id}"}
+        return {"status": "OK", "message": f"Attempt verified (id={attempt_id})"}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
 
 
 @mcp.tool()
@@ -305,12 +473,16 @@ async def get_memory_stats(
         by_system, by_outcome, verified_count, active_count
     """
     _ = ctx
-    return {
-        "status": "NOT_IMPLEMENTED",
-        "message": "get_memory_stats is not yet implemented",
-        "total_sessions": 0,
-        "total_attempts": 0,
-    }
+    try:
+        stats = sm.get_stats(_config["database"], system_under_test)
+        return {"status": "OK", **stats}
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "message": str(e),
+            "total_sessions": 0,
+            "total_attempts": 0,
+        }
 
 
 # =============================================================================

@@ -39,6 +39,8 @@ def load_config() -> dict:
             "dbname": os.getenv("POSTGRES_DB", "perfmemory"),
             "user": os.getenv("POSTGRES_USER", "perfadmin"),
             "password": os.getenv("POSTGRES_PASSWORD", ""),
+            "sslmode": os.getenv("POSTGRES_SSLMODE", "prefer"),
+            "sslrootcert": os.getenv("POSTGRES_SSLROOTCERT", ""),
         },
         "search": {
             "top_k": int(os.getenv("VECTOR_TOP_K", "5")),
