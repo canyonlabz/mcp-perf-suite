@@ -479,7 +479,7 @@ def find_similar(
     _healthy = True
     try:
         conditions = ["a.is_active = TRUE"]
-        params: list = [embedding, embedding]
+        params: list = [embedding, embedding, threshold]
 
         if system_under_test:
             conditions.append("s.system_under_test = %s")
@@ -489,7 +489,7 @@ def find_similar(
             params.append(error_category)
 
         where = " AND ".join(conditions)
-        params.extend([threshold, top_k])
+        params.append(top_k)
 
         with conn.cursor() as cur:
             cur.execute(

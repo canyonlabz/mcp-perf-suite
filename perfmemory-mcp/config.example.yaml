@@ -1,0 +1,21 @@
+# PerfMemory MCP — Configuration
+# Copy this file to config.yaml and adjust as needed.
+# For platform-specific overrides, create config.windows.yaml or config.mac.yaml.
+
+# ----------------------------------------
+# Vector Similarity Search
+# ----------------------------------------
+search:
+  # Minimum cosine similarity score (0.0 - 1.0) to include a match in results.
+  # Lower values return more results but with less relevance.
+  # Recommended: 0.55 - 0.65 for broad recall, 0.70+ for high precision.
+  similarity_threshold: 0.60
+
+  # Maximum number of results to return from a similarity search.
+  top_k: 5
+
+# ----------------------------------------
+# General
+# ----------------------------------------
+general:
+  enable_debug: false

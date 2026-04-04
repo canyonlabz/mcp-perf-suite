@@ -1,25 +1,72 @@
 import os
+import platform
+import yaml
 from pathlib import Path
 from dotenv import load_dotenv
 
 
-def load_config() -> dict:
-    """Load PerfMemory configuration from .env file.
+def _get_mcp_root() -> Path:
+    """Resolve the perfmemory-mcp directory from this file's location."""
+    return Path(__file__).resolve().parent.parent
 
-    Searches for .env in the perfmemory-mcp directory (one level up from utils/).
-    Falls back to environment variables if .env is not found.
+
+def _load_yaml_config() -> dict:
+    """Load YAML config with platform-specific override support.
+
+    Resolution order (first match wins):
+      1. config.windows.yaml / config.mac.yaml  (platform-specific)
+      2. config.yaml                             (default)
+
+    Returns:
+        Parsed YAML dict, or empty dict if no config file found.
+    """
+    mcp_root = _get_mcp_root()
+
+    config_map = {
+        "Darwin": "config.mac.yaml",
+        "Windows": "config.windows.yaml",
+    }
+
+    system = platform.system()
+    platform_config = config_map.get(system)
+
+    candidates = [platform_config, "config.yaml"] if platform_config else ["config.yaml"]
+
+    for filename in candidates:
+        config_path = mcp_root / filename
+        if config_path.exists():
+            with open(config_path, "r") as f:
+                try:
+                    return yaml.safe_load(f) or {}
+                except yaml.YAMLError as e:
+                    raise Exception(f"Error parsing '{filename}': {e}")
+
+    return {}
+
+
+def load_config() -> dict:
+    """Load PerfMemory configuration from YAML config and .env file.
+
+    Tunable settings (search thresholds, top_k, debug flags) come from
+    config.yaml (or platform-specific overrides). Secrets and environment-
+    specific values (API keys, database credentials, SSL) come from .env
+    or system environment variables.
 
     Returns:
         dict with keys: embedding, database, search, debug
     """
-    mcp_root = Path(__file__).resolve().parent.parent
+    mcp_root = _get_mcp_root()
     env_path = mcp_root / ".env"
 
     # Local dev: loads .env file if present.
-    # Docker/cloud: .env won't exist; os.getenv() reads from container environment
-    # variables injected by the platform (Azure Container Apps, etc.).
+    # Docker/cloud: .env won't exist; os.getenv() reads from container
+    # environment variables injected by the platform.
     if env_path.exists():
         load_dotenv(env_path)
+
+    yaml_cfg = _load_yaml_config()
+    search_cfg = yaml_cfg.get("search", {})
+    general_cfg = yaml_cfg.get("general", {})
 
     return {
         "embedding": {
@@ -43,8 +90,8 @@ def load_config() -> dict:
             "sslrootcert": os.getenv("POSTGRES_SSLROOTCERT", ""),
         },
         "search": {
-            "top_k": int(os.getenv("VECTOR_TOP_K", "5")),
-            "threshold": float(os.getenv("SIMILARITY_THRESHOLD", "0.75")),
+            "top_k": search_cfg.get("top_k", 5),
+            "threshold": search_cfg.get("similarity_threshold", 0.60),
         },
-        "debug": os.getenv("DEBUG", "false").lower() == "true",
+        "debug": general_cfg.get("enable_debug", False),
     }
