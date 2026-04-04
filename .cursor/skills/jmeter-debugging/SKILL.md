@@ -67,6 +67,17 @@ A markdown file maintained throughout debugging to log all issues and fixes.
 The manifest is created at the start, appended after each iteration, and finalized
 when debugging completes. See the Execution section for the exact templates.
 
+### PerfMemory Integration
+
+This workflow integrates with the PerfMemory lessons-learned memory layer. Before
+starting a debug loop, the agent searches for similar past issues. During debugging,
+each attempt is stored so future agents can learn from it. See the `perfmemory` skill
+for full details on PerfMemory tools and workflows.
+
+**Memory is advisory** — if the PerfMemory MCP server is unavailable, skip all
+memory-related steps and proceed with normal debugging. Do not block debugging
+because memory is down.
+
 ### Related Rules
 
 - **`prerequisites.mdc`** — `test_run_id` and artifact structure validation
@@ -94,6 +105,34 @@ REQUIRED:
 
 ---
 
+### Step 0.5 — Memory Check (PerfMemory)
+
+**Input:** `test_run_id`
+
+**Action:** Before starting the debug loop, check if this system has known issues in
+memory. This is a broad check to pre-load context — specific symptom searches happen
+at Step 5.
+
+0.5a. Search for past sessions related to this system:
+
+```
+find_similar_attempts(
+  symptom_text      = "JMeter script debugging for {system_under_test}",
+  system_under_test = {system_under_test}
+)
+```
+
+0.5b. If results are returned (any similarity), note the top matches for context.
+These give the agent awareness of what types of issues have been seen before on this
+system (e.g., "this system commonly has OAuth correlation issues").
+
+0.5c. If no results or PerfMemory is unavailable, proceed normally — this step is
+advisory only.
+
+**Save:** `memory_context` (list of top match summaries, or empty)
+
+---
+
 ### Step 1 — Create Debug Manifest
 
 **Input:** `test_run_id`
@@ -112,6 +151,30 @@ REQUIRED:
 ```
 
 **Save:** `iteration_count` = 0
+
+---
+
+### Step 1.5 — Open PerfMemory Session
+
+**Input:** `test_run_id`, `jmx_filename`
+
+**Action:** Open a debug session in PerfMemory to track this debugging effort.
+
+```
+store_debug_session(
+  system_under_test = {system_under_test},
+  test_run_id       = {test_run_id},
+  script_name       = {jmx_filename},
+  auth_flow_type    = {if known from script analysis, otherwise omit},
+  environment       = {if known, otherwise omit},
+  created_by        = "cursor"
+)
+```
+
+**Save:** `pm_session_id` from the response.
+
+If PerfMemory is unavailable, set `pm_session_id` = null and skip all subsequent
+PerfMemory steps.
 
 ---
 
@@ -172,7 +235,7 @@ start_jmeter_test(
 
 **Save:** `pid` from the response.
 
-3c. Monitor until complete:
+3c. Monitor and stop early on errors:
 
 ```
 get_jmeter_run_status(
@@ -181,7 +244,21 @@ get_jmeter_run_status(
 )
 ```
 
-Poll every few seconds until the test finishes.
+Poll every few seconds. As soon as errors appear (error rate > 0%), there is no
+reason to wait for the remaining samplers to fail — stop the test immediately:
+
+```
+stop_jmeter_test(
+  test_run_id = {test_run_id}
+)
+```
+
+After stopping, wait a few seconds for JMeter threads to wind down before proceeding
+to log analysis. Thread shutdown is not instantaneous.
+
+If the test completes on its own with 0% errors, proceed directly to Step 4.
+
+**Fallback:** Only kill the PID if `stop_jmeter_test` fails to stop the test.
 
 ---
 
@@ -219,7 +296,31 @@ If ANY of these are true, stop debugging and go to Step 10 (Report):
 - Repeated identical errors across all samplers
 
 **Path C — Script issue (continue debugging):**
-If errors are isolated to specific samplers, continue to Step 6.
+If errors are isolated to specific samplers:
+
+5d. **Memory-assisted triage** — Before proceeding to Step 6, search PerfMemory for
+this specific symptom (skip if `pm_session_id` is null):
+
+```
+find_similar_attempts(
+  symptom_text      = {build structured symptom from the error — see perfmemory skill
+                       for the template},
+  system_under_test = {system_under_test},
+  error_category    = {error category from log analysis}
+)
+```
+
+**If `recommendation` = `apply_known_fix` (similarity > 0.85):**
+- Skip Step 6 and Step 7 — apply the known fix directly at Step 8
+- Save `matched_attempt_id` from the top match for Step 8e
+
+**If `recommendation` = `review_suggestions` (similarity 0.60 - 0.85):**
+- Present the top matches to the user for review
+- If user approves a suggestion, apply it at Step 8 and save `matched_attempt_id`
+- If user declines, continue to Step 6 as normal
+
+**If `recommendation` = `no_match`:**
+- Continue to Step 6 as normal.
 
 ---
 
@@ -262,7 +363,7 @@ add_jmeter_component(
 
 **Action:**
 
-7a. Re-run the smoke test (same as Step 3).
+7a. Re-run the smoke test (same as Step 3, including early stop on errors).
 
 7b. Run `analyze_jmeter_log(test_run_id, log_source="jmeter")` again.
 
@@ -316,7 +417,34 @@ analyze_jmeter_script(
 Completed at {current timestamp}.
 ```
 
-8e. **Decision gate:**
+8e. **Store attempt in PerfMemory** (skip if `pm_session_id` is null):
+
+```
+store_debug_attempt(
+  session_id         = {pm_session_id},
+  iteration_number   = {iteration_count},
+  symptom_text       = {structured symptom — see perfmemory skill for template},
+  outcome            = {resolved | failed | environment_issue | test_data_issue |
+                        authentication_issue | needs_investigation},
+  error_category     = {from log analysis},
+  severity           = {Critical | High | Medium},
+  response_code      = {HTTP status code or exception},
+  hostname           = {hostname where error occurred},
+  sampler_name       = {failing sampler name},
+  api_endpoint       = {failing URL},
+  diagnosis          = {root cause from Step 7},
+  fix_description    = {what was applied in Step 8a},
+  fix_type           = {add_extractor | move_extractor | edit_request_body |
+                        edit_header | edit_correlation | other},
+  component_type     = {json_extractor | regex_extractor | jsr223_postprocessor |
+                        jsr223_preprocessor | http_sampler | test_plan | other},
+  matched_attempt_id = {if a memory match was applied, its attempt_id — otherwise omit}
+)
+```
+
+**Save:** `last_attempt_id` from the response.
+
+8f. **Decision gate:**
 
 - If `iteration_count` >= 5: Go to Step 10 (Report) with status "Iteration Limit Reached".
 - If `iteration_count` < 5: Go back to **Step 3** (run a fresh smoke test).
@@ -352,7 +480,8 @@ edit_jmeter_component(
 ```
 
 9c. Run one final 1/1/1 smoke test (same as Step 3) to confirm the script is clean
-with debug artifacts disabled.
+with debug artifacts disabled. This validation run should complete fully since we
+expect 0% errors. If errors still appear, stop the test early and return to Step 5.
 
 9d. Go to Step 10 (Report) with status "Resolved".
 
@@ -378,13 +507,27 @@ with debug artifacts disabled.
   2. {fix description}
 ```
 
-10b. Tell the user:
+10b. **Close PerfMemory session** (skip if `pm_session_id` is null):
+
+```
+close_debug_session(
+  session_id            = {pm_session_id},
+  final_outcome         = {resolved | unresolved | environment_issue |
+                           test_data_issue | authentication_issue |
+                           iteration_limit_reached | needs_investigation},
+  resolution_attempt_id = {last_attempt_id if resolved, otherwise omit},
+  notes                 = {brief summary of outcome}
+)
+```
+
+10c. Tell the user:
 - Total debug iterations and elapsed time
 - Fixes applied (sampler name, issue, resolution)
 - Final smoke test result
 - If resolved: the script is ready for load testing or BlazeMeter upload
 - If not resolved: remaining errors and recommendation for manual investigation
 - Debug manifest location: `artifacts/{test_run_id}/analysis/debug_manifest.md`
+- Whether lessons were stored in PerfMemory (and session_id for reference)
 
 ---
 
@@ -400,3 +543,6 @@ These rules apply to every step:
 - Always use `log_source="jmeter"` for local smoke tests (not the default `"blazemeter"`).
 - Do NOT write code to fix MCP tool issues.
 - Always maintain the debug manifest throughout the workflow.
+- PerfMemory is **advisory only** — if any PerfMemory tool call fails, log the error
+  and continue debugging. Never block the debug loop because memory is unavailable.
+- If `pm_session_id` is null, skip all PerfMemory steps (0.5, 1.5, 5d, 8e, 10b).
