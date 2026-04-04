@@ -1,0 +1,15 @@
+services:
+  pgvectordb:
+    image: pgvector/pgvector:pg18
+    container_name: pgvector
+    user: "999:999"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ./data/pgvectordb:/var/lib/postgresql/18/docker
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - PGDATA=/var/lib/postgresql/18/docker/pgdata
+    restart: unless-stopped
