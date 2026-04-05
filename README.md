@@ -130,54 +130,31 @@ mcp-perf-suite/
 
 ---
 
-## ▶️ Getting Started with JMeter MCP Server
+## ▶️ Getting Started
 
-Navigate to the `jmeter-mcp/` folder for detailed setup and usage instructions specific to the JMeter MCP server.
+All MCP servers use **FastMCP** and **Python 3.12+**. Each server has its own README with detailed setup instructions, configuration, and tool reference. Navigate to the server's folder and follow its README to get started.
 
-The JMeter MCP server uses FastMCP, Python 3.12+, and exposes actions to generate JMX scripts from captured network traffic (via Playwright MCP). It also supports running smoke tests to validate script correctness before handing off to BlazeMeter MCP for full-scale performance execution.
+| MCP Server | Folder | README | Prerequisites |
+|------------|--------|--------|---------------|
+| JMeter | `jmeter-mcp/` | [README](jmeter-mcp/README.md) | JMeter 5.6+, Playwright MCP (optional) |
+| BlazeMeter | `blazemeter-mcp/` | [README](blazemeter-mcp/README.md) | BlazeMeter API key |
+| Datadog | `datadog-mcp/` | [README](datadog-mcp/README.md) | Datadog API + App keys |
+| Performance Analysis | `perfanalysis-mcp/` | [README](perfanalysis-mcp/README.md) | BlazeMeter or JMeter test artifacts |
+| PerfMemory | `perfmemory-mcp/` | [README](perfmemory-mcp/README.md) | PostgreSQL + pgvector ([setup guide](docs/pgvector_installation_guide.md)), embedding API key |
+| Performance Report | `perfreport-mcp/` | [README](perfreport-mcp/README.md) | Analysis artifacts |
+| Confluence | `confluence-mcp/` | [README](confluence-mcp/README.md) | Confluence token (cloud or on-prem) |
+| Microsoft Graph | `msgraph-mcp/` | [README](msgraph-mcp/README.md) | Microsoft Graph API credentials |
 
-## ▶️ Getting Started with BlazeMeter MCP Server
+**Common setup steps:**
 
-Navigate to the `blazemeter-mcp/` folder for detailed setup and usage instructions specific to the BlazeMeter MCP server.
+1. Clone this repository
+2. Navigate to the MCP server folder you want to use
+3. Copy `.env.example` to `.env` and fill in your credentials
+4. Copy `config.example.yaml` to `config.yaml` and adjust settings as needed
+5. Install dependencies: `pip install -e .` (or use `pyproject.toml`)
+6. Configure the MCP server in your IDE's `mcp.json`
 
-The BlazeMeter MCP server uses FastMCP, Python 3.12+, and exposes actions to manage load test lifecycles and retrieve results.
-
-## ▶️ Getting Started with Datadog MCP Server
-
-Navigate to the `datadog-mcp/` folder for detailed setup and usage instructions specific to the Datadog MCP server.
-
-The Datadog MCP server uses FastMCP, Python 3.12+, and exposes actions to pull KPI metrics for a given environment and query logs.
-
-## ▶️ Getting Started with Performance Analysis MCP Server
-
-Navigate to the `perfanalysis-mcp/` folder for detailed setup and usage instructions specific to the Performance Test Analyzer MCP server.
-
-The Performance Analysis MCP server uses FastMCP, Python 3.12+, and exposes actions to identify bottlenecks and report findings as JSON and Markdown files.
-
-## ▶️ Getting Started with Performance Report MCP Server
-
-Navigate to the `perfreport-mcp/` folder for detailed setup and usage instructions specific to the Performance Report MCP server.
-
-The Performance Report MCP server uses FastMCP, Python 3.12+, and exposes tools to generate performance test reports based upon analysis files. Outputs
-reports as either PDF or Word format.
-
-## ▶️ Getting Started with Confluence MCP Server
-
-Navigate to the `confluence-mcp/` folder for detailed setup and usage instructions specific to the Confluence MCP server.
-
-The Confluence MCP server uses FastMCP, Python 3.12+, and exposes actions to publish performance test reports to Confluence. It also supports listing and retrieving Confluence spaces and pages, searching pages, and managing available reports and charts for publication.
-
-## ▶️ Getting Started with PerfMemory MCP Server
-
-Navigate to the `perfmemory-mcp/` folder for detailed setup and usage instructions specific to the PerfMemory MCP server.
-
-The PerfMemory MCP server uses FastMCP, Python 3.12+, and PostgreSQL with the pgvector extension. It provides persistent memory for JMeter script debugging — storing debug sessions, attempts, and vector embeddings so AI agents can recall past fixes via semantic similarity search. Supports OpenAI, Azure OpenAI, and Ollama embedding providers. See `docs/pgvector_installation_guide.md` for database setup instructions.
-
-## ▶️ Getting Started with Microsoft Graph MCP Server
-
-Navigate to the `msgraph-mcp/` folder for detailed setup and usage instructions specific to the Microsoft Graph MCP server.
-
-The Microsoft Graph MCP server uses FastMCP, Python 3.12+, and integrates with Microsoft Graph API endpoints. It enables uploading performance test artifacts into SharePoint for centralized storage, and provides Teams integration to coordinate test execution and share results across the team.
+For Docker-based dependencies (e.g., PerfMemory's PostgreSQL), see `docker/docker-compose.yaml`.
 
 ---
 
