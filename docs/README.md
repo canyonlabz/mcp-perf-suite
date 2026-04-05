@@ -80,7 +80,22 @@ A comprehensive guide for using the AI-assisted Human-in-the-Loop tools to analy
 
 ---
 
-### ⚙️ **5. MCP Configuration References (Coming Soon)**
+### 🧠 **5. PerfMemory & Debugging User Guide (`perfmemory_user_guide.md`)**
+
+A practical guide showing how PerfMemory MCP and JMeter MCP work together for AI-driven script debugging, including:
+
+* Example prompts for every use case (search, store, ingest, browse, maintain)
+* Both natural language prompts and underlying tool calls (for Cursor, Claude CLI, Codex CLI, etc.)
+* Skills reference: which skills activate and when
+* Integrated workflow walkthrough: what the PTE types vs. what the agent does
+* Tips for writing high-quality symptom text for better search results
+* FAQ covering embedding providers, team sharing, and offline use
+
+➡️ *Use this if you want to debug JMeter scripts with AI memory — or if you're setting up PerfMemory for your team.*
+
+---
+
+### ⚙️ **6. MCP Configuration References (Coming Soon)** 
 
 Planned documents:
 
@@ -102,7 +117,7 @@ A unified explanation of the `config.yaml` files used across all MCP servers, in
 
 ---
 
-### 🔧 **6. MCP Tool Index (Coming Soon)**
+### 🔧 **7. MCP Tool Index (Coming Soon)**
 
 Planned document:
 
@@ -133,7 +148,7 @@ blazemeter-mcp
 
 ---
 
-### 🔬 **7. PerfAnalysis Analytical Techniques Guide (`perfanalysis_techniques_guide.md`)**
+### 🔬 **8. PerfAnalysis Analytical Techniques Guide (`perfanalysis_techniques_guide.md`)**
 
 A comprehensive reference explaining every statistical algorithm and data science technique used by the PerfAnalysis MCP server, including:
 
@@ -151,7 +166,7 @@ Written in plain language for junior-to-mid-level Performance Test Engineers.
 
 ---
 
-### 📊 **8. Large File Handling (`large_file_handling.md`)**
+### 📊 **9. Large File Handling (`large_file_handling.md`)**
 
 A technical reference explaining how the PerfAnalysis MCP handles large JTL/CSV files (200+ MB), including:
 
@@ -165,7 +180,7 @@ A technical reference explaining how the PerfAnalysis MCP handles large JTL/CSV 
 
 ---
 
-### 🧩 **9. Architecture & Flow Docs (Future Expansion)**
+### 🧩 **10. Architecture & Flow Docs (Future Expansion)**
 
 Potential documents coming later:
 
@@ -187,6 +202,7 @@ docs/
 ├── artifacts_guide.md                ← Artifacts folder & local-first architecture
 ├── har_adapter_guide.md              ← HAR-to-JMeter conversion guide
 ├── jmeter_hitl_user_guide.md         ← AI HITL editing guide
+├── perfmemory_user_guide.md         ← PerfMemory + debugging workflows & example prompts
 ├── report_template_guidelines.md     ← Performance report template rules
 ├── large_file_handling.md            ← Large JTL file handling & limitations
 ├── perfanalysis_techniques_guide.md ← Analytical techniques & algorithms reference
@@ -196,7 +212,8 @@ docs/
 │
 ├── changelogs/
 │   ├── CHANGELOG-2026-01.md   ← January 2026 changes
-│   └── CHANGELOG-2026-02.md   ← February 2026 changes
+│   ├── CHANGELOG-2026-02.md   ← February 2026 changes
+│   └── CHANGELOG-2026-03.md   ← March 2026 changes
 │
 ├── architecture_overview.md   ← (Future)
 └── examples/                  ← Example templates, configs, outputs

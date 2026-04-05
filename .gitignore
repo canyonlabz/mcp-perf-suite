@@ -268,6 +268,7 @@ docs/*
 !docs/large_file_handling.md
 !docs/correlation_analysis_guide.md
 !docs/perfanalysis_techniques_guide.md
+!docs/perfmemory_user_guide.md
 !docs/pgvector_installation_guide.md
 !docs/README.md
 

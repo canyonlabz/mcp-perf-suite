@@ -31,6 +31,8 @@ Powered by a **PostgreSQL + pgvector database with HNSW indexing**, PerfMemory M
 
 For database setup instructions, see the [pgvector Installation Guide](../docs/pgvector_installation_guide.md).
 
+For example prompts, workflows, and tips, see the [PerfMemory User Guide](../docs/perfmemory_user_guide.md).
+
 ---
 
 ## 🚀 Getting Started
