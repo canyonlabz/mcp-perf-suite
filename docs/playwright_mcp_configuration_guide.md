@@ -7,7 +7,7 @@
 ## 1. Overview
 
 The JMeter MCP browser automation workflow uses the
-[Playwright MCP](https://github.com/anthropics/playwright-mcp) server to drive a
+[Playwright MCP](https://github.com/microsoft/playwright-mcp) server to drive a
 browser, capture network traffic, and feed it into the JMeter script generation
 pipeline. The Playwright MCP server runs as a stdio-based MCP tool within Cursor
 and is configured via two files:
