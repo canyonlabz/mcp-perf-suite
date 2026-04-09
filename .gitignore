@@ -270,6 +270,7 @@ docs/*
 !docs/perfanalysis_techniques_guide.md
 !docs/perfmemory_user_guide.md
 !docs/pgvector_installation_guide.md
+!docs/playwright_mcp_configuration_guide.md
 !docs/README.md
 
 # Re-include the changelogs directory itself

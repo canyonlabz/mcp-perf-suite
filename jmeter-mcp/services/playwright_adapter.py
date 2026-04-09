@@ -16,8 +16,10 @@ High-level responsibilities:
     artifacts/<run_id>/jmeter/network-capture/
 """
 
+import glob
 import os
 import json
+import shutil
 import uuid
 from datetime import datetime
 from typing import Dict, List, Tuple, Any, Optional
@@ -88,33 +90,55 @@ def run_playwright_capture_pipeline(spec_path: str, run_id: str) -> str:
 
 def archive_existing_traces() -> Optional[str]:
     """
-    If the Playwright traces directory contains previous run artifacts,
-    move the entire directory to a timestamped backup and recreate an
+    If the Playwright MCP output directory contains previous run artifacts,
+    move the traces directory and any verbose output files (console logs,
+    page YAML snapshots) to a timestamped backup folder, then recreate an
     empty traces directory.
 
+    Archived files:
+      - traces/          — network trace files and resources (moved as-is)
+      - console-*.log    — Playwright MCP console log
+      - page-*.yml       — Playwright MCP page snapshots (one per browser step)
+
+    All files are placed side-by-side in the backup folder:
+      .playwright-mcp/traces_<YYYYMMDD_HHMMSS>/
+
     Returns:
-        The path to the archived traces directory, or None if nothing was archived.
+        The path to the archived backup directory, or None if nothing was archived.
 
     NOTE: This is intended to be called *before* a new Playwright MCP run,
     e.g., from the MCP tool that prepares the environment. The main parser
     does NOT call this automatically.
     """
     traces_dir = PLAYWRIGHT_TRACES_DIR
-    if not os.path.isdir(traces_dir):
-        # Nothing to archive
-        return None
+    parent_dir = os.path.dirname(traces_dir)
 
-    # Check if directory is effectively empty (no files or subdirs)
-    has_contents = any(os.scandir(traces_dir))
-    if not has_contents:
+    # Collect verbose output files from the parent .playwright-mcp/ directory
+    verbose_files = (
+        glob.glob(os.path.join(parent_dir, "console-*.log"))
+        + glob.glob(os.path.join(parent_dir, "page-*.yml"))
+    )
+
+    traces_exist = os.path.isdir(traces_dir) and any(os.scandir(traces_dir))
+
+    if not traces_exist and not verbose_files:
         return None
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    parent_dir = os.path.dirname(traces_dir)
     base_name = os.path.basename(traces_dir.rstrip(os.sep))
     archived_dir = os.path.join(parent_dir, f"{base_name}_{timestamp}")
 
-    os.rename(traces_dir, archived_dir)
+    if traces_exist:
+        os.rename(traces_dir, archived_dir)
+    else:
+        os.makedirs(archived_dir, exist_ok=True)
+
+    # Move verbose output files into the backup folder
+    for file_path in verbose_files:
+        dest = os.path.join(archived_dir, os.path.basename(file_path))
+        shutil.move(file_path, dest)
+
+    # Recreate empty traces directory for the next run
     os.makedirs(traces_dir, exist_ok=True)
     return archived_dir
 
