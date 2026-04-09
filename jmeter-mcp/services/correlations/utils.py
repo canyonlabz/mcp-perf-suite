@@ -1,29 +1,33 @@
 """
 Shared utilities for correlation analysis.
 
-Contains URL normalization, value matching, JSON walking, and domain exclusion.
+Contains URL normalization, value matching, JSON walking, and domain/path exclusion.
 """
 
 import re
+from fnmatch import fnmatch
 from typing import Any, List, Set, Tuple
 from urllib.parse import unquote, urlparse
 
 from .constants import MAX_JSON_DEPTH
 
-# === Domain Exclusion ===
+# === Domain & Path Exclusion ===
 
-# Cached exclude domains list (loaded once)
+# Cached exclude lists (loaded once via init_exclude_domains)
 _EXCLUDE_DOMAINS: List[str] = []
+_EXCLUDE_PATHS: List[str] = []
 
 
 def init_exclude_domains(config: dict) -> None:
-    """Initialize excluded domains from config (APM, analytics, etc.)."""
-    global _EXCLUDE_DOMAINS
+    """Initialize excluded domains and paths from config (APM, analytics, SignalR, etc.)."""
+    global _EXCLUDE_DOMAINS, _EXCLUDE_PATHS
     try:
         network_config = config.get("network_capture", {})
         _EXCLUDE_DOMAINS = network_config.get("exclude_domains", [])
+        _EXCLUDE_PATHS = network_config.get("exclude_paths", [])
     except Exception:
         _EXCLUDE_DOMAINS = []
+        _EXCLUDE_PATHS = []
 
 
 def get_exclude_domains() -> List[str]:
@@ -31,20 +35,32 @@ def get_exclude_domains() -> List[str]:
     return _EXCLUDE_DOMAINS
 
 
+# TODO(exclude-paths-unify): This function duplicates filtering logic that also
+# exists in services/network_capture.py:should_capture_url(). The capture-time
+# function handles additional filters (static assets, fonts, video, third-party).
+# See docs/plans/exclude-paths-filtering-gap.md Phase 2 for unification plan.
 def is_excluded_url(url: str) -> bool:
-    """Check if URL should be excluded based on domain exclusion list."""
-    if not url or not _EXCLUDE_DOMAINS:
+    """Check if URL should be excluded based on domain and path exclusion lists."""
+    if not url:
         return False
-    
+    if not _EXCLUDE_DOMAINS and not _EXCLUDE_PATHS:
+        return False
+
     try:
         parsed = urlparse(url)
         hostname = parsed.netloc.lower()
-        
+        path = parsed.path.lower()
+
         for domain in _EXCLUDE_DOMAINS:
             domain_lower = domain.lower()
             # Match exact domain or subdomain
             if hostname == domain_lower or hostname.endswith("." + domain_lower) or domain_lower in hostname:
                 return True
+
+        for pattern in _EXCLUDE_PATHS:
+            if fnmatch(path, pattern.lower()):
+                return True
+
         return False
     except Exception:
         return False

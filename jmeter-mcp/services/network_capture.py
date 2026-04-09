@@ -26,6 +26,11 @@ network_log = []
 # Set up logger for this module
 logger = logging.getLogger(__name__)
 
+# TODO(exclude-paths-unify): This function duplicates domain/path filtering logic
+# that also exists in services/correlations/utils.py:is_excluded_url(). This
+# capture-time version additionally handles static assets, fonts, video, and
+# third-party filters. See docs/plans/exclude-paths-filtering-gap.md Phase 2
+# for unification plan.
 def should_capture_url(url, config):
     """Determines whether a URL should be captured based on config filters."""
     parsed_url = urlparse(url)
