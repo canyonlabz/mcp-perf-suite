@@ -22,7 +22,7 @@ Powered by a **PostgreSQL + pgvector database with HNSW indexing**, PerfMemory M
 ## 🏁 Prerequisites
 
 * Python 3.12 or higher
-* **PostgreSQL 16+** with the **pgvector** extension enabled
+* **PostgreSQL 18+** with the **pgvector** extension enabled
 * An embedding provider configured (one of the following):
   * **OpenAI** — requires an API key
   * **Azure OpenAI** — requires API key, endpoint, and deployment name
