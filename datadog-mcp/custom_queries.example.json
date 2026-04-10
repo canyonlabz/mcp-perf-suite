@@ -158,6 +158,292 @@
       "formulas": [
         { "formula": "p90" }
       ]
+    },
+
+    "host_process_queue_length": {
+      "description": "Process Queue Length",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_proc_queue_length",
+          "query": "system.proc.queue_length{host:{{hostname}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_proc_queue_length" }
+      ]
+    },
+
+    "host_disk_queue_length": {
+      "description": "Disk Queue Length",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_disk_queue_length",
+          "query": "system.io.avg_q_sz{host:{{hostname}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_disk_queue_length" }
+      ]
+    },
+
+    "host_cpu_usage": {
+      "description": "CPU Usage (%)",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_cpu_idle",
+          "query": "system.cpu.idle{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_cpu_system",
+          "query": "system.cpu.system{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_cpu_iowait",
+          "query": "system.cpu.iowait{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_cpu_user",
+          "query": "system.cpu.user{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_cpu_stolen",
+          "query": "system.cpu.stolen{host:{{hostname}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_cpu_idle" },
+        { "formula": "host_cpu_system" },
+        { "formula": "host_cpu_iowait" },
+        { "formula": "host_cpu_user" },
+        { "formula": "host_cpu_stolen" }
+      ]
+    },
+
+    "host_memory_breakdown": {
+      "description": "Memory Breakdown",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_mem_usable",
+          "query": "sum:system.mem.usable{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_mem_total",
+          "query": "sum:system.mem.total{host:{{hostname}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_mem_usable" },
+        { "formula": "host_mem_total" }
+      ]
+    },
+
+    "host_network_traffic": {
+      "description": "Network Traffic (Bytes Per Sec)",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_net_bytes_rcvd",
+          "query": "sum:system.net.bytes_rcvd{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_net_bytes_sent",
+          "query": "sum:system.net.bytes_sent{host:{{hostname}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_net_bytes_rcvd" },
+        { "formula": "host_net_bytes_sent" }
+      ]
+    },
+
+    "host_disk_used": {
+      "description": "Disk Used (By Device)",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_disk_used",
+          "query": "sum:system.disk.used{host:{{hostname}}} by {device}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_disk_used" }
+      ]
+    },
+
+    "host_iis_bytes_in_out": {
+      "description": "IIS Bytes In and Out (Per Sec)",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_iis_bytes_rcvd",
+          "query": "sum:iis.net.bytes_rcvd{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_iis_bytes_sent",
+          "query": "sum:iis.net.bytes_sent{host:{{hostname}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_iis_bytes_rcvd" },
+        { "formula": "host_iis_bytes_sent" }
+      ]
+    },
+
+    "host_iis_request_methods": {
+      "description": "IIS Request Methods (Per Sec)",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_iis_method_get",
+          "query": "sum:iis.httpd_request_method.get{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_iis_method_post",
+          "query": "sum:iis.httpd_request_method.post{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_iis_method_put",
+          "query": "sum:iis.httpd_request_method.put{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_iis_method_delete",
+          "query": "sum:iis.httpd_request_method.delete{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_iis_method_head",
+          "query": "sum:iis.httpd_request_method.head{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_iis_method_options",
+          "query": "sum:iis.httpd_request_method.options{host:{{hostname}}}"
+        },
+        {
+          "data_source": "metrics",
+          "name": "host_iis_method_trace",
+          "query": "sum:iis.httpd_request_method.trace{host:{{hostname}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_iis_method_get" },
+        { "formula": "host_iis_method_post" },
+        { "formula": "host_iis_method_put" },
+        { "formula": "host_iis_method_delete" },
+        { "formula": "host_iis_method_head" },
+        { "formula": "host_iis_method_options" },
+        { "formula": "host_iis_method_trace" }
+      ]
+    },
+
+    "host_iis_connections": {
+      "description": "IIS Connections",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_iis_connections",
+          "query": "sum:iis.net.num_connections{host:{{hostname}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_iis_connections" }
+      ]
+    },
+
+    "host_sql_user_connections": {
+      "description": "SQL Server User Connections",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_sql_user_connections",
+          "query": "sum:sqlserver.stats.connections{host:{{hostname}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_sql_user_connections" }
+      ]
+    },
+
+    "host_sql_buffer_cache_hit_ratio": {
+      "description": "SQL Server Buffer Cache Hit Ratio",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_sql_buffer_cache_hit_ratio",
+          "query": "avg:sqlserver.buffer.cache_hit_ratio{host:{{hostname}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_sql_buffer_cache_hit_ratio" }
+      ]
+    },
+
+    "host_sql_lock_waits": {
+      "description": "SQL Server Lock Waits (Per Sec)",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_sql_lock_waits",
+          "query": "sum:sqlserver.stats.lock_waits{host:{{hostname}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_sql_lock_waits" }
+      ]
+    },
+
+    "host_sql_compilations": {
+      "description": "SQL Server SQL Compilations (Per Sec)",
+      "scope": "host",
+      "interval": 60000,
+      "queries": [
+        {
+          "data_source": "metrics",
+          "name": "host_sql_compilations",
+          "query": "sum:sqlserver.stats.sql_compilations{host:{{hostname}}}"
+        }
+      ],
+      "formulas": [
+        { "formula": "host_sql_compilations" }
+      ]
     }
   }
 }
