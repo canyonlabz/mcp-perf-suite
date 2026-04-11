@@ -24,17 +24,22 @@ description: >-
 
 ### What PerfMemory Does
 
-PerfMemory is a persistent memory layer backed by PostgreSQL + pgvector. It stores
-structured debug sessions, attempts, and vector embeddings of symptoms so AI agents
-can recall past fixes via semantic similarity search. Instead of starting every debug
-workflow from scratch, agents check memory first and apply known fixes proactively.
+PerfMemory is a persistent memory layer backed by PostgreSQL + pgvector + Apache AGE.
+It stores structured debug sessions, attempts, and vector embeddings of symptoms so
+AI agents can recall past fixes via semantic similarity search and graph traversal.
+Instead of starting every debug workflow from scratch, agents check memory first and
+apply known fixes proactively.
 
 ### How It Works
 
 1. **Symptom text** is embedded into a vector using the configured embedding provider
 2. The vector is stored alongside structured metadata (diagnosis, fix, outcome, etc.)
-3. When a new symptom is encountered, it is embedded and compared against stored vectors
-4. Matches are ranked by cosine similarity and returned with their fix details
+3. **Graph nodes and edges** are created in the Apache AGE knowledge graph, linking
+   attempts to projects, error patterns, and fix patterns
+4. When a new symptom is encountered, it is embedded and compared against stored vectors
+5. **Graph traversal** finds structurally related issues across projects — even when
+   the symptom text is phrased differently
+6. Matches are ranked by a combined vector + graph score and returned with their fix details
 
 ### Structured Symptom Text Template
 
@@ -67,11 +72,21 @@ OAuth error on login page. Variables not found.
 
 | Score Range | Recommendation | Action |
 |-------------|----------------|--------|
-| > 0.85 | `apply_known_fix` | Apply the fix directly, especially if `confirmed_count > 1` |
+| > 0.85 or `source: "both"` | `apply_known_fix` | Apply the fix directly, especially if `confirmed_count > 1` |
 | 0.60 - 0.85 | `review_suggestions` | Present matches to user or review before applying |
 | < 0.60 | `no_match` | No useful matches — proceed with normal debugging |
 
 The default threshold is set in `perfmemory-mcp/config.yaml` under `search.similarity_threshold`.
+
+### Match Source Field
+
+When graph is enabled, each match includes a `source` field:
+
+| Source | Meaning |
+|--------|---------|
+| `vector` | Found via pgvector cosine similarity only |
+| `graph` | Found via Apache AGE graph traversal only |
+| `both` | Found by both vector search and graph traversal (highest confidence) |
 
 ### Related Rules
 
@@ -109,10 +124,11 @@ find_similar_attempts(
 
 ### Step 2 — Interpret Results
 
-**If `recommendation` = `apply_known_fix` (similarity > 0.85):**
+**If `recommendation` = `apply_known_fix` (similarity > 0.85 or source = "both"):**
 - Review the top match's `diagnosis` and `fix_description`
 - If `confirmed_count > 1` and `is_verified = true`: apply the fix directly
 - If `confirmed_count = 1` or `is_verified = false`: present to user for confirmation
+- Check the `source` field: matches found by "both" vector and graph are highest confidence
 
 **If `recommendation` = `review_suggestions` (similarity 0.60 - 0.85):**
 - Present the top 2-3 matches to the user with their diagnosis and fix
@@ -121,7 +137,24 @@ find_similar_attempts(
   `matched_attempt_id` when storing the new attempt (Workflow B)
 
 **If `recommendation` = `no_match`:**
-- Proceed with normal debugging workflow (no prior knowledge available)
+- Try `find_cross_project_patterns` if `error_category` is known (Step 3)
+- If still no results, proceed with normal debugging workflow
+
+### Step 3 — Cross-Project Pattern Search (Graph)
+
+If vector search returned `no_match` but you have an `error_category`, check the
+knowledge graph for cross-project patterns:
+
+```
+find_cross_project_patterns(
+  error_category    = {error_category},
+  current_project   = {system_under_test},     # optional — excludes own project
+  response_code     = {response_code}          # optional
+)
+```
+
+If matches are returned, review the `graph_path` field to understand how the match
+was found (e.g., shared ErrorPattern, SIMILAR_TO traversal).
 
 ---
 
@@ -349,6 +382,35 @@ list_sessions(
 )
 ```
 
+### Explore Graph Neighborhood
+
+View the graph connections for a specific attempt (requires `graph.enabled: true`):
+
+```
+get_related_issues(
+  attempt_id           = {attempt_id},
+  max_hops             = 2,                    # optional — graph traversal depth
+  include_same_project = true                  # optional — include same-project neighbors
+)
+```
+
+Returns connected ErrorPatterns, FixPatterns, and neighboring attempts via graph edges.
+
+### Cross-Project Pattern Search
+
+Find if an error class has been resolved in other projects (requires `graph.enabled: true`):
+
+```
+find_cross_project_patterns(
+  error_category  = {error_category},
+  current_project = {system_under_test},       # optional
+  response_code   = {response_code},           # optional
+  fix_type        = {fix_type},                # optional
+  max_hops        = 2,                         # optional
+  limit           = 5                          # optional
+)
+```
+
 ---
 
 ## Error Handling
@@ -356,6 +418,8 @@ list_sessions(
 - If `store_debug_session` or `store_debug_attempt` fails, report the error immediately.
   Do NOT retry — these are code-based MCP tools (per `mcp-error-handling.mdc`).
 - If `find_similar_attempts` fails, proceed with normal debugging (memory is advisory).
+- If graph tools (`find_cross_project_patterns`, `get_related_issues`) fail or return
+  "Graph layer is not enabled", fall back to vector-only results. Graph is supplementary.
 - If the database is unreachable, skip all perfmemory operations and inform the user.
   Do not block the debugging workflow because memory is unavailable.
 - Never modify the perfmemory MCP source code to work around errors.

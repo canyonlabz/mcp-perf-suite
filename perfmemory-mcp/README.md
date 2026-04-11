@@ -3,13 +3,14 @@
 Welcome to the PerfMemory MCP Server! 🚀  
 This is a Python-based MCP server built with **FastMCP 2.0** that introduces a persistent "memory layer" for performance testing — enabling AI agents like Claude/Cursor to learn from past debugging sessions and apply those lessons to future JMeter script creation and troubleshooting.
 
-Powered by a **PostgreSQL + pgvector database with HNSW indexing**, PerfMemory MCP stores structured debug sessions, failed attempts, and successful resolutions, allowing agents to query semantically similar issues before taking action. By leveraging embeddings and vector search, it transforms historical "lessons learned" into actionable intelligence — reducing trial-and-error and accelerating script fixes.
+Powered by a **PostgreSQL + pgvector + Apache AGE** database with HNSW indexing and a knowledge graph, PerfMemory MCP stores structured debug sessions, failed attempts, and successful resolutions, allowing agents to query semantically similar issues before taking action. By leveraging embeddings, vector search, and **graph traversal across projects**, it transforms historical "lessons learned" into actionable intelligence — reducing trial-and-error and accelerating script fixes.
 
 ---
 
 ## ✨ Features
 
 * **🔍 Semantic Similarity Search**: Find past debug attempts that match a current symptom using vector cosine similarity — no exact keyword match needed.
+* **🕸️ Knowledge Graph (Apache AGE)**: Cross-project issue discovery via graph traversal — find related fixes even when symptoms are phrased differently or belong to different projects.
 * **📝 Debug Session Tracking**: Record the full story of a debug workflow — from the first error through every attempt to the final resolution.
 * **🧩 Structured Lessons Learned**: Each attempt captures the symptom, diagnosis, fix, error category, severity, and outcome — not just freeform text.
 * **✅ Confidence Signals**: Track which fixes have been human-verified (`is_verified`) and how many times a fix has been reused successfully (`confirmed_count`).
@@ -22,7 +23,7 @@ Powered by a **PostgreSQL + pgvector database with HNSW indexing**, PerfMemory M
 ## 🏁 Prerequisites
 
 * Python 3.12 or higher
-* **PostgreSQL 18+** with the **pgvector** extension enabled
+* **PostgreSQL 18+** with the **pgvector** and **Apache AGE** extensions enabled (see `docker/Dockerfile.pgvector-age`)
 * An embedding provider configured (one of the following):
   * **OpenAI** — requires an API key
   * **Azure OpenAI** — requires API key, endpoint, and deployment name
@@ -56,6 +57,18 @@ psql -h localhost -U perfadmin -d perfmemory -f sql/schema/schema_ollama.sql
 ```
 
 This creates the `debug_sessions` and `debug_attempts` tables, the HNSW vector index, and all B-tree indexes for metadata filtering.
+
+### 2b. Apply the Graph Schema (Optional)
+
+If using Apache AGE for the knowledge graph layer:
+
+```bash
+psql -h localhost -U perfadmin -d perfmemory -f sql/graph/001_create_graph.sql
+```
+
+This creates the `perf_knowledge` graph with vertex labels for Attempt, Project, ErrorPattern, and FixPattern. See `sql/graph/README.md` for details.
+
+Set `graph.enabled: true` in `config.yaml` to activate graph features.
 
 ### 3. Configure Environment
 

@@ -66,6 +66,7 @@ def load_config() -> dict:
 
     yaml_cfg = _load_yaml_config()
     search_cfg = yaml_cfg.get("search", {})
+    graph_cfg = yaml_cfg.get("graph", {})
     general_cfg = yaml_cfg.get("general", {})
 
     return {
@@ -92,6 +93,15 @@ def load_config() -> dict:
         "search": {
             "top_k": search_cfg.get("top_k", 5),
             "threshold": search_cfg.get("similarity_threshold", 0.60),
+            "ef_search": search_cfg.get("ef_search", 40),
+        },
+        "graph": {
+            "enabled": graph_cfg.get("enabled", False),
+            "graph_name": graph_cfg.get("graph_name", "perf_knowledge"),
+            "vector_weight": graph_cfg.get("vector_weight", 0.6),
+            "graph_weight": graph_cfg.get("graph_weight", 0.4),
+            "embedding_edge_threshold": graph_cfg.get("embedding_edge_threshold", 0.82),
+            "max_embedding_edges": graph_cfg.get("max_embedding_edges", 3),
         },
         "debug": general_cfg.get("enable_debug", False),
     }

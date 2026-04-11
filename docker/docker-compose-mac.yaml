@@ -1,7 +1,10 @@
 services:
   pgvectordb:
-    image: pgvector/pgvector:pg18
-    container_name: pgvector
+    build:
+      context: .
+      dockerfile: Dockerfile.pgvector-age
+    image: perfmem-pgvector-age:latest
+    container_name: perfmem-pgvector-age
     user: "999:999"
     ports:
       - "${POSTGRES_PORT:-5432}:5432"

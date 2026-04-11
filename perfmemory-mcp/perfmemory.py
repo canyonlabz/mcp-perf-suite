@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any
 
 from services.embeddings import EmbeddingProvider
 from services import session_manager as sm
+from services import graph_manager as gm
 from utils.config import load_config
 
 log = logging.getLogger(__name__)
@@ -21,10 +22,16 @@ _config = load_config()
 _embedder = EmbeddingProvider(_config["embedding"])
 
 
+def _graph_enabled() -> bool:
+    return _config.get("graph", {}).get("enabled", False)
+
+
 def _shutdown():
     """Release database connections and HTTP clients on exit."""
     log.info("PerfMemory shutdown — releasing resources")
     sm.close_pool()
+    if _graph_enabled():
+        gm.close_pool()
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
@@ -185,6 +192,63 @@ async def store_debug_attempt(
             result["confirmed_match_id"] = matched_attempt_id
             result["new_confirmed_count"] = new_count
 
+        # Graph layer: create nodes and deterministic edges
+        if _graph_enabled():
+            graph_cfg = _config["graph"]
+            graph_name = graph_cfg["graph_name"]
+
+            session_data = sm.get_session(_config["database"], session_id)
+            project = session_data["session"]["system_under_test"] if session_data else "unknown"
+
+            graph_ok = gm.create_attempt_node(
+                _config["database"],
+                graph_name=graph_name,
+                attempt_id=attempt_id,
+                project=project,
+                error_category=error_category,
+                fix_type=fix_type,
+                outcome=outcome,
+                response_code=response_code,
+                component_type=component_type,
+            )
+            result["graph_node_created"] = graph_ok
+
+            if graph_ok and error_category:
+                edge_count = gm.create_cross_project_edges(
+                    _config["database"],
+                    graph_name=graph_name,
+                    attempt_id=attempt_id,
+                    error_category=error_category,
+                    response_code=response_code,
+                    project=project,
+                )
+                result["graph_cross_project_edges"] = edge_count
+
+            if graph_ok:
+                similar_for_edges = sm.find_similar(
+                    _config["database"],
+                    embedding=embedding,
+                    threshold=graph_cfg["embedding_edge_threshold"],
+                    top_k=graph_cfg["max_embedding_edges"],
+                )
+                edge_candidates = [
+                    {
+                        "attempt_id": m["attempt_id"],
+                        "similarity": m["similarity"],
+                        "cross_project": m.get("system_under_test", "") != project,
+                    }
+                    for m in similar_for_edges
+                    if m["attempt_id"] != attempt_id
+                ]
+                if edge_candidates:
+                    emb_edges = gm.create_embedding_edges(
+                        _config["database"],
+                        graph_name=graph_name,
+                        attempt_id=attempt_id,
+                        similar_attempt_ids=edge_candidates,
+                    )
+                    result["graph_embedding_edges"] = emb_edges
+
         return result
     except Exception as e:
         return {"status": "ERROR", "message": str(e)}
@@ -227,7 +291,7 @@ async def find_similar_attempts(
 
         embedding = await _embedder.embed(symptom_text)
 
-        matches = sm.find_similar(
+        vector_matches = sm.find_similar(
             _config["database"],
             embedding=embedding,
             system_under_test=system_under_test,
@@ -235,11 +299,56 @@ async def find_similar_attempts(
             threshold=effective_threshold,
             top_k=effective_top_k,
         )
+        for m in vector_matches:
+            m["source"] = "vector"
 
-        if matches and matches[0]["similarity"] > 0.85:
-            recommendation = "apply_known_fix"
-        elif matches and matches[0]["similarity"] > 0.60:
-            recommendation = "review_suggestions"
+        graph_matches = []
+        if _graph_enabled() and (error_category or system_under_test):
+            graph_cfg = _config["graph"]
+            graph_results = gm.find_graph_related(
+                _config["database"],
+                graph_name=graph_cfg["graph_name"],
+                error_category=error_category,
+                current_project=system_under_test,
+                limit=effective_top_k,
+            )
+            for gr in graph_results:
+                graph_matches.append(gr)
+
+        # Merge: deduplicate by attempt_id, mark "both" if found in both
+        merged = {}
+        vw = _config.get("graph", {}).get("vector_weight", 0.6)
+        gw = _config.get("graph", {}).get("graph_weight", 0.4)
+
+        for m in vector_matches:
+            aid = m["attempt_id"]
+            m["combined_score"] = round(m.get("similarity", 0) * vw, 4)
+            merged[aid] = m
+
+        for gm_match in graph_matches:
+            aid = gm_match["attempt_id"]
+            if aid in merged:
+                merged[aid]["source"] = "both"
+                merged[aid]["combined_score"] = round(
+                    merged[aid].get("similarity", 0) * vw + 1.0 * gw, 4
+                )
+                merged[aid]["graph_path"] = gm_match.get("graph_path", "")
+            else:
+                gm_match["combined_score"] = round(1.0 * gw, 4)
+                merged[aid] = gm_match
+
+        matches = sorted(merged.values(), key=lambda x: x.get("combined_score", 0), reverse=True)
+        matches = matches[:effective_top_k]
+
+        if matches:
+            top = matches[0]
+            top_sim = top.get("similarity", top.get("combined_score", 0))
+            if top_sim > 0.85 or top.get("source") == "both":
+                recommendation = "apply_known_fix"
+            elif top_sim > 0.60:
+                recommendation = "review_suggestions"
+            else:
+                recommendation = "no_match"
         else:
             recommendation = "no_match"
 

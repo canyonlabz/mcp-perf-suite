@@ -14,6 +14,35 @@ search:
   # Maximum number of results to return from a similarity search.
   top_k: 5
 
+  # HNSW ef_search parameter — controls how many candidates the index evaluates
+  # during a search. Higher values improve recall at the cost of query speed.
+  # Only matters at scale (hundreds+ of attempts). Default pgvector value is 40.
+  ef_search: 40
+
+# ----------------------------------------
+# Graph (Apache AGE)
+# ----------------------------------------
+graph:
+  # Enable or disable the graph layer. When false, PerfMemory uses vector-only
+  # search and skips all graph operations (no AGE extension required).
+  enabled: true
+
+  # Name of the AGE graph. Must match the graph created by 001_create_graph.sql.
+  graph_name: perf_knowledge
+
+  # Weight given to vector similarity vs graph relevance when merging results
+  # in find_similar_attempts. Must sum to 1.0.
+  vector_weight: 0.6
+  graph_weight: 0.4
+
+  # Minimum cosine similarity for creating embedding-based SIMILAR_TO edges
+  # between attempts at ingestion time.
+  embedding_edge_threshold: 0.82
+
+  # Maximum number of embedding-based SIMILAR_TO edges per attempt.
+  # Deterministic edges (via shared ErrorPattern) are unlimited.
+  max_embedding_edges: 3
+
 # ----------------------------------------
 # General
 # ----------------------------------------
