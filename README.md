@@ -26,7 +26,7 @@ This repository hosts multiple MCP servers, each designed for a specific role in
 
 ### 🧠 AI Memory & Learning
 - **PerfMemory MCP Server:**  
-  Persistent memory and lessons-learned layer backed by PostgreSQL with pgvector. Stores debug sessions, attempts, and vector embeddings of symptoms so AI agents can recall past fixes and avoid repeating mistakes. Supports OpenAI, Azure OpenAI, and Ollama embedding providers.
+  Persistent memory and lessons-learned layer backed by PostgreSQL with pgvector and Apache AGE. Stores debug sessions, attempts, and vector embeddings of symptoms so AI agents can recall past fixes and avoid repeating mistakes. The Apache AGE knowledge graph enables cross-project issue discovery via structural relationship traversal. Supports OpenAI, Azure OpenAI, and Ollama embedding providers.
 
 ### 📑 Reporting & Collaboration
 - **Performance Reporting MCP Server:**  
@@ -34,9 +34,6 @@ This repository hosts multiple MCP servers, each designed for a specific role in
 
 - **Confluence MCP Server:**  
   Publish Performance Test reports by converting Markdown files into Confluence XHTML format.
-
-- **Microsoft Graph MCP Server:**  
-  Integrate with Microsoft Graph API to streamline performance testing workflows. Upload artifacts to SharePoint for centralized storage, and use Teams integration to coordinate test execution and share results across the team.
 
 ---
 
@@ -60,9 +57,9 @@ The MCP servers in this repository (and external integrations like Playwright MC
                 │  - Run smoke tests to  │       │  - Store new lessons    │
                 │    validate correctness│       │  - Vector similarity    │
                 └───────────┬────────────┘       │    search (pgvector)    │
-                            │ Validated JMX      └─────────────────────────┘
-                            ▼
-                ┌────────────────────────┐
+                            │ Validated JMX      │  - Knowledge graph      │
+                            ▼                    │    (Apache AGE)         │
+                ┌────────────────────────┐       └─────────────────────────┘
                 │   BlazeMeter MCP Server│
                 │  - Execute full-scale  │
                 │    performance tests   │
@@ -95,14 +92,7 @@ The MCP servers in this repository (and external integrations like Playwright MC
         ┌────────────────────────────────┐
         │ Confluence MCP Server          │
         │ (Publish reports to Confluence)│
-        └───────────┬────────────────────┘
-                    │
-                    ▼
-        ┌─────────────────────────────────┐
-        │ Microsoft Graph MCP Server      │
-        │ - Upload artifacts to SharePoint│
-        │ - Share results via Teams       │
-        └─────────────────────────────────┘
+        └────────────────────────────────┘
 ```
 
 ---
@@ -118,8 +108,8 @@ mcp-perf-suite/
 ├── blazemeter-mcp/          # BlazeMeter MCP server (current)
 ├── confluence-mcp/          # Confluence MCP server (current)
 ├── datadog-mcp/             # Datadog MCP server (current)
+├── docker/                  # Dockerfiles and Compose files (pgvector + Apache AGE)
 ├── jmeter-mcp/              # JMeter MCP server (current)
-├── msgraph-mcp/             # Microsoft Graph MCP server (future)
 ├── perfanalysis-mcp/        # LLM-powered test analysis MCP (current)
 ├── perfmemory-mcp/          # AI memory & lessons learned MCP (current)
 ├── perfreport-mcp/          # Reporting and formatting MCP (current)
@@ -140,10 +130,9 @@ All MCP servers use **FastMCP** and **Python 3.12+**. Each server has its own RE
 | BlazeMeter | `blazemeter-mcp/` | [README](blazemeter-mcp/README.md) | BlazeMeter API key |
 | Datadog | `datadog-mcp/` | [README](datadog-mcp/README.md) | Datadog API + App keys |
 | Performance Analysis | `perfanalysis-mcp/` | [README](perfanalysis-mcp/README.md) | BlazeMeter or JMeter test artifacts |
-| PerfMemory | `perfmemory-mcp/` | [README](perfmemory-mcp/README.md) | PostgreSQL + pgvector ([setup guide](docs/pgvector_installation_guide.md)), embedding API key |
+| PerfMemory | `perfmemory-mcp/` | [README](perfmemory-mcp/README.md) | PostgreSQL + pgvector + Apache AGE ([setup guide](docs/pgvector_installation_guide.md)), embedding API key |
 | Performance Report | `perfreport-mcp/` | [README](perfreport-mcp/README.md) | Analysis artifacts |
 | Confluence | `confluence-mcp/` | [README](confluence-mcp/README.md) | Confluence token (cloud or on-prem) |
-| Microsoft Graph | `msgraph-mcp/` | [README](msgraph-mcp/README.md) | Microsoft Graph API credentials |
 
 **Common setup steps:**
 
@@ -154,7 +143,7 @@ All MCP servers use **FastMCP** and **Python 3.12+**. Each server has its own RE
 5. Install dependencies: `pip install -e .` (or use `pyproject.toml`)
 6. Configure the MCP server in your IDE's `mcp.json`
 
-For Docker-based dependencies (e.g., PerfMemory's PostgreSQL), see `docker/docker-compose.yaml`.
+For Docker-based dependencies (e.g., PerfMemory's PostgreSQL with pgvector + Apache AGE), see `docker/docker-compose-windows.yaml` or `docker/docker-compose-mac.yaml`.
 
 ---
 
