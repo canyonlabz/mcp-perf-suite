@@ -149,12 +149,43 @@ knowledge graph for cross-project patterns:
 find_cross_project_patterns(
   error_category    = {error_category},
   current_project   = {system_under_test},     # optional — excludes own project
-  response_code     = {response_code}          # optional
+  response_code     = {response_code},         # optional — omit to match all response codes
+  enrich            = true                     # optional — fetches full attempt details
 )
 ```
 
-If matches are returned, review the `graph_path` field to understand how the match
-was found (e.g., shared ErrorPattern, SIMILAR_TO traversal).
+If matches are returned:
+- Review the `graph_path` field to understand how the match was found
+  (e.g., `ErrorPattern(Missing Correlations/*)` or `SIMILAR_TO(hops<=2)`)
+- When `enrich = true` (default), each match includes `symptom_text`, `diagnosis`,
+  `fix_description`, `sampler_name`, `api_endpoint`, `confirmed_count`, and `is_verified`
+  from the relational store — enough context to decide whether to apply the fix
+- If a match looks promising, use `get_related_issues` (Step 4) to explore its
+  neighborhood for additional related fixes
+
+### Step 4 — Explore Graph Neighborhood (Optional)
+
+When a match from Step 2 or Step 3 looks relevant, explore its graph neighborhood
+to discover additional related fixes that may not have surfaced in the initial search:
+
+```
+get_related_issues(
+  attempt_id           = {matched_attempt_id},
+  include_same_project = true,                 # set false for cross-project only
+  enrich               = true                  # optional — fetches full neighbor details
+)
+```
+
+This returns:
+- **error_patterns**: The error categories and response codes linked to this attempt
+- **fix_patterns**: The fix types and component types that resolved it
+- **neighbors**: Other attempts connected via SIMILAR_TO edges, with full details
+  when `enrich = true` (symptom, diagnosis, fix, confidence signals)
+
+Use this when:
+- A match was found but you want to see if there are related fixes for the same class of issue
+- You want to understand the full context of an error pattern before applying a fix
+- You want to check if the same fix type has been applied successfully in other projects
 
 ---
 
@@ -384,32 +415,47 @@ list_sessions(
 
 ### Explore Graph Neighborhood
 
-View the graph connections for a specific attempt (requires `graph.enabled: true`):
+View the graph connections for a specific attempt (requires `graph.enabled: true`).
+Use this after finding a match to discover additional related fixes, or to understand
+the structural context of a known issue before applying a fix.
 
 ```
 get_related_issues(
   attempt_id           = {attempt_id},
   max_hops             = 2,                    # optional — graph traversal depth
-  include_same_project = true                  # optional — include same-project neighbors
+  include_same_project = true,                 # optional — include same-project neighbors
+  enrich               = true                  # optional — fetches full neighbor details
 )
 ```
 
-Returns connected ErrorPatterns, FixPatterns, and neighboring attempts via graph edges.
+Returns:
+- **error_patterns**: list of `{error_category, response_code}` linked to this attempt
+- **fix_patterns**: list of `{fix_type, component_type}` that resolved it
+- **neighbors**: other attempts connected via SIMILAR_TO edges
+
+When `enrich = true`, each neighbor includes `symptom_text`, `diagnosis`,
+`fix_description`, `sampler_name`, `api_endpoint`, `confirmed_count`, and `is_verified`.
 
 ### Cross-Project Pattern Search
 
-Find if an error class has been resolved in other projects (requires `graph.enabled: true`):
+Find if an error class has been resolved in other projects (requires `graph.enabled: true`).
+Use this as a fallback when vector search returns no matches, or proactively when
+starting work on a new project to check for known patterns.
 
 ```
 find_cross_project_patterns(
   error_category  = {error_category},
-  current_project = {system_under_test},       # optional
-  response_code   = {response_code},           # optional
+  current_project = {system_under_test},       # optional — excludes own project
+  response_code   = {response_code},           # optional — omit to match all response codes
   fix_type        = {fix_type},                # optional
   max_hops        = 2,                         # optional
-  limit           = 5                          # optional
+  limit           = 5,                         # optional
+  enrich          = true                       # optional — fetches full attempt details
 )
 ```
+
+When `enrich = true`, each match includes `symptom_text`, `diagnosis`,
+`fix_description`, `sampler_name`, `api_endpoint`, `confirmed_count`, and `is_verified`.
 
 ---
 
