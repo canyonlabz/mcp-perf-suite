@@ -135,7 +135,7 @@ Example setup for Cursor or compatible MCP hosts:
 
 ## 🛠️ Tools
 
-The PerfMemory MCP server exposes 9 tools organized into three groups:
+The PerfMemory MCP server exposes 11 tools organized into four groups:
 
 ### Core Tools
 
@@ -161,6 +161,15 @@ The PerfMemory MCP server exposes 9 tools organized into three groups:
 | `verify_attempt` | Mark an attempt as human-verified — signals high confidence in the lesson. |
 | `get_memory_stats` | Get overview statistics: total sessions, attempts, breakdowns by system and outcome, verified and active counts. |
 
+### Graph Tools (Apache AGE)
+
+These tools require `graph.enabled: true` in `config.yaml` and a running PostgreSQL instance with the Apache AGE extension. They operate on the `perf_knowledge` knowledge graph.
+
+| Tool | Description |
+| :--- | :---------- |
+| `find_cross_project_patterns` | Search the knowledge graph for resolved attempts from other projects that share the same error pattern. Uses graph traversal (not vector similarity) — useful as a fallback when `find_similar_attempts` returns no matches, or to proactively discover fixes across projects. |
+| `get_related_issues` | Explore the graph neighborhood of a specific attempt. Returns connected ErrorPattern and FixPattern nodes, plus neighboring attempts linked via SIMILAR_TO edges. Useful for understanding the structural context of a known issue. |
+
 ---
 
 ## 🔁 Typical Workflow
@@ -179,24 +188,35 @@ The PerfMemory MCP server exposes 9 tools organized into three groups:
     Yes  │  No
     │    │
     ▼    ▼
-3a. Apply   3b. Start a new
-known fix   debug session
+3a. Apply   3b. Call find_cross_project_patterns
+known fix       (graph fallback)
     │            │
-    ▼            ▼
-4a. Store    4b. Debug iteratively,
-attempt      storing each attempt
-(with           │
-matched_id)     ▼
-             4c. Close session
-                 with outcome
+    │       ┌────┴────┐
+    │       │ Match?  │
+    │       └────┬────┘
+    │       Yes  │  No
+    │       │    │
+    │       ▼    ▼
+    │   3c. Review  3d. Start a new
+    │   & apply     debug session
+    │       │            │
+    ▼       ▼            ▼
+4a. Store   4b. Store   4c. Debug iteratively,
+attempt     attempt     storing each attempt
+(with       (with           │
+matched_id) matched_id)     ▼
+                         4d. Close session
+                             with outcome
 ```
 
 ### Step by Step
 
 1. **Check memory first** — Before starting a debug loop, call `find_similar_attempts` with the current error symptom.
 2. **If a match is found** — Review the diagnosis and fix from the matched attempt. Apply it and store the new attempt with `matched_attempt_id` to increment the original's confidence.
-3. **If no match** — Call `store_debug_session` to start tracking. After each debug iteration, call `store_debug_attempt` to record the symptom, what was tried, and the outcome.
-4. **Close the session** — When debugging is complete, call `close_debug_session` with the final outcome and the ID of the resolving attempt.
+3. **If no vector match** — Call `find_cross_project_patterns` with the error category to search the knowledge graph for resolved fixes from other projects. This graph-only search can find related issues even when symptoms are phrased differently.
+4. **If still no match** — Call `store_debug_session` to start tracking. After each debug iteration, call `store_debug_attempt` to record the symptom, what was tried, and the outcome.
+5. **Explore related issues** — Use `get_related_issues` on any attempt to see its graph neighborhood (connected error patterns, fix patterns, and similar attempts).
+6. **Close the session** — When debugging is complete, call `close_debug_session` with the final outcome and the ID of the resolving attempt.
 
 ---
 
@@ -207,14 +227,20 @@ perfmemory-mcp/
 ├── perfmemory.py              # MCP server entrypoint (FastMCP)
 ├── services/
 │   ├── embeddings.py          # Embedding provider abstraction (OpenAI, Azure, Ollama)
+│   ├── graph_manager.py       # Apache AGE/Cypher graph operations
 │   └── session_manager.py     # Connection pool, CRUD operations, vector search
 ├── utils/
-│   └── config.py              # Environment variable loader (.env or system env)
+│   └── config.py              # Config loader (YAML + environment variables)
 ├── sql/
-│   └── schema/
-│       ├── schema_openai.sql  # Tables + indexes for 1536-dim embeddings
-│       └── schema_ollama.sql  # Tables + indexes for 768-dim embeddings
+│   ├── schema/
+│   │   ├── schema_openai.sql  # Tables + indexes for 1536-dim embeddings
+│   │   └── schema_ollama.sql  # Tables + indexes for 768-dim embeddings
+│   └── graph/
+│       ├── 001_create_graph.sql               # Graph schema (vertex/edge labels)
+│       ├── 002_seed_graph_from_existing_data.sql  # Backfill graph from relational data
+│       └── README.md                          # Graph schema documentation
 ├── .env.example               # Example environment configuration
+├── config.example.yaml        # Example YAML config (search, graph, embedding)
 ├── pyproject.toml             # Project metadata and dependencies
 └── README.md                  # This file
 ```
@@ -305,7 +331,21 @@ All configuration is managed through environment variables (via `.env` file loca
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
 | `VECTOR_TOP_K` | `5` | Max results from similarity search |
-| `SIMILARITY_THRESHOLD` | `0.75` | Minimum cosine similarity score to return a match |
+| `SIMILARITY_THRESHOLD` | `0.60` | Minimum cosine similarity score to return a match |
+
+### Graph (config.yaml)
+
+These settings are configured in `config.yaml` (not environment variables). See `config.example.yaml` for reference.
+
+| Setting | Default | Description |
+| :------ | :------ | :---------- |
+| `graph.enabled` | `false` | Enable the Apache AGE knowledge graph layer |
+| `graph.graph_name` | `perf_knowledge` | Name of the AGE graph |
+| `graph.vector_weight` | `0.6` | Weight for vector similarity in hybrid scoring |
+| `graph.graph_weight` | `0.4` | Weight for graph matches in hybrid scoring |
+| `graph.embedding_edge_threshold` | `0.82` | Minimum similarity to create SIMILAR_TO edges |
+| `graph.max_embedding_edges` | `3` | Max embedding-based edges per attempt |
+| `search.ef_search` | `40` | HNSW search candidates — increase for better recall at scale |
 
 ### General
 
@@ -317,7 +357,7 @@ All configuration is managed through environment variables (via `.env` file loca
 
 ## 🚧 Future Enhancements
 
-* **Skill Integration** — Wire `find_similar_attempts` into the `jmeter-debugging` and `jmeter-hitl-editing` skills so agents check memory automatically.
+* **FastMCP 3.0 Migration** — Migrate to FastMCP 3.0 with async database drivers (`asyncpg`/`psycopg3`) for improved concurrency.
 * **Structured Symptom Templates** — Standardize how symptoms are formatted before embedding to improve similarity scores.
 * **Correlation Patterns Table** — Store common correlation patterns (separate from debug attempts) for reuse across scripts.
 * **Data Retention Policies** — Auto-archive old attempts and configurable TTL.
@@ -332,4 +372,4 @@ Feel free to open issues or submit pull requests to enhance functionality, add n
 
 ---
 
-Created with ❤️ using FastMCP, PostgreSQL, pgvector, and the MCP Perf Suite architecture.
+Created with ❤️ using FastMCP, PostgreSQL, pgvector, Apache AGE, and the MCP Perf Suite architecture.

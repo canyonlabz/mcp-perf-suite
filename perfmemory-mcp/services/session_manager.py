@@ -620,6 +620,42 @@ def get_stats(
 # Row Mappers
 # =============================================================================
 
+def get_attempt_by_id(db_config: dict, attempt_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch a single debug attempt by its UUID, enriched with session context."""
+    conn = _get_conn(db_config)
+    _healthy = True
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT a.id, a.session_id, a.iteration_number, a.error_category,
+                       a.severity, a.response_code, a.outcome, a.hostname,
+                       a.sampler_name, a.api_endpoint, a.symptom_text, a.diagnosis,
+                       a.fix_description, a.fix_type, a.component_type,
+                       a.manifest_excerpt, a.embedding_model, a.is_verified,
+                       a.is_active, a.confirmed_count, a.created_at,
+                       s.system_under_test, s.environment, s.test_run_id
+                FROM debug_attempts a
+                JOIN debug_sessions s ON s.id = a.session_id
+                WHERE a.id = %s
+                """,
+                (attempt_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            attempt = _row_to_attempt(row[:21])
+            attempt["system_under_test"] = row[21]
+            attempt["environment"] = row[22]
+            attempt["test_run_id"] = row[23]
+            return attempt
+    except Exception:
+        _healthy = _safe_rollback(conn)
+        raise
+    finally:
+        _put_conn(conn, healthy=_healthy)
+
+
 def _row_to_session(row) -> Dict[str, Any]:
     return {
         "id": str(row[0]),

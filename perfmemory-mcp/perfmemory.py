@@ -595,6 +595,173 @@ async def get_memory_stats(
 
 
 # =============================================================================
+# Batch 4 — Graph Tools (Apache AGE)
+# =============================================================================
+
+def _get_attempt_detail(attempt_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch full attempt details from the relational store to enrich graph results."""
+    try:
+        return sm.get_attempt_by_id(_config["database"], attempt_id)
+    except Exception:
+        log.warning("Could not fetch attempt detail for %s", attempt_id)
+        return None
+
+
+@mcp.tool()
+async def find_cross_project_patterns(
+    error_category: str,
+    ctx: Context,
+    current_project: Optional[str] = None,
+    response_code: Optional[str] = None,
+    fix_type: Optional[str] = None,
+    max_hops: Optional[int] = 2,
+    limit: Optional[int] = 5,
+    enrich: Optional[bool] = True,
+) -> Dict[str, Any]:
+    """Search the knowledge graph for cross-project patterns matching an error.
+
+    Uses Apache AGE graph traversal to find resolved attempts from other
+    projects that share the same ErrorPattern or are connected via SIMILAR_TO
+    edges. This is a graph-only search — no vector similarity is used.
+
+    Useful as a fallback when find_similar_attempts returns no matches,
+    or to proactively discover fixes from other projects.
+
+    Args:
+        error_category: Error category to search for (e.g. "HTTP 4xx Error",
+            "Authentication Error", "Correlation Error")
+        ctx: MCP context
+        current_project: Exclude results from this project (optional, for
+            cross-project discovery)
+        response_code: Filter by HTTP response code (optional)
+        fix_type: Filter by fix type (optional)
+        max_hops: Maximum SIMILAR_TO edge hops for multi-hop discovery (default 2)
+        limit: Maximum results to return (default 5)
+        enrich: If true, fetch full attempt details from the relational store
+            for each result (default true)
+
+    Returns:
+        dict with keys: status, matches_found, matches (list of graph results).
+        Each match includes: attempt_id, project, fix_type, error_category,
+        response_code, component_type, outcome, graph_path.
+        If enrich=true, also includes: symptom_text, diagnosis, fix_description,
+        sampler_name, api_endpoint, confirmed_count, is_verified.
+    """
+    _ = ctx
+    if not _graph_enabled():
+        return {
+            "status": "ERROR",
+            "message": "Graph layer is disabled in config (graph.enabled = false)",
+            "matches_found": 0,
+            "matches": [],
+        }
+    try:
+        graph_cfg = _config["graph"]
+        results = gm.find_cross_project_patterns(
+            _config["database"],
+            graph_name=graph_cfg["graph_name"],
+            error_category=error_category,
+            current_project=current_project,
+            response_code=response_code,
+            fix_type=fix_type,
+            max_hops=max_hops or 2,
+            limit=limit or 5,
+        )
+
+        if enrich:
+            for r in results:
+                detail = _get_attempt_detail(r["attempt_id"])
+                if detail:
+                    r["symptom_text"] = detail.get("symptom_text")
+                    r["diagnosis"] = detail.get("diagnosis")
+                    r["fix_description"] = detail.get("fix_description")
+                    r["sampler_name"] = detail.get("sampler_name")
+                    r["api_endpoint"] = detail.get("api_endpoint")
+                    r["confirmed_count"] = detail.get("confirmed_count")
+                    r["is_verified"] = detail.get("is_verified")
+
+        return {
+            "status": "OK",
+            "matches_found": len(results),
+            "matches": results,
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "message": str(e),
+            "matches_found": 0,
+            "matches": [],
+        }
+
+
+@mcp.tool()
+async def get_related_issues(
+    attempt_id: str,
+    ctx: Context,
+    max_hops: Optional[int] = 2,
+    include_same_project: Optional[bool] = True,
+    enrich: Optional[bool] = True,
+) -> Dict[str, Any]:
+    """Explore the graph neighborhood of a specific debug attempt.
+
+    Returns the attempt's connected ErrorPattern and FixPattern nodes,
+    plus neighboring attempts linked via SIMILAR_TO edges. Useful for
+    understanding the structural context of a known issue and finding
+    related fixes.
+
+    Args:
+        attempt_id: UUID of the debug attempt to explore
+        ctx: MCP context
+        max_hops: Maximum SIMILAR_TO edge hops (default 2)
+        include_same_project: Include neighbors from the same project (default true)
+        enrich: If true, fetch full attempt details for each neighbor (default true)
+
+    Returns:
+        dict with keys: status, attempt_id, project, error_patterns,
+        fix_patterns, neighbors.
+        error_patterns: list of {error_category, response_code}
+        fix_patterns: list of {fix_type, component_type}
+        neighbors: list of {attempt_id, project, outcome, fix_type, error_category}
+        If enrich=true, neighbors also include: symptom_text, diagnosis,
+        fix_description, sampler_name, api_endpoint, confirmed_count, is_verified.
+    """
+    _ = ctx
+    if not _graph_enabled():
+        return {
+            "status": "ERROR",
+            "message": "Graph layer is disabled in config (graph.enabled = false)",
+        }
+    try:
+        graph_cfg = _config["graph"]
+        result = gm.get_related_issues(
+            _config["database"],
+            graph_name=graph_cfg["graph_name"],
+            attempt_id=attempt_id,
+            max_hops=max_hops or 2,
+            include_same_project=include_same_project if include_same_project is not None else True,
+        )
+
+        if "error" in result:
+            return {"status": "ERROR", "message": result["error"]}
+
+        if enrich and result.get("neighbors"):
+            for n in result["neighbors"]:
+                detail = _get_attempt_detail(n["attempt_id"])
+                if detail:
+                    n["symptom_text"] = detail.get("symptom_text")
+                    n["diagnosis"] = detail.get("diagnosis")
+                    n["fix_description"] = detail.get("fix_description")
+                    n["sampler_name"] = detail.get("sampler_name")
+                    n["api_endpoint"] = detail.get("api_endpoint")
+                    n["confirmed_count"] = detail.get("confirmed_count")
+                    n["is_verified"] = detail.get("is_verified")
+
+        return {"status": "OK", **result}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
+
+
+# =============================================================================
 # Server Startup
 # =============================================================================
 
