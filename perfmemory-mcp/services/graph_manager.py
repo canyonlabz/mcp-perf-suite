@@ -426,17 +426,17 @@ def find_graph_related(
         with conn.cursor() as cur:
             # Path 1: Via shared ErrorPattern
             if error_category:
-                rc = response_code or "unknown"
                 project_filter = ""
                 if current_project:
                     project_filter = f"AND related.project <> '{_esc(current_project)}'"
 
+                ep_props = f"error_category: '{_esc(error_category)}'"
+                if response_code:
+                    ep_props += f", response_code: '{_esc(response_code)}'"
+
                 cur.execute(
                     f"""SELECT * FROM cypher('{graph_name}', $$
-                        MATCH (ep:ErrorPattern {{
-                                   error_category: '{_esc(error_category)}',
-                                   response_code: '{_esc(rc)}'
-                               }})
+                        MATCH (ep:ErrorPattern {{{ep_props}}})
                               <-[:HAS_ERROR]-(related:Attempt)
                         WHERE related.outcome = 'resolved'
                           {project_filter}
@@ -456,7 +456,7 @@ def find_graph_related(
                         "error_category": _parse_agtype(row[3]),
                         "response_code": _parse_agtype(row[4]),
                         "component_type": _parse_agtype(row[5]),
-                        "graph_path": f"ErrorPattern({error_category}/{rc})",
+                        "graph_path": f"ErrorPattern({error_category})",
                         "source": "graph",
                     })
 
@@ -521,19 +521,19 @@ def find_cross_project_patterns(
     _healthy = True
     try:
         results = []
-        rc = response_code or "unknown"
 
         with conn.cursor() as cur:
             project_filter = ""
             if current_project:
                 project_filter = f"AND related.project <> '{_esc(current_project)}'"
 
+            ep_props = f"error_category: '{_esc(error_category)}'"
+            if response_code:
+                ep_props += f", response_code: '{_esc(response_code)}'"
+
             cur.execute(
                 f"""SELECT * FROM cypher('{graph_name}', $$
-                    MATCH (ep:ErrorPattern {{
-                               error_category: '{_esc(error_category)}',
-                               response_code: '{_esc(rc)}'
-                           }})
+                    MATCH (ep:ErrorPattern {{{ep_props}}})
                           <-[:HAS_ERROR]-(related:Attempt)
                           -[:BELONGS_TO]->(p:Project)
                     WHERE related.outcome = 'resolved'
@@ -555,7 +555,7 @@ def find_cross_project_patterns(
                     "response_code": _parse_agtype(row[4]),
                     "component_type": _parse_agtype(row[5]),
                     "outcome": _parse_agtype(row[6]),
-                    "graph_path": f"ErrorPattern({error_category}/{rc})",
+                    "graph_path": f"ErrorPattern({error_category}/{response_code or '*'})",
                 })
 
             # Also check via SIMILAR_TO edges for multi-hop discovery
