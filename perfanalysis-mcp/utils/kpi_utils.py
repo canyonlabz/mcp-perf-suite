@@ -25,6 +25,56 @@ import numpy as np
 # a pattern falls through to the "custom" fallback category.
 
 CATEGORY_REGISTRY: Dict[str, Dict[str, Any]] = {
+    # ----- Host-level categories (checked first — prefix avoids collisions) -----
+    "host_cpu": {
+        "patterns": [lambda m: m.startswith("host_cpu")],
+        "unit_conversion": None,
+        "correlate_with": ["p90_response_time"],
+        "interpretation": "Host CPU utilization impact on application performance",
+    },
+    "host_memory": {
+        "patterns": [lambda m: m.startswith("host_mem")],
+        "unit_conversion": {"from": "bytes", "to": "GB", "factor": 1 / 1_073_741_824},
+        "correlate_with": ["p90_response_time"],
+        "interpretation": "Host memory availability impact on performance",
+    },
+    "disk_io": {
+        "patterns": [lambda m: "disk_queue" in m],
+        "unit_conversion": None,
+        "correlate_with": ["p90_response_time"],
+        "interpretation": "Disk I/O queue depth impact on latency",
+    },
+    "disk_usage": {
+        "patterns": [lambda m: "disk_used" in m],
+        "unit_conversion": {"from": "bytes", "to": "GB", "factor": 1 / 1_073_741_824},
+        "correlate_with": ["p90_response_time"],
+        "interpretation": "Disk space utilization trend",
+    },
+    "network_io": {
+        "patterns": [lambda m: "net_bytes" in m],
+        "unit_conversion": {"from": "bytes", "to": "KB", "factor": 1 / 1_024},
+        "correlate_with": ["p90_response_time", "request_count"],
+        "interpretation": "Network throughput vs application performance",
+    },
+    "iis": {
+        "patterns": [lambda m: "iis_" in m],
+        "unit_conversion": None,
+        "correlate_with": ["p90_response_time", "request_count"],
+        "interpretation": "IIS web server activity vs application performance",
+    },
+    "sql_server": {
+        "patterns": [lambda m: "sql_" in m],
+        "unit_conversion": None,
+        "correlate_with": ["p90_response_time"],
+        "interpretation": "SQL Server activity impact on application latency",
+    },
+    "process_queue": {
+        "patterns": [lambda m: "proc_queue" in m or "queue_length" in m],
+        "unit_conversion": None,
+        "correlate_with": ["p90_response_time"],
+        "interpretation": "Processor queue depth impact on responsiveness",
+    },
+    # ----- Application / k8s-level categories -----
     "latency": {
         "patterns": [lambda m: "latency" in m],
         "unit_conversion": {"from": "seconds", "to": "ms", "factor": 1000},
@@ -119,6 +169,29 @@ def discover_kpi_files(apm_path: Path) -> List[Path]:
 
 
 # -----------------------------------------------
+# Scope Detection
+# -----------------------------------------------
+
+def detect_kpi_scope(df: pd.DataFrame) -> str:
+    """Detect the predominant scope from a loaded KPI DataFrame.
+
+    Returns ``"host"``, ``"k8s"``, or ``"mixed"`` based on the ``scope``
+    column values.  Falls back to ``"k8s"`` when the column is absent
+    (backward compatibility with older CSVs).
+    """
+    if "scope" not in df.columns:
+        return "k8s"
+    scopes = set(df["scope"].dropna().unique())
+    if scopes == {"host"}:
+        return "host"
+    if scopes == {"k8s"}:
+        return "k8s"
+    if len(scopes) > 1:
+        return "mixed"
+    return "k8s"
+
+
+# -----------------------------------------------
 # Metric Categorization
 # -----------------------------------------------
 
@@ -174,11 +247,46 @@ def get_interpretation(metric_name: str) -> str:
 # KPI Data Loading
 # -----------------------------------------------
 
+def _resolve_identifier(df: pd.DataFrame) -> pd.DataFrame:
+    """Create a unified ``identifier`` column based on the ``scope`` column.
+
+    For ``scope=host``, the identifier is the ``hostname`` column.
+    For ``scope=k8s`` (or any other scope), the identifier is ``filter``.
+    If ``scope`` is absent, falls back to ``filter`` for backward compatibility.
+
+    Args:
+        df: Raw KPI DataFrame with original CSV columns.
+
+    Returns:
+        The same DataFrame with an ``identifier`` column added.
+    """
+    if "scope" not in df.columns:
+        df["identifier"] = df.get("filter", pd.Series("unknown", index=df.index))
+        return df
+
+    def _pick(row):
+        if row.get("scope") == "host":
+            val = row.get("hostname")
+            if pd.notna(val) and str(val).strip():
+                return str(val).strip()
+        val = row.get("filter")
+        if pd.notna(val) and str(val).strip():
+            return str(val).strip()
+        val = row.get("hostname")
+        if pd.notna(val) and str(val).strip():
+            return str(val).strip()
+        return "unknown"
+
+    df["identifier"] = df.apply(_pick, axis=1)
+    return df
+
+
 def load_kpi_dataframe(kpi_files: List[Path]) -> Optional[pd.DataFrame]:
     """Load all KPI CSV files into a single unified DataFrame.
 
-    The returned DataFrame retains the original long-format schema:
-    ``timestamp``, ``filter``, ``metric``, ``value``, ``unit``.
+    The returned DataFrame retains the original long-format schema plus
+    a unified ``identifier`` column resolved from ``hostname`` (host scope)
+    or ``filter`` (k8s scope).
 
     Args:
         kpi_files: List of kpi_metrics_*.csv file paths.
@@ -203,6 +311,7 @@ def load_kpi_dataframe(kpi_files: List[Path]) -> Optional[pd.DataFrame]:
         return None
 
     combined = pd.concat(frames, ignore_index=True)
+    combined = _resolve_identifier(combined)
     return combined.sort_values("timestamp").reset_index(drop=True)
 
 
@@ -228,18 +337,15 @@ def load_kpi_pivoted(
     if raw_df is None or raw_df.empty:
         return None
 
-    identifier_col = "filter"
-    if identifier_col not in raw_df.columns:
+    if "identifier" not in raw_df.columns:
         return None
 
     all_metric_dfs: List[pd.DataFrame] = []
     for metric_name in raw_df["metric"].unique():
         metric_slice = raw_df[raw_df["metric"] == metric_name][
-            ["timestamp", identifier_col, "value"]
+            ["timestamp", "identifier", "value"]
         ].copy()
-        metric_slice = metric_slice.rename(
-            columns={identifier_col: "identifier", "value": metric_name}
-        )
+        metric_slice = metric_slice.rename(columns={"value": metric_name})
         all_metric_dfs.append(metric_slice)
 
     if not all_metric_dfs:

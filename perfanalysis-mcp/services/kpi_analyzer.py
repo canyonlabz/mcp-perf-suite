@@ -22,6 +22,7 @@ from utils.kpi_utils import (
     load_kpi_dataframe,
     load_kpi_pivoted,
     discover_kpi_files,
+    detect_kpi_scope,
     categorize_metric,
     get_display_unit,
     get_conversion_factor,
@@ -44,11 +45,11 @@ async def analyze_kpi_metrics(
     config: Dict,
     ctx: Context,
 ) -> Dict[str, Any]:
-    """Analyze KPI timeseries data and produce per-service, per-metric summaries.
+    """Analyze KPI timeseries data and produce per-entity, per-metric summaries.
 
-    Reads all kpi_metrics_*.csv files, groups by service (``filter`` column),
-    computes descriptive statistics and trend per metric, and tags each metric
-    with its category.
+    Reads all kpi_metrics_*.csv files, groups by identifier (``hostname`` for
+    host scope, ``filter`` / service name for k8s scope), computes descriptive
+    statistics and trend per metric, and tags each metric with its category.
 
     Args:
         kpi_files:            Sorted list of kpi_metrics_*.csv paths.
@@ -57,11 +58,14 @@ async def analyze_kpi_metrics(
         ctx:                  FastMCP context for progress logging.
 
     Returns:
-        Dict with keys: ``services``, ``metric_categories_found``,
-        ``total_services``, ``kpi_insights``, ``analysis_timestamp``.
+        Dict with keys: ``services``, ``scope``, ``identifier_type``,
+        ``metric_categories_found``, ``total_services``, ``kpi_insights``,
+        ``analysis_timestamp``.
     """
     kpi_analysis: Dict[str, Any] = {
         "services": {},
+        "scope": "k8s",
+        "identifier_type": "service",
         "metric_categories_found": [],
         "total_services": 0,
         "kpi_insights": [],
@@ -75,21 +79,28 @@ async def analyze_kpi_metrics(
         await ctx.warning("KPI Analysis", "KPI CSV files found but contained no data")
         return kpi_analysis
 
-    identifier_col = "filter"
-    if identifier_col not in raw_df.columns:
-        await ctx.warning("KPI Analysis", "KPI CSV missing 'filter' column — skipping")
+    if "identifier" not in raw_df.columns:
+        await ctx.warning("KPI Analysis", "KPI CSV missing identifier column — skipping")
         return kpi_analysis
 
-    services = raw_df[identifier_col].unique()
+    scope_type = detect_kpi_scope(raw_df)
+    identifier_type = "host" if scope_type == "host" else "service"
+    entity_label = "host" if scope_type == "host" else "service"
+
+    kpi_analysis["scope"] = scope_type
+    kpi_analysis["identifier_type"] = identifier_type
+
+    identifier_col = "identifier"
+    entities = raw_df[identifier_col].unique()
     categories_seen: set = set()
 
-    for service in services:
-        svc_data = raw_df[raw_df[identifier_col] == service]
-        svc_metrics = svc_data["metric"].unique()
-        service_summary: Dict[str, Any] = {}
+    for entity in entities:
+        entity_data = raw_df[raw_df[identifier_col] == entity]
+        entity_metrics = entity_data["metric"].unique()
+        entity_summary: Dict[str, Any] = {}
 
-        for metric_name in svc_metrics:
-            metric_rows = svc_data[svc_data["metric"] == metric_name]
+        for metric_name in entity_metrics:
+            metric_rows = entity_data[entity_data["metric"] == metric_name]
             category = categorize_metric(metric_name)
             categories_seen.add(category)
 
@@ -100,23 +111,23 @@ async def analyze_kpi_metrics(
             converted_values = metric_rows["value"] * factor if factor != 1.0 else metric_rows["value"]
             stats = compute_metric_summary(converted_values)
 
-            service_summary[metric_name] = {
+            entity_summary[metric_name] = {
                 "category": category,
                 "unit": original_unit,
                 "display_unit": display_unit,
                 **stats,
             }
 
-        kpi_analysis["services"][service] = service_summary
+        kpi_analysis["services"][entity] = entity_summary
 
-    kpi_analysis["total_services"] = len(services)
+    kpi_analysis["total_services"] = len(entities)
     kpi_analysis["metric_categories_found"] = sorted(categories_seen)
 
     kpi_analysis["kpi_insights"] = generate_kpi_insights(kpi_analysis)
 
     await ctx.info(
         "KPI Analysis Complete",
-        f"Analyzed {len(services)} service(s), "
+        f"Analyzed {len(entities)} {entity_label}(s), "
         f"{len(categories_seen)} category/categories: {', '.join(sorted(categories_seen))}",
     )
 
@@ -209,6 +220,30 @@ def generate_kpi_insights(kpi_analysis: Dict[str, Any]) -> List[str]:
                         f"{short_name}: {metric_name} trending upward — "
                         f"possible process-level memory growth"
                     )
+
+            elif category == "host_cpu":
+                _add_host_cpu_insights(insights, short_name, metric_name, stats)
+
+            elif category == "host_memory":
+                _add_host_memory_insights(insights, short_name, metric_name, stats)
+
+            elif category == "disk_io":
+                _add_disk_io_insights(insights, short_name, metric_name, stats)
+
+            elif category == "disk_usage":
+                _add_disk_usage_insights(insights, short_name, metric_name, stats)
+
+            elif category == "network_io":
+                _add_network_io_insights(insights, short_name, metric_name, stats)
+
+            elif category == "iis":
+                _add_iis_insights(insights, short_name, metric_name, stats)
+
+            elif category == "sql_server":
+                _add_sql_server_insights(insights, short_name, metric_name, stats)
+
+            elif category == "process_queue":
+                _add_process_queue_insights(insights, short_name, metric_name, stats)
 
     return insights
 
@@ -312,6 +347,205 @@ def _add_error_insights(
         if trend == "increasing":
             insights.append(
                 f"{svc}: {metric} trending upward — investigate error source"
+            )
+
+
+def _add_host_cpu_insights(
+    insights: List[str], host: str, metric: str, stats: Dict
+) -> None:
+    """Append host-level CPU insights."""
+    p90 = stats.get("p90")
+    max_val = stats.get("max")
+    trend = stats.get("trend", "stable")
+
+    if metric.endswith("_idle") and p90 is not None:
+        if p90 < 20:
+            insights.append(
+                f"{host}: {metric} P90={p90:.1f}% (min idle) — "
+                f"host CPU is heavily utilized"
+            )
+        elif p90 < 50:
+            insights.append(
+                f"{host}: {metric} P90={p90:.1f}% idle — "
+                f"moderate CPU utilization on host"
+            )
+    elif metric.endswith("_user") and max_val is not None and max_val > 70:
+        insights.append(
+            f"{host}: {metric} peaked at {max_val:.1f}% — "
+            f"high user-mode CPU on host"
+        )
+    elif metric.endswith("_iowait") and p90 is not None and p90 > 5:
+        insights.append(
+            f"{host}: {metric} P90={p90:.1f}% — "
+            f"elevated I/O wait detected on host"
+        )
+    elif metric.endswith("_system") and max_val is not None and max_val > 20:
+        insights.append(
+            f"{host}: {metric} peaked at {max_val:.1f}% — "
+            f"high kernel-mode CPU on host"
+        )
+
+
+def _add_host_memory_insights(
+    insights: List[str], host: str, metric: str, stats: Dict
+) -> None:
+    """Append host memory insights."""
+    trend = stats.get("trend", "stable")
+    display_unit = stats.get("display_unit", stats.get("unit", ""))
+
+    if "usable" in metric:
+        min_val = stats.get("min")
+        avg = stats.get("avg")
+        if min_val is not None and avg is not None:
+            insights.append(
+                f"{host}: {metric} avg={avg:.1f}{display_unit}, "
+                f"min={min_val:.1f}{display_unit}"
+                + (f" — memory availability declining" if trend == "decreasing"
+                   else " — memory availability stable")
+            )
+    elif "total" in metric:
+        avg = stats.get("avg")
+        if avg is not None:
+            insights.append(
+                f"{host}: {metric} = {avg:.1f}{display_unit} total host memory"
+            )
+
+
+def _add_disk_io_insights(
+    insights: List[str], host: str, metric: str, stats: Dict
+) -> None:
+    """Append disk I/O queue insights."""
+    p90 = stats.get("p90")
+    max_val = stats.get("max")
+
+    if p90 is not None and max_val is not None:
+        if p90 > 2:
+            insights.append(
+                f"{host}: {metric} P90={p90:.2f} — "
+                f"sustained disk queuing detected (peak {max_val:.2f})"
+            )
+        elif max_val > 2:
+            insights.append(
+                f"{host}: {metric} peak={max_val:.2f} — "
+                f"intermittent disk queue spikes"
+            )
+
+
+def _add_disk_usage_insights(
+    insights: List[str], host: str, metric: str, stats: Dict
+) -> None:
+    """Append disk usage insights."""
+    trend = stats.get("trend", "stable")
+    display_unit = stats.get("display_unit", stats.get("unit", ""))
+    avg = stats.get("avg")
+
+    if avg is not None:
+        insight = f"{host}: {metric} avg={avg:.1f}{display_unit}"
+        if trend == "increasing":
+            insight += " — disk usage growing over test duration"
+        insights.append(insight)
+
+
+def _add_network_io_insights(
+    insights: List[str], host: str, metric: str, stats: Dict
+) -> None:
+    """Append network I/O insights."""
+    max_val = stats.get("max")
+    avg = stats.get("avg")
+    display_unit = stats.get("display_unit", stats.get("unit", ""))
+
+    if max_val is not None and avg is not None:
+        cv = (stats.get("std_dev", 0) / avg) if avg > 0 else 0
+        insight = (
+            f"{host}: {metric} avg={avg:.1f}{display_unit}/s, "
+            f"peak={max_val:.1f}{display_unit}/s"
+        )
+        if cv > 0.8:
+            insight += " — highly variable network traffic"
+        insights.append(insight)
+
+
+def _add_iis_insights(
+    insights: List[str], host: str, metric: str, stats: Dict
+) -> None:
+    """Append IIS web server insights."""
+    max_val = stats.get("max")
+    avg = stats.get("avg")
+    trend = stats.get("trend", "stable")
+    display_unit = stats.get("display_unit", stats.get("unit", ""))
+
+    if "connections" in metric and max_val is not None:
+        insights.append(
+            f"{host}: {metric} peak={max_val:.0f} concurrent IIS connections"
+            + (f" — trending {trend}" if trend != "stable" else "")
+        )
+    elif "bytes" in metric and max_val is not None and avg is not None:
+        insights.append(
+            f"{host}: {metric} avg={avg:.0f}{display_unit}/s, "
+            f"peak={max_val:.0f}{display_unit}/s"
+        )
+    elif "method_" in metric and max_val is not None and max_val > 0:
+        method = metric.split("method_")[-1].upper() if "method_" in metric else metric
+        insights.append(
+            f"{host}: IIS {method} requests avg={avg:.2f}/s, peak={max_val:.2f}/s"
+        )
+
+
+def _add_sql_server_insights(
+    insights: List[str], host: str, metric: str, stats: Dict
+) -> None:
+    """Append SQL Server insights."""
+    avg = stats.get("avg")
+    max_val = stats.get("max")
+    p90 = stats.get("p90")
+    trend = stats.get("trend", "stable")
+    display_unit = stats.get("display_unit", stats.get("unit", ""))
+
+    if "buffer_cache_hit_ratio" in metric and avg is not None:
+        if avg < 0.95:
+            insights.append(
+                f"{host}: {metric} avg={avg:.4f} — "
+                f"buffer cache hit ratio below 95%, possible memory pressure"
+            )
+        else:
+            insights.append(
+                f"{host}: {metric} avg={avg:.4f} — healthy buffer cache performance"
+            )
+    elif "lock_waits" in metric:
+        if max_val is not None and max_val > 0:
+            insights.append(
+                f"{host}: {metric} detected — "
+                f"peak={max_val:.2f}{display_unit}/s, investigate blocking"
+            )
+    elif "compilations" in metric and p90 is not None:
+        insights.append(
+            f"{host}: {metric} P90={p90:.1f}{display_unit}/s"
+            + (f" — compilations increasing" if trend == "increasing" else "")
+        )
+    elif "user_connections" in metric and max_val is not None:
+        insights.append(
+            f"{host}: {metric} peak={max_val:.0f}, avg={avg:.0f} active connections"
+            + (f" — trending {trend}" if trend != "stable" else "")
+        )
+
+
+def _add_process_queue_insights(
+    insights: List[str], host: str, metric: str, stats: Dict
+) -> None:
+    """Append processor queue length insights."""
+    p90 = stats.get("p90")
+    max_val = stats.get("max")
+
+    if p90 is not None and max_val is not None:
+        if p90 > 2:
+            insights.append(
+                f"{host}: {metric} P90={p90:.1f} threads — "
+                f"sustained processor queuing (peak {max_val:.1f})"
+            )
+        elif max_val > 5:
+            insights.append(
+                f"{host}: {metric} peak={max_val:.1f} threads — "
+                f"intermittent processor queue spikes"
             )
 
 
@@ -600,6 +834,7 @@ def detect_kpi_bottlenecks(
     if kpi_aligned is None or kpi_aligned.empty:
         return findings
 
+    # Application-level / k8s detectors
     findings.extend(_detect_gc_pressure(
         kpi_aligned, buckets_df, baseline, cfg, test_run_id,
         test_start_time, make_finding_fn, onset_fields_fn, classify_severity_fn,
@@ -615,6 +850,29 @@ def detect_kpi_bottlenecks(
     findings.extend(_detect_throughput_divergence(
         kpi_aligned, buckets_df, baseline, cfg, test_run_id,
         test_start_time, make_finding_fn, onset_fields_fn, classify_severity_fn,
+    ))
+
+    # Host-level detectors
+    scope_name = _resolve_scope_name(kpi_df)
+    findings.extend(_detect_host_cpu_saturation(
+        kpi_aligned, buckets_df, baseline, cfg, test_run_id,
+        test_start_time, make_finding_fn, onset_fields_fn, classify_severity_fn,
+        scope_name,
+    ))
+    findings.extend(_detect_host_memory_pressure(
+        kpi_aligned, buckets_df, baseline, cfg, test_run_id,
+        test_start_time, make_finding_fn, onset_fields_fn, classify_severity_fn,
+        scope_name,
+    ))
+    findings.extend(_detect_disk_queue_saturation(
+        kpi_aligned, buckets_df, baseline, cfg, test_run_id,
+        test_start_time, make_finding_fn, onset_fields_fn, classify_severity_fn,
+        scope_name,
+    ))
+    findings.extend(_detect_sql_contention(
+        kpi_aligned, buckets_df, baseline, cfg, test_run_id,
+        test_start_time, make_finding_fn, onset_fields_fn, classify_severity_fn,
+        scope_name,
     ))
 
     return findings
@@ -998,6 +1256,409 @@ def _detect_throughput_divergence(
     ))
 
     return findings
+
+
+# -------------------------------------------------------------------
+# Detector: Host CPU saturation
+# -------------------------------------------------------------------
+
+def _detect_host_cpu_saturation(
+    kpi_aligned: pd.DataFrame,
+    buckets_df: pd.DataFrame,
+    baseline: Dict,
+    cfg: Dict,
+    test_run_id: str,
+    test_start_time,
+    make_finding_fn,
+    onset_fields_fn,
+    classify_severity_fn,
+    scope_name: str,
+) -> List[Dict]:
+    """Detect host CPU saturation (low idle %) concurrent with latency degradation."""
+    idle_col = _find_column(kpi_aligned, "cpu_idle")
+    if idle_col is None:
+        return []
+
+    idle_threshold = cfg.get("host_cpu_idle_threshold", 15.0)
+    baseline_p90 = baseline.get("p90", 0)
+    if baseline_p90 <= 0:
+        return []
+
+    warmup = cfg.get("warmup_buckets", 2)
+    findings: List[Dict] = []
+
+    for ts, row in kpi_aligned.iterrows():
+        idle_val = row.get(idle_col)
+        if pd.isna(idle_val) or idle_val > idle_threshold:
+            continue
+
+        concurrent_bucket = _get_concurrent_bucket(buckets_df, ts)
+        if concurrent_bucket is None:
+            continue
+
+        bucket_p90 = concurrent_bucket.get("p90", 0)
+        if pd.isna(bucket_p90) or bucket_p90 <= baseline_p90 * 1.3:
+            continue
+
+        bucket_idx = concurrent_bucket.get("_bucket_idx", 0)
+        cpu_used = 100 - idle_val
+
+        user_col = _find_column(kpi_aligned, "cpu_user")
+        system_col = _find_column(kpi_aligned, "cpu_system")
+        user_val = row.get(user_col, 0) if user_col else 0
+        system_val = row.get(system_col, 0) if system_col else 0
+
+        delta_pct = (cpu_used - (100 - idle_threshold)) / (100 - idle_threshold) * 100
+
+        findings.append(make_finding_fn(
+            bottleneck_type="host_cpu_saturation",
+            scope="host",
+            scope_name=scope_name,
+            concurrency=float(concurrent_bucket.get("concurrency", 0)),
+            metric_name=idle_col,
+            metric_value=float(cpu_used),
+            baseline_value=100 - idle_threshold,
+            severity=classify_severity_fn(
+                delta_pct=delta_pct,
+                persistence_ratio=None,
+                classification="bottleneck",
+                scope="host",
+                bottleneck_type="host_cpu_saturation",
+            ),
+            confidence="high" if idle_val < 10 else "medium",
+            classification="bottleneck",
+            evidence=(
+                f"Host CPU idle dropped to {idle_val:.1f}% "
+                f"(user: {user_val:.1f}%, system: {system_val:.1f}%) "
+                f"while client P90 was {bucket_p90:.0f}ms at "
+                f"{concurrent_bucket.get('concurrency', 0):.0f} concurrent users. "
+                f"Host CPU saturation likely contributing to latency degradation."
+            ),
+            test_run_id=test_run_id,
+            **onset_fields_fn(
+                concurrent_bucket.get("bucket_start", ts),
+                warmup + bucket_idx,
+                test_start_time,
+            ),
+        ))
+        break
+
+    return findings
+
+
+# -------------------------------------------------------------------
+# Detector: Host memory pressure
+# -------------------------------------------------------------------
+
+def _detect_host_memory_pressure(
+    kpi_aligned: pd.DataFrame,
+    buckets_df: pd.DataFrame,
+    baseline: Dict,
+    cfg: Dict,
+    test_run_id: str,
+    test_start_time,
+    make_finding_fn,
+    onset_fields_fn,
+    classify_severity_fn,
+    scope_name: str,
+) -> List[Dict]:
+    """Detect high host memory utilization concurrent with latency degradation."""
+    usable_col = _find_column(kpi_aligned, "mem_usable")
+    total_col = _find_column(kpi_aligned, "mem_total")
+    if usable_col is None or total_col is None:
+        return []
+
+    mem_pressure_threshold = cfg.get("host_mem_pressure_threshold_pct", 85.0)
+    baseline_p90 = baseline.get("p90", 0)
+    if baseline_p90 <= 0:
+        return []
+
+    warmup = cfg.get("warmup_buckets", 2)
+    findings: List[Dict] = []
+
+    for ts, row in kpi_aligned.iterrows():
+        usable = row.get(usable_col)
+        total = row.get(total_col)
+        if pd.isna(usable) or pd.isna(total) or total <= 0:
+            continue
+
+        used_pct = (1.0 - usable / total) * 100
+        if used_pct < mem_pressure_threshold:
+            continue
+
+        concurrent_bucket = _get_concurrent_bucket(buckets_df, ts)
+        if concurrent_bucket is None:
+            continue
+
+        bucket_p90 = concurrent_bucket.get("p90", 0)
+        if pd.isna(bucket_p90) or bucket_p90 <= baseline_p90 * 1.3:
+            continue
+
+        bucket_idx = concurrent_bucket.get("_bucket_idx", 0)
+        delta_pct = (used_pct - mem_pressure_threshold) / mem_pressure_threshold * 100
+
+        findings.append(make_finding_fn(
+            bottleneck_type="host_memory_pressure",
+            scope="host",
+            scope_name=scope_name,
+            concurrency=float(concurrent_bucket.get("concurrency", 0)),
+            metric_name=f"{usable_col}_vs_{total_col}",
+            metric_value=float(used_pct),
+            baseline_value=mem_pressure_threshold,
+            severity=classify_severity_fn(
+                delta_pct=delta_pct,
+                persistence_ratio=None,
+                classification="bottleneck",
+                scope="host",
+                bottleneck_type="host_memory_pressure",
+            ),
+            confidence="high" if used_pct > 95 else "medium",
+            classification="bottleneck",
+            evidence=(
+                f"Host memory utilization at {used_pct:.1f}% "
+                f"(usable: {usable:.1f}, total: {total:.1f}) "
+                f"while client P90 was {bucket_p90:.0f}ms at "
+                f"{concurrent_bucket.get('concurrency', 0):.0f} concurrent users. "
+                f"High memory pressure may force paging and degrade performance."
+            ),
+            test_run_id=test_run_id,
+            **onset_fields_fn(
+                concurrent_bucket.get("bucket_start", ts),
+                warmup + bucket_idx,
+                test_start_time,
+            ),
+        ))
+        break
+
+    return findings
+
+
+# -------------------------------------------------------------------
+# Detector: Disk queue saturation
+# -------------------------------------------------------------------
+
+def _detect_disk_queue_saturation(
+    kpi_aligned: pd.DataFrame,
+    buckets_df: pd.DataFrame,
+    baseline: Dict,
+    cfg: Dict,
+    test_run_id: str,
+    test_start_time,
+    make_finding_fn,
+    onset_fields_fn,
+    classify_severity_fn,
+    scope_name: str,
+) -> List[Dict]:
+    """Detect elevated disk queue length concurrent with latency degradation."""
+    queue_col = _find_column(kpi_aligned, "disk_queue")
+    if queue_col is None:
+        return []
+
+    queue_threshold = cfg.get("host_disk_queue_threshold", 2.0)
+    baseline_p90 = baseline.get("p90", 0)
+    if baseline_p90 <= 0:
+        return []
+
+    warmup = cfg.get("warmup_buckets", 2)
+    findings: List[Dict] = []
+
+    sustained_count = 0
+    total_count = 0
+    worst_val = 0.0
+    worst_ts = None
+    worst_bucket = None
+
+    for ts, row in kpi_aligned.iterrows():
+        queue_val = row.get(queue_col)
+        if pd.isna(queue_val):
+            continue
+
+        total_count += 1
+        if queue_val > queue_threshold:
+            concurrent_bucket = _get_concurrent_bucket(buckets_df, ts)
+            if concurrent_bucket is not None:
+                sustained_count += 1
+                if queue_val > worst_val:
+                    worst_val = queue_val
+                    worst_ts = ts
+                    worst_bucket = concurrent_bucket
+
+    if sustained_count < _MIN_SAMPLES_SPIKE or worst_bucket is None:
+        return []
+
+    persistence = sustained_count / total_count if total_count > 0 else 0
+    if persistence < 0.1:
+        return []
+
+    bucket_idx = worst_bucket.get("_bucket_idx", 0)
+    delta_pct = (worst_val - queue_threshold) / queue_threshold * 100
+
+    findings.append(make_finding_fn(
+        bottleneck_type="disk_queue_saturation",
+        scope="host",
+        scope_name=scope_name,
+        concurrency=float(worst_bucket.get("concurrency", 0)),
+        metric_name=queue_col,
+        metric_value=float(worst_val),
+        baseline_value=queue_threshold,
+        severity=classify_severity_fn(
+            delta_pct=delta_pct,
+            persistence_ratio=persistence,
+            classification="bottleneck",
+            scope="host",
+            bottleneck_type="disk_queue_saturation",
+        ),
+        confidence="high" if persistence > 0.3 else "medium",
+        classification="bottleneck",
+        evidence=(
+            f"Disk queue length exceeded {queue_threshold} in "
+            f"{sustained_count}/{total_count} windows ({persistence:.0%}). "
+            f"Peak queue depth: {worst_val:.2f}. "
+            f"Sustained disk I/O queuing can cause latency spikes."
+        ),
+        test_run_id=test_run_id,
+        **onset_fields_fn(
+            worst_bucket.get("bucket_start", worst_ts),
+            warmup + bucket_idx,
+            test_start_time,
+        ),
+    ))
+
+    return findings
+
+
+# -------------------------------------------------------------------
+# Detector: SQL Server contention
+# -------------------------------------------------------------------
+
+def _detect_sql_contention(
+    kpi_aligned: pd.DataFrame,
+    buckets_df: pd.DataFrame,
+    baseline: Dict,
+    cfg: Dict,
+    test_run_id: str,
+    test_start_time,
+    make_finding_fn,
+    onset_fields_fn,
+    classify_severity_fn,
+    scope_name: str,
+) -> List[Dict]:
+    """Detect SQL Server lock waits or compilation spikes concurrent with latency."""
+    lock_col = _find_column(kpi_aligned, "sql_lock_waits")
+    compile_col = _find_column(kpi_aligned, "sql_compilations")
+    if lock_col is None and compile_col is None:
+        return []
+
+    baseline_p90 = baseline.get("p90", 0)
+    if baseline_p90 <= 0:
+        return []
+
+    warmup = cfg.get("warmup_buckets", 2)
+    compile_spike_factor = cfg.get("sql_compilation_spike_factor", 3.0)
+    findings: List[Dict] = []
+
+    if lock_col is not None:
+        lock_series = kpi_aligned[lock_col].dropna()
+        if len(lock_series) >= _MIN_SAMPLES_SPIKE:
+            lock_events = lock_series[lock_series > 0]
+            if len(lock_events) >= _MIN_SAMPLES_SPIKE:
+                worst_idx = lock_events.idxmax()
+                worst_val = float(lock_events.max())
+                concurrent_bucket = _get_concurrent_bucket(buckets_df, worst_idx)
+                if concurrent_bucket is not None:
+                    bucket_idx = concurrent_bucket.get("_bucket_idx", 0)
+                    persistence = len(lock_events) / len(lock_series)
+                    findings.append(make_finding_fn(
+                        bottleneck_type="sql_contention",
+                        scope="host",
+                        scope_name=scope_name,
+                        concurrency=float(concurrent_bucket.get("concurrency", 0)),
+                        metric_name=lock_col,
+                        metric_value=worst_val,
+                        baseline_value=0.0,
+                        severity="high" if persistence > 0.3 else "medium",
+                        confidence="high" if persistence > 0.5 else "medium",
+                        classification="bottleneck",
+                        evidence=(
+                            f"SQL Server lock waits detected in "
+                            f"{len(lock_events)}/{len(lock_series)} windows "
+                            f"({persistence:.0%}). Peak: {worst_val:.2f}/s. "
+                            f"Lock contention can serialize database access "
+                            f"and cause application-level latency spikes."
+                        ),
+                        test_run_id=test_run_id,
+                        **onset_fields_fn(
+                            concurrent_bucket.get("bucket_start", worst_idx),
+                            warmup + bucket_idx,
+                            test_start_time,
+                        ),
+                    ))
+
+    if compile_col is not None and len(findings) == 0:
+        compile_series = kpi_aligned[compile_col].dropna()
+        if len(compile_series) >= _MIN_SAMPLES_TREND:
+            early_baseline = compile_series.iloc[:max(3, warmup)].mean()
+            if early_baseline > 0:
+                spikes = compile_series[compile_series > early_baseline * compile_spike_factor]
+                if len(spikes) >= _MIN_SAMPLES_SPIKE:
+                    worst_idx = spikes.idxmax()
+                    worst_val = float(spikes.max())
+                    concurrent_bucket = _get_concurrent_bucket(buckets_df, worst_idx)
+                    if concurrent_bucket is not None:
+                        bucket_idx = concurrent_bucket.get("_bucket_idx", 0)
+                        delta_pct = (worst_val - early_baseline) / early_baseline * 100
+                        findings.append(make_finding_fn(
+                            bottleneck_type="sql_contention",
+                            scope="host",
+                            scope_name=scope_name,
+                            concurrency=float(concurrent_bucket.get("concurrency", 0)),
+                            metric_name=compile_col,
+                            metric_value=worst_val,
+                            baseline_value=float(early_baseline),
+                            severity=classify_severity_fn(
+                                delta_pct=delta_pct,
+                                persistence_ratio=len(spikes) / len(compile_series),
+                                classification="bottleneck",
+                                scope="host",
+                                bottleneck_type="sql_contention",
+                            ),
+                            confidence="medium",
+                            classification="bottleneck",
+                            evidence=(
+                                f"SQL compilations spiked to {worst_val:.1f}/s "
+                                f"(early baseline: {early_baseline:.1f}/s, "
+                                f"{worst_val/early_baseline:.1f}x). "
+                                f"Excessive recompilation can indicate "
+                                f"plan cache pressure or ad-hoc query storms."
+                            ),
+                            test_run_id=test_run_id,
+                            **onset_fields_fn(
+                                concurrent_bucket.get("bucket_start", worst_idx),
+                                warmup + bucket_idx,
+                                test_start_time,
+                            ),
+                        ))
+
+    return findings
+
+
+# -------------------------------------------------------------------
+# Scope resolution for bottleneck findings
+# -------------------------------------------------------------------
+
+def _resolve_scope_name(kpi_df: pd.DataFrame) -> str:
+    """Extract a meaningful scope name from the KPI DataFrame.
+
+    For host-scoped data, returns the hostname.  For k8s-scoped data,
+    returns the service/filter name.  Falls back to ``"kpi_entity"``.
+    """
+    if "identifier" in kpi_df.columns:
+        identifiers = kpi_df["identifier"].dropna().unique()
+        if len(identifiers) == 1:
+            return str(identifiers[0])
+        if len(identifiers) > 1:
+            return str(identifiers[0])
+    return "kpi_entity"
 
 
 # -------------------------------------------------------------------
