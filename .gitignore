@@ -245,6 +245,7 @@ streamlit-ui/.env
 # Ignore docker data and local YAML files for Docker Compose, which may contain sensitive information or be specific to individual environments
 docker/data/*
 docker/docker-compose.yaml
+docker/Dockerfile.pgvector-age
 
 # ignore performance test results and logs
 artifacts/*
