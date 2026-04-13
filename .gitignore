@@ -246,6 +246,7 @@ streamlit-ui/.env
 docker/data/*
 docker/docker-compose.yaml
 docker/Dockerfile.pgvector-age
+docker/ca-bundle.pem
 
 # ignore performance test results and logs
 artifacts/*
