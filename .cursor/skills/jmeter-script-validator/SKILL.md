@@ -211,10 +211,12 @@ Follow all instructions in your system prompt. Write the validation report to:
 
 Poll each background subagent until completion:
 
-- Use the Await tool to check subagent status
-- If a subagent takes longer than expected (> 5 minutes per script), check status
-  and report progress to the user
-- Do not proceed to Step 7 until all subagents have completed
+- Use the Await tool to check subagent status every **60 seconds**
+- Maximum wait time: **15 minutes per subagent**
+- If a subagent has not completed after 15 minutes, record it as **timed out**
+  and proceed to Step 7. Do not wait indefinitely.
+- If a subagent completes before the timeout, record its completion immediately
+- Do not proceed to Step 7 until all subagents have either completed or timed out
 
 ---
 

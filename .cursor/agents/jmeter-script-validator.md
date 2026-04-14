@@ -10,6 +10,7 @@ description: >-
 mcpServers:
   - jmeter
 model: claude-sonnet-4-6
+is_background: true
 ---
 
 # JMeter Script Validator Subagent
@@ -85,9 +86,13 @@ If the analysis returns an error, stop and report the failure in the return JSON
 
 ---
 
-### Step 2 — Enforce 1/1/1 Thread Configuration
+### Step 2 — Configure Script for Validation
 
-Ensure the Thread Group is set to 1 thread, 1 second ramp-up, 1 loop for smoke testing.
+#### 2a. Enforce 1/1/1 Thread Configuration and stop-on-error:
+
+Set the Thread Group to 1 thread, 1 second ramp-up, 1 loop for smoke testing.
+Also set `on_sample_error` to `"stoptest"` as a fallback safety net so JMeter
+stops itself on errors even if the polling loop has a delay between polls.
 
 ```
 edit_jmeter_component(
@@ -97,11 +102,31 @@ edit_jmeter_component(
   operations     = [
     {"op": "set_prop", "name": "ThreadGroup.num_threads", "value": "1"},
     {"op": "set_prop", "name": "ThreadGroup.ramp_time", "value": "1"},
-    {"op": "set_prop", "name": "LoopController.loops", "value": "1"}
+    {"op": "set_prop", "name": "LoopController.loops", "value": "1"},
+    {"op": "set_prop", "name": "ThreadGroup.on_sample_error", "value": "stoptest"}
   ],
   dry_run = false
 )
 ```
+
+#### 2b. Reduce Think Time for validation:
+
+Scripts use Think Time delays (typically 10 seconds) to simulate real user pacing.
+For validation, reduce `thinkTime` to 1 second to minimize idle wait time. The
+`thinkTime` variable is defined in the User Defined Variables (UDV).
+
+```
+edit_jmeter_component(
+  test_run_id    = {test_run_id},
+  jmx_filename   = {jmx_filename},
+  target_node_id = {udv_node_id},
+  operations     = [{"op": "set_prop", "name": "thinkTime", "value": "1"}],
+  dry_run        = false
+)
+```
+
+**Note:** The reduced `thinkTime` is NOT restored after validation. The final
+report will document that `thinkTime` was set to 1 second.
 
 ---
 
@@ -130,9 +155,13 @@ start_jmeter_test(
 
 **Save:** `pid` — the process ID of the running JMeter instance.
 
-#### 3c. Monitor and stop early on errors:
+#### 3c. Monitor the test:
 
-Poll the test status every few seconds:
+Poll the test status every 5 seconds. The response from `get_jmeter_run_status`
+contains two key fields you MUST check on every poll:
+
+- `status` — one of: `"RUNNING"`, `"STARTING"`, `"COMPLETE"`, `"FAILED_TO_START"`, `"NO_SAMPLES"`, `"NO_JTL"`, `"UNKNOWN"`
+- `metrics.error_rate` — a fraction from 0.0 to 1.0 (e.g., 0.05 = 5% errors)
 
 ```
 get_jmeter_run_status(
@@ -141,10 +170,21 @@ get_jmeter_run_status(
 )
 ```
 
-**Decision gate:**
+**Decision gate — evaluate BOTH `status` and `metrics.error_rate` on every poll:**
 
-- If error rate > 0% at any poll: **stop the test immediately**.
-- If the test completes with 0% errors: the script is **VALID** — skip to Step 8.
+| `status` | `metrics.error_rate` | Action |
+|---|---|---|
+| `STARTING` | any | Test loading, no samples yet. Wait 5 seconds, poll again. |
+| `RUNNING` | `== 0` | Test running, no errors. Wait 5 seconds, poll again. |
+| `RUNNING` | `> 0` | Errors detected. Call `stop_jmeter_test`, wait 3-5 seconds, proceed to Step 4. |
+| `COMPLETE` | `== 0` | Test finished cleanly. Script is **VALID**. Skip to Step 8. |
+| `COMPLETE` | `> 0` | Test finished with errors. Do NOT call `stop_jmeter_test`. Proceed to Step 4. |
+| `FAILED_TO_START` / `NO_JTL` / `NO_SAMPLES` / `UNKNOWN` | any | Error state. Record error and stop. |
+
+**Polling limits:**
+- Maximum **30 polls** per smoke test
+- Maximum **10 minutes** elapsed time
+- If either limit is reached, call `stop_jmeter_test` and proceed to Step 4
 
 To stop the test:
 
@@ -158,8 +198,8 @@ After stopping, wait 3-5 seconds for JMeter threads to wind down before proceedi
 
 **Save:**
 - `smoke_test_1_status` — "passed" or "failed"
-- `smoke_test_1_error_rate` — the error rate percentage
-- `smoke_test_1_total_samples` — total samples executed
+- `smoke_test_1_error_rate` — the error rate from `metrics.error_rate`
+- `smoke_test_1_total_samples` — from `metrics.total_samples`
 - `smoke_test_1_metrics` — all metrics from the last status poll
 
 ---
@@ -238,9 +278,11 @@ start_jmeter_test(
 
 **Save:** `pid_2` — the process ID.
 
-#### 6b. Monitor and stop early on errors:
+#### 6b. Monitor the test:
 
-Same polling approach as Step 3c. Stop the test as soon as errors appear.
+Use the same polling approach as Step 3c. Poll every 5 seconds, check both
+`status` and `metrics.error_rate` on every poll, and follow the same decision
+table:
 
 ```
 get_jmeter_run_status(
@@ -249,20 +291,21 @@ get_jmeter_run_status(
 )
 ```
 
-When error rate > 0%:
+| `status` | `metrics.error_rate` | Action |
+|---|---|---|
+| `STARTING` | any | Wait 5 seconds, poll again. |
+| `RUNNING` | `== 0` | Wait 5 seconds, poll again. |
+| `RUNNING` | `> 0` | Call `stop_jmeter_test`, wait 3-5 seconds, proceed to Step 7. |
+| `COMPLETE` | `== 0` | Test passed. Proceed to Step 7. |
+| `COMPLETE` | `> 0` | Do NOT call `stop_jmeter_test`. Proceed to Step 7. |
+| `FAILED_TO_START` / `NO_JTL` / `NO_SAMPLES` / `UNKNOWN` | any | Record error and stop. |
 
-```
-stop_jmeter_test(
-  test_run_id = {test_run_id}
-)
-```
-
-Wait 3-5 seconds for wind-down.
+**Polling limits:** Same as Step 3c — max 30 polls, max 10 minutes.
 
 **Save:**
 - `smoke_test_2_status` — "passed" or "failed"
-- `smoke_test_2_error_rate` — the error rate percentage
-- `smoke_test_2_total_samples` — total samples executed
+- `smoke_test_2_error_rate` — the error rate from `metrics.error_rate`
+- `smoke_test_2_total_samples` — from `metrics.total_samples`
 - `smoke_test_2_metrics` — all metrics from the last status poll
 
 ---
@@ -368,6 +411,8 @@ on Smoke Test 1.
 | **Validation Date** | {current timestamp YYYY-MM-DD HH:MM:SS} |
 | **Overall Result** | {PASS / FAIL} |
 | **Total Samplers** | {total_samplers} |
+| **Think Time** | Reduced to 1 second for validation (original value may differ) |
+| **On Sample Error** | Set to "stoptest" for validation (original: continue) |
 
 ---
 
@@ -483,14 +528,17 @@ These rules apply to every step:
 
 - **Smoke tests MUST use 1 thread, 1 second ramp-up, 1 loop.** No exceptions.
 - Always use `log_source="jmeter"` for local smoke tests (not `"blazemeter"`).
-- **Stop on first error** during each smoke test. Do not wait for remaining samplers.
+- **Poll using the decision table in Step 3c.** Always check BOTH `status` and
+  `metrics.error_rate` from the `get_jmeter_run_status` response. Never assume
+  the test is complete without checking the `status` field.
 - **After stopping, wait 3-5 seconds** for JMeter threads to wind down before
   proceeding to log analysis.
 - If `stop_jmeter_test` fails, fall back to killing the PID directly.
 - **Do NOT apply fixes.** This subagent is read-only from a script correctness
-  perspective. The only mutations allowed are: Thread Group 1/1/1 override, adding
-  the Debug Post-Processor, enabling/disabling verbose logging, and cleaning up
-  debug artifacts.
+  perspective. The only mutations allowed are: Thread Group 1/1/1 override,
+  `on_sample_error` override, `thinkTime` reduction, adding the Debug
+  Post-Processor, enabling/disabling verbose logging, and cleaning up debug
+  artifacts.
 - If JMeter MCP tools return an error, record the error in the return JSON. JMeter
   MCP tools are code-based — do NOT retry on failure.
 - **Never modify MCP source code.** The MCP tools are external dependencies.
