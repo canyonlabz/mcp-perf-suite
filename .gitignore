@@ -351,6 +351,8 @@ streamlit-ui/config.yaml
 !.cursor/skills/jmeter-har-conversion/SKILL.md
 !.cursor/skills/jmeter-hitl-editing/
 !.cursor/skills/jmeter-hitl-editing/SKILL.md
+!.cursor/skills/jmeter-script-validator/
+!.cursor/skills/jmeter-script-validator/SKILL.md
 !.cursor/skills/jmeter-swagger-conversion/
 !.cursor/skills/jmeter-swagger-conversion/SKILL.md
 !.cursor/skills/perfmemory/
@@ -368,6 +370,7 @@ streamlit-ui/config.yaml
 .cursor/agents/*
 !.cursor/agents/blazemeter-extractor.md
 !.cursor/agents/datadog-extractor.md
+!.cursor/agents/jmeter-script-validator.md
 
 # Ignore all custom Cursor Plans files, except the below
 .cursor/plans/*
