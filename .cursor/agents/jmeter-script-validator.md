@@ -10,7 +10,6 @@ description: >-
 mcpServers:
   - jmeter
 model: claude-sonnet-4-6
-is_background: true
 ---
 
 # JMeter Script Validator Subagent
@@ -183,7 +182,7 @@ get_jmeter_run_status(
 
 **Polling limits:**
 - Maximum **30 polls** per smoke test
-- Maximum **10 minutes** elapsed time
+- Maximum **15 minutes** elapsed time
 - If either limit is reached, call `stop_jmeter_test` and proceed to Step 4
 
 To stop the test:
@@ -204,24 +203,48 @@ After stopping, wait 3-5 seconds for JMeter threads to wind down before proceedi
 
 ---
 
-### Step 4 — Analyze Log from Smoke Test 1
+### Step 4 — Identify First Failing Sampler from JTL
 
-Analyze the JMeter log to identify the first failing sampler.
+**Why not analyze the log here?** The JMeter `.log` file does not contain verbose
+request/response details yet — that requires the Debug Post-Processor which is
+added in Step 5. Instead, use the JTL (CSV results file) to identify exactly which
+sampler failed first.
 
-```
-analyze_jmeter_log(
-  test_run_id = {test_run_id},
-  log_source  = "jmeter"
-)
-```
+#### 4a. Read the JTL file
 
-**Save from the analysis output:**
-- `first_failing_sampler_name` — name of the first sampler that failed
-- `first_failing_sampler_node_id` — its node_id from the node_index
-- `first_failing_response_code` — HTTP status code or error type
-- `first_failing_error_message` — the error message or response message
-- `smoke_test_1_issues` — full list of issues from log analysis
-- `smoke_test_1_analysis_files` — paths to CSV/JSON/MD analysis outputs
+The JTL is located at `artifacts/{test_run_id}/jmeter/test-results.csv` (or
+`artifacts/{test_run_id}/jmeter/{test_run_id}.jtl`). Read this file and find the
+**first row** where `success=false`.
+
+The JTL CSV has columns including: `timeStamp`, `elapsed`, `label`, `responseCode`,
+`responseMessage`, `success`, `URL`, `bytes`, `sentBytes`, `grpThreads`, `allThreads`,
+`Latency`, `IdleTime`, `Connect`.
+
+#### 4b. Extract failure details from the first failed row
+
+From the first `success=false` row, extract:
+
+- `label` → This is the **failing sampler name**
+- `responseCode` → The HTTP status code or error code
+- `responseMessage` → The error/response message
+- `URL` → The full request URL that was sent
+
+#### 4c. Map the failing sampler to its node_id
+
+Using the `sampler_list` and `node_index` saved from Step 1, find the `node_id`
+that matches the failing sampler's `label` name.
+
+**Save:**
+- `first_failing_sampler_name` — the `label` value from the failed JTL row
+- `first_failing_sampler_node_id` — the matching node_id from the node_index
+- `first_failing_response_code` — the `responseCode` value
+- `first_failing_error_message` — the `responseMessage` value
+- `first_failing_request_url` — the `URL` value from the failed JTL row
+- `smoke_test_1_jtl_path` — path to the JTL file read
+
+**Quick diagnosis from JTL URL:** If the `URL` field contains `NOT_FOUND`, this
+is an early indicator that a correlation variable from an upstream sampler was not
+captured. Note this for the report but defer full diagnosis to Smoke Test 2.
 
 ---
 
@@ -310,9 +333,44 @@ get_jmeter_run_status(
 
 ---
 
-### Step 7 — Analyze Log from Smoke Test 2
+### Step 7 — Analyze Smoke Test 2 Results
 
-Analyze the JMeter log with verbose debug output to determine the root cause.
+After Smoke Test 2 completes (or is stopped), perform **two analyses**: inspect the
+JTL for the failing request URL, then analyze the JMeter log for verbose debug data.
+
+#### 7a. Inspect JTL for Failing Request URL
+
+Read the JTL file (same location as Step 4a) and find the first `success=false` row.
+Extract the `URL` column value — this is the **actual request URL** that JMeter sent.
+
+**Check for `NOT_FOUND` in the URL:**
+
+If the URL contains the literal string `NOT_FOUND` (e.g.,
+`https://api.example.com/users/NOT_FOUND/profile`), this confirms that a correlation
+variable from an upstream sampler was not captured. The parameterized variable resolved
+to `NOT_FOUND` instead of the expected dynamic value.
+
+**When `NOT_FOUND` is detected, record:**
+- `not_found_in_url` = true
+- `not_found_url` — the full URL containing `NOT_FOUND`
+- `not_found_variable` — infer the variable name from the URL pattern if possible
+  (e.g., if the URL is `.../users/NOT_FOUND/...`, the variable likely represents a
+  user ID that should have been extracted from a prior response)
+- `upstream_sampler_hint` — if the script structure from Step 1 reveals which earlier
+  sampler likely produces this value, note it here
+
+Also check the request body (if available in the JTL or debug log) for `NOT_FOUND`
+patterns, as correlation variables can appear in POST/PUT request bodies too.
+
+**Save:**
+- `smoke_test_2_failing_url` — the full URL from the first failed JTL row
+- `not_found_detected` — true/false
+- `not_found_details` — variable name, upstream hint (if detected)
+
+#### 7b. Analyze JMeter Log with Debug Data
+
+Now that the Debug Post-Processor has captured verbose request/response data,
+analyze the JMeter log:
 
 ```
 analyze_jmeter_log(
@@ -324,21 +382,29 @@ analyze_jmeter_log(
 **Save from the analysis output:**
 - `smoke_test_2_issues` — full list of issues with debug detail
 - `smoke_test_2_analysis_files` — paths to CSV/JSON/MD analysis outputs
-- `root_cause_diagnosis` — determine the root cause using the patterns below
+
+#### 7c. Determine Root Cause
+
+Combine the JTL URL inspection (7a) and log analysis (7b) to diagnose the root cause.
 
 **Root Cause Diagnosis Patterns:**
 
-Examine the debug output and categorize the failure:
-
 | Pattern | Root Cause Category | Description |
 |---|---|---|
-| `NOT_FOUND` in request body/URL | Stale Correlation | A dynamic value was not extracted from a prior response |
+| `NOT_FOUND` in request URL or body | Stale Correlation | A dynamic value was not extracted from a prior response. The parameterized variable resolved to `NOT_FOUND` instead of the expected value. |
 | HTTP 404 on a sampler | Endpoint Changed | The API endpoint URL has changed or been removed |
 | HTTP 400 with validation error | Payload Changed | Request body schema has changed |
 | HTTP 401/403 on auth samplers | Authentication Issue | Credentials expired or auth flow changed |
 | HTTP 5xx on all samplers | Environment Issue | Server-side problem, not a script issue |
 | Response body mismatch | Response Schema Changed | Extractors targeting outdated response fields |
 | Connection refused/timeout | Connectivity Issue | Environment unreachable |
+
+**Priority:** If `NOT_FOUND` is detected in the URL (7a), the root cause category
+is **Stale Correlation** regardless of the HTTP response code. A `NOT_FOUND` in the
+URL means the upstream extractor is broken — the HTTP error (404, 400, etc.) is just
+a consequence.
+
+**Save:** `root_cause_diagnosis` — the determined root cause category and explanation
 
 ---
 
@@ -440,13 +506,8 @@ on Smoke Test 1.
 | **Failing Sampler** | {first_failing_sampler_name} |
 | **Response Code** | {first_failing_response_code} |
 | **Error Message** | {first_failing_error_message} |
-
-### All Issues Found (Smoke Test 1)
-
-| # | Severity | Sampler | Response Code | Error Summary |
-|---|----------|---------|---------------|---------------|
-| 1 | {severity} | {sampler_name} | {code} | {brief message} |
-| ... | ... | ... | ... | ... |
+| **Request URL** | {first_failing_request_url} |
+| **NOT_FOUND in URL** | {Yes / No} |
 
 ---
 
@@ -460,6 +521,19 @@ on Smoke Test 1.
 | **Total Samples** | {smoke_test_2_total_samples} |
 | **Error Rate** | {smoke_test_2_error_rate}% |
 | **Debug Post-Processor** | Attached to: {first_failing_sampler_name} |
+
+### JTL Request URL Inspection
+
+| Field | Value |
+|-------|-------|
+| **Failing Request URL** | {smoke_test_2_failing_url} |
+| **NOT_FOUND Detected** | {Yes / No} |
+| **Suspected Variable** | {not_found_variable or N/A} |
+| **Upstream Sampler Hint** | {upstream_sampler_hint or N/A} |
+
+> If `NOT_FOUND` appears in the URL, it means a correlation variable from an upstream
+> sampler was not captured. The variable resolved to the literal `NOT_FOUND` instead
+> of the expected dynamic value.
 
 ### Root Cause Analysis
 
@@ -477,6 +551,8 @@ on Smoke Test 1.
 - What the expected response should have been
 - What the actual response was
 - Why the mismatch occurred (stale correlation, changed endpoint, etc.)
+- If NOT_FOUND was detected: which variable is missing, which upstream sampler should
+  produce it, and what extractor type is likely needed (JSON, Regex, Boundary)
 - Any relevant request/response data from the debug output}
 
 ### All Issues Found (Smoke Test 2)
@@ -506,7 +582,7 @@ on Smoke Test 1.
 | Artifact | Path |
 |----------|------|
 | Validation Report | `artifacts/{test_run_id}/analysis/{report_filename}` |
-| Smoke Test 1 Log Analysis | `artifacts/{test_run_id}/analysis/jmeter_log_analysis.md` |
+| JTL Results (Smoke Test 1 & 2) | `artifacts/{test_run_id}/jmeter/test-results.csv` |
 | Smoke Test 2 Log Analysis | `artifacts/{test_run_id}/analysis/jmeter_log_analysis.md` |
 | Aggregate Report | `artifacts/{test_run_id}/jmeter/{test_run_id}_aggregate_report.csv` |
 | JMeter Log | `artifacts/{test_run_id}/jmeter/{test_run_id}.log` |
@@ -565,13 +641,17 @@ Do not include any text after the closing brace.
     "first_failing_sampler": "<sampler name or null>",
     "first_failing_response_code": "<code or null>",
     "first_failing_error_message": "<message or null>",
-    "issues_found": "<total issue count>"
+    "first_failing_request_url": "<URL from JTL or null>",
+    "not_found_in_url": "<true | false>"
   },
   "smoke_test_2": {
     "status": "passed | failed | error | skipped",
     "total_samples": "<number or null>",
     "error_rate": "<percentage or null>",
     "debug_postprocessor_attached_to": "<sampler name or null>",
+    "failing_request_url": "<URL from JTL or null>",
+    "not_found_detected": "<true | false>",
+    "not_found_variable": "<suspected variable name or null>",
     "root_cause_category": "<category or null>",
     "root_cause_diagnosis": "<brief diagnosis or null>",
     "issues_found": "<total issue count or null>"
@@ -582,7 +662,7 @@ Do not include any text after the closing brace.
   },
   "artifacts": {
     "validation_report": "<true | false>",
-    "smoke_test_1_log_analysis": "<true | false>",
+    "smoke_test_1_jtl": "<true | false>",
     "smoke_test_2_log_analysis": "<true | false>",
     "aggregate_report_csv": "<true | false>"
   },

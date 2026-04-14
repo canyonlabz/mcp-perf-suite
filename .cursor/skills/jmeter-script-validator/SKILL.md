@@ -5,8 +5,8 @@ description: >-
   jmeter-script-validator subagent. Use when the user mentions script validation,
   script health check, validate JMeter script, re-validate old scripts, check if
   a JMeter script still works, or smoke test validation. This skill orchestrates
-  one or more validator subagents that run in the background, each producing a
-  standalone Markdown validation report.
+  one or more validator subagents, each producing a standalone Markdown validation
+  report.
 ---
 
 # JMeter Script Validator
@@ -16,7 +16,7 @@ description: >-
 - User wants to validate whether an existing JMeter script still works
 - User mentions "script validation", "re-validate", "script health check"
 - User wants to smoke test an old script to check for broken endpoints, stale correlations, or payload changes
-- User wants to validate multiple scripts in parallel using background subagents
+- User wants to validate multiple scripts using subagents
 - Never start this workflow unless the user explicitly requests it
 
 ---
@@ -32,12 +32,13 @@ This skill orchestrates the `jmeter-script-validator` subagent to autonomously
 validate JMeter scripts. Each subagent:
 
 1. Runs an initial 1/1/1 smoke test to detect the first failure
-2. Stops the test at the first error and identifies the failing sampler
+2. Stops the test at the first error and reads the JTL to identify the failing sampler
 3. Attaches a Debug Post-Processor to capture verbose request/response data
 4. Runs a second smoke test to collect detailed debug output
-5. Stops the second test at the first error and analyzes the JMeter log
-6. Compiles a well-structured Markdown validation report with findings
-7. Optionally generates an aggregate report for the smoke test results
+5. Stops the second test and inspects the JTL Request URL for `NOT_FOUND` patterns
+6. Analyzes the JMeter log with debug data for root cause diagnosis
+7. Compiles a well-structured Markdown validation report with findings
+8. Optionally generates an aggregate report for the smoke test results
 
 The subagent does **NOT** apply fixes. It is strictly a validation and diagnosis
 tool. For iterative fix-and-retest, use the `jmeter-debugging` skill instead.
@@ -50,16 +51,16 @@ User Prompt (test_run_id, jmx_filename, ...)
   ▼
 Orchestrator (this skill)
   │
-  ├── jmeter-script-validator subagent [background]
-  │     ├── Smoke Test 1 (detect first failure)
-  │     ├── Attach Debug Post-Processor
+  ├── jmeter-script-validator subagent
+  │     ├── Smoke Test 1 (detect first failure via run status / JTL)
+  │     ├── Attach Debug Post-Processor to failing sampler
   │     ├── Smoke Test 2 (capture verbose debug data)
-  │     ├── Analyze JMeter log
+  │     ├── Analyze JMeter log + inspect JTL Request URLs
   │     ├── Generate aggregate report (optional)
   │     └── Write validation report
   │           └── artifacts/{test_run_id}/analysis/Report_{Script_Name}.md
   │
-  ├── [optional] additional subagents for other scripts (parallel)
+  ├── [optional] additional subagents for other scripts
   │
   └── Summary to user
 ```
@@ -92,7 +93,7 @@ Reports are written to: `artifacts/{test_run_id}/analysis/Report_{Script_Name}.m
 | Applies fixes? | No | Yes |
 | Max smoke tests | 2 per script | Up to 5 iterations |
 | Output | Markdown report only | Fixed script + debug manifest |
-| Runs as | Background subagent | Interactive foreground |
+| Runs as | Subagent | Interactive foreground |
 
 ### Related Files
 
@@ -186,7 +187,7 @@ For each script in `target_scripts`, derive the report filename:
 ### Step 5 — Invoke Subagent(s)
 
 For each script in `target_scripts`, invoke a `jmeter-script-validator` subagent
-**in the background** with the following prompt:
+with the following prompt:
 
 ```
 Validate the JMeter script for test_run_id: {test_run_id}
@@ -200,27 +201,14 @@ Follow all instructions in your system prompt. Write the validation report to:
 ```
 
 **Important:**
-- Each subagent runs **in the background** (`run_in_background: true`)
-- If `validate_all=true` and multiple scripts exist, invoke all subagents
-  **in a single message** so they run concurrently
-- Save the `task_id` / `agent_id` for each subagent for monitoring
+- If `validate_all=true` and multiple scripts exist, invoke subagents
+  **sequentially** — one at a time, waiting for each to complete before
+  starting the next
+- Save the return JSON from each subagent for the summary
 
 ---
 
-### Step 6 — Monitor Subagent(s)
-
-Poll each background subagent until completion:
-
-- Use the Await tool to check subagent status every **60 seconds**
-- Maximum wait time: **15 minutes per subagent**
-- If a subagent has not completed after 15 minutes, record it as **timed out**
-  and proceed to Step 7. Do not wait indefinitely.
-- If a subagent completes before the timeout, record its completion immediately
-- Do not proceed to Step 7 until all subagents have either completed or timed out
-
----
-
-### Step 7 — Validate Reports
+### Step 6 — Validate Reports
 
 After all subagents complete, verify that each expected report file exists:
 
@@ -235,7 +223,7 @@ artifacts/{test_run_id}/analysis/{report_filename}
 
 ---
 
-### Step 8 — Report Results to User
+### Step 7 — Report Results to User
 
 Present a clear summary to the user:
 
