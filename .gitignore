@@ -259,6 +259,8 @@ artifacts/*
 
 # ignore temp documentation files, but include the main documentation markdown files
 docs/*
+!docs/apache_age_installation_guide.md
+!docs/apache_age_viewer_guide.md
 !docs/report_template_guidelines.md
 !docs/datadog_query_guide.md
 !docs/jmeter_mcp_configuration_guide.md
@@ -273,6 +275,9 @@ docs/*
 !docs/perfmemory_user_guide.md
 !docs/pgvector_installation_guide.md
 !docs/playwright_mcp_configuration_guide.md
+!docs/troubleshooting/age-viewer-fix-on-macbook.md
+!docs/troubleshooting/pgvector-fix-on-macbook.md
+!docs/troubleshooting/rancher-desktop-fix.md
 !docs/README.md
 
 # Re-include the changelogs directory itself
