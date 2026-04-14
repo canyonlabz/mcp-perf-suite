@@ -275,6 +275,7 @@ docs/*
 !docs/perfmemory_user_guide.md
 !docs/pgvector_installation_guide.md
 !docs/playwright_mcp_configuration_guide.md
+!docs/troubleshooting/
 !docs/troubleshooting/age-viewer-fix-on-macbook.md
 !docs/troubleshooting/pgvector-fix-on-macbook.md
 !docs/troubleshooting/rancher-desktop-fix.md
