@@ -244,8 +244,20 @@ get_jmeter_run_status(
 )
 ```
 
-Poll every few seconds. As soon as errors appear (error rate > 0%), there is no
-reason to wait for the remaining samplers to fail — stop the test immediately:
+Poll every few seconds. When errors appear (error rate > 0%), **verify errors in the
+JTL before stopping**:
+
+1. Read the JTL file at `artifacts/{test_run_id}/jmeter/test-results.csv`
+2. Search for any row where the `success` column is `false`
+3. **If `success=false` rows exist:** Errors are confirmed. Stop the test immediately.
+4. **If NO `success=false` rows exist:** The error_rate was a transient JTL parsing
+   artifact (race condition from reading the CSV while JMeter is mid-write). Ignore
+   the error and continue polling.
+
+The `metrics.error_rate` from `get_jmeter_run_status` can report false positives
+due to this JTL read race condition. Always verify against the JTL source of truth.
+
+Once errors are confirmed in the JTL, stop the test:
 
 ```
 stop_jmeter_test(

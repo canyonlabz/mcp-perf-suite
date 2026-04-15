@@ -175,10 +175,23 @@ get_jmeter_run_status(
 |---|---|---|
 | `STARTING` | any | Test loading, no samples yet. Wait 5 seconds, poll again. |
 | `RUNNING` | `== 0` | Test running, no errors. Wait 5 seconds, poll again. |
-| `RUNNING` | `> 0` | Errors detected. Call `stop_jmeter_test`, wait 3-5 seconds, proceed to Step 4. |
+| `RUNNING` | `> 0` | **Verify errors in JTL before stopping** (see below). |
 | `COMPLETE` | `== 0` | Test finished cleanly. Script is **VALID**. Skip to Step 8. |
-| `COMPLETE` | `> 0` | Test finished with errors. Do NOT call `stop_jmeter_test`. Proceed to Step 4. |
+| `COMPLETE` | `> 0` | **Verify errors in JTL** (see below). If confirmed, do NOT call `stop_jmeter_test`. Proceed to Step 4. |
 | `FAILED_TO_START` / `NO_JTL` / `NO_SAMPLES` / `UNKNOWN` | any | Error state. Record error and stop. |
+
+**JTL verification when `error_rate > 0`:**
+
+The `metrics.error_rate` from `get_jmeter_run_status` can report false positives
+due to JTL read race conditions (reading the CSV while JMeter is mid-write on a row).
+Before stopping the test, you MUST verify actual errors exist in the JTL:
+
+1. Read the JTL file at `artifacts/{test_run_id}/jmeter/test-results.csv`
+2. Search for any row where the `success` column is `false`
+3. **If `success=false` rows exist:** Errors are confirmed. Call `stop_jmeter_test`,
+   wait 3-5 seconds, proceed to Step 4.
+4. **If NO `success=false` rows exist:** The error_rate was a transient parsing artifact.
+   Ignore it and continue polling (treat as `error_rate == 0`).
 
 **Polling limits:**
 - Maximum **30 polls** per smoke test
@@ -318,9 +331,9 @@ get_jmeter_run_status(
 |---|---|---|
 | `STARTING` | any | Wait 5 seconds, poll again. |
 | `RUNNING` | `== 0` | Wait 5 seconds, poll again. |
-| `RUNNING` | `> 0` | Call `stop_jmeter_test`, wait 3-5 seconds, proceed to Step 7. |
+| `RUNNING` | `> 0` | **Verify errors in JTL before stopping** (same verification as Step 3c). If confirmed, call `stop_jmeter_test`, wait 3-5 seconds, proceed to Step 7. If not confirmed, continue polling. |
 | `COMPLETE` | `== 0` | Test passed. Proceed to Step 7. |
-| `COMPLETE` | `> 0` | Do NOT call `stop_jmeter_test`. Proceed to Step 7. |
+| `COMPLETE` | `> 0` | **Verify errors in JTL** (same as Step 3c). If confirmed, do NOT call `stop_jmeter_test`. Proceed to Step 7. If not confirmed, treat as passed. |
 | `FAILED_TO_START` / `NO_JTL` / `NO_SAMPLES` / `UNKNOWN` | any | Record error and stop. |
 
 **Polling limits:** Same as Step 3c — max 30 polls, max 10 minutes.
