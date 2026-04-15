@@ -23,7 +23,8 @@ class NumpyEncoder(json.JSONEncoder):
         if isinstance(obj, np.integer):
             return int(obj)
         if isinstance(obj, np.floating):
-            return float(obj)
+            v = float(obj)
+            return None if (v != v or v == float("inf") or v == float("-inf")) else v
         if isinstance(obj, np.bool_):
             return bool(obj)
         if isinstance(obj, np.ndarray):
@@ -31,6 +32,26 @@ class NumpyEncoder(json.JSONEncoder):
         if isinstance(obj, pd.Timestamp):
             return obj.isoformat()
         return super().default(obj)
+
+
+def _sanitize_for_json(obj):
+    """Recursively replace float NaN / Infinity with None for valid JSON output.
+
+    Python's ``json.dumps`` emits non-standard ``NaN`` / ``Infinity`` tokens
+    for these values.  This function converts them to ``None`` (JSON ``null``)
+    before serialization so the output is strictly valid JSON.
+    """
+    if isinstance(obj, float):
+        if obj != obj or obj == float("inf") or obj == float("-inf"):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_sanitize_for_json(v) for v in obj)
+    return obj
 
 
 # -----------------------------------------------
@@ -61,8 +82,9 @@ def load_datadog_metrics(file_path: Path) -> Optional[pd.DataFrame]:
 async def write_json_output(data: Dict[str, Any], file_path: Path) -> None:
     """Write data to JSON file asynchronously"""
     try:
+        clean_data = _sanitize_for_json(data)
         async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
-            await f.write(json.dumps(data, indent=2, ensure_ascii=False, cls=NumpyEncoder))
+            await f.write(json.dumps(clean_data, indent=2, ensure_ascii=False, cls=NumpyEncoder))
     except Exception as e:
         raise Exception(f"Failed to write JSON file {file_path}: {str(e)}")
 
