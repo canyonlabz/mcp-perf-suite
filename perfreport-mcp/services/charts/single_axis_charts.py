@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
+from typing import Dict, List, Optional
 from fastmcp import Context
 from utils.chart_utils import (
     get_chart_output_path,
@@ -509,3 +510,186 @@ async def generate_throughput_chart(df: pd.DataFrame, chart_spec: dict, run_id: 
     plt.close(fig)
 
     return {"chart_id": chart_id, "path": str(chart_path)}
+
+
+# -----------------------------------------------
+# KPI Chart Generators
+# -----------------------------------------------
+
+_KPI_UNIT_CONVERSIONS: Dict[str, float] = {
+    "ms": 1000.0,
+    "mb": 1.0 / (1024 * 1024),
+    "gb": 1.0 / (1024 * 1024 * 1024),
+    "kb": 1.0 / 1024,
+    "percent": 1.0,
+    "hits": 1.0,
+    "threads": 1.0,
+    "requests": 1.0,
+    "connections": 1.0,
+}
+"""Unit conversion factors keyed by chart_schema ``unit.type``.
+Conversions assume raw CSV units from PerfAnalysis (seconds, bytes, percent, etc.)."""
+
+
+async def generate_kpi_single_metric_chart(
+    df: pd.DataFrame,
+    chart_spec: dict,
+    chart_id: str,
+    run_id: str,
+    resource_name: str = "",
+) -> dict:
+    """
+    Generate a single-axis line chart for one KPI metric from kpi_metrics_*.csv.
+
+    Handles GC_GEN2_HEAP_LINE, GC_MEMORY_LOAD_LINE, SERVER_LATENCY_LINE, and
+    any future single-metric KPI charts. The metric is pre-filtered by the
+    data source handler; this function applies unit conversion and renders.
+
+    Args:
+        df: Pre-filtered DataFrame with columns 'timestamp_utc' and 'value'.
+        chart_spec: Chart configuration from chart_schema.yaml.
+        chart_id: Chart identifier (e.g. "GC_GEN2_HEAP_LINE").
+        run_id: Test run identifier for output path.
+        resource_name: Entity name (service or hostname) for filename suffix.
+
+    Returns:
+        dict with chart_id, path, resource, and unit keys.
+    """
+    if df is None or df.empty:
+        return {"chart_id": chart_id, "error": "No KPI data available for this metric."}
+
+    df = df.copy()
+    df["timestamp_utc"] = pd.to_datetime(df["timestamp_utc"])
+    df = df.sort_values(by="timestamp_utc")
+
+    unit_config = chart_spec.get("unit", {})
+    unit_type = unit_config.get("type", "")
+    conversion = _KPI_UNIT_CONVERSIONS.get(unit_type, 1.0)
+    df["converted_value"] = df["value"] * conversion
+
+    raw_title = chart_spec.get("title", chart_id)
+    title = interpolate_placeholders(raw_title, resource_name=resource_name)
+    y_label = chart_spec.get("y_axis", {}).get("label", "Value")
+    x_label = chart_spec.get("x_axis", {}).get("label", "Time (hh:mm) UTC")
+    color_names = chart_spec.get("colors", ["primary"])
+    colors = [resolve_color(c) for c in color_names]
+
+    dpi = int(chart_spec.get("dpi", 144))
+    width_px = int(chart_spec.get("width_px", 1280))
+    height_px = int(chart_spec.get("height_px", 720))
+    figsize = (width_px / dpi, height_px / dpi)
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+
+    ax.plot(df["timestamp_utc"], df["converted_value"], color=colors[0], linewidth=1.5)
+    ax.fill_between(df["timestamp_utc"], df["converted_value"], alpha=0.1, color=colors[0])
+    ax.set_title(title)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_ylim(bottom=0)
+    if chart_spec.get("show_grid", True):
+        ax.grid(True, linewidth=0.5, alpha=0.6)
+    apply_legend(ax, chart_spec, num_series=1)
+
+    locator = mdates.AutoDateLocator()
+    formatter = mdates.DateFormatter("%H:%M")
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(formatter)
+    for lbl in ax.get_xticklabels():
+        lbl.set_rotation(45)
+        lbl.set_horizontalalignment("right")
+        lbl.set_rotation_mode("anchor")
+
+    suffix = f"-{resource_name}" if resource_name else ""
+    chart_path = get_chart_output_path(run_id, f"{chart_id}{suffix}")
+    fig.savefig(chart_path, dpi=dpi, bbox_inches=chart_spec.get("bbox_inches", "tight"), facecolor="white")
+    plt.close(fig)
+
+    return {"chart_id": chart_id, "resource": resource_name, "path": str(chart_path), "unit": unit_type}
+
+
+async def generate_kpi_multi_metric_chart(
+    metric_dataframes: Dict[str, pd.DataFrame],
+    chart_spec: dict,
+    chart_id: str,
+    run_id: str,
+    resource_name: str = "",
+) -> dict:
+    """
+    Generate a single-axis line chart with multiple KPI metrics overlaid.
+
+    Handles HOST_MEMORY_USAGE_LINE (host_mem_usable + host_mem_total) and any
+    future charts plotting multiple related metrics on the same axis.
+
+    Args:
+        metric_dataframes: Dict mapping metric_name -> DataFrame with
+                          columns 'timestamp_utc' and 'value'.
+        chart_spec: Chart configuration from chart_schema.yaml.
+        chart_id: Chart identifier (e.g. "HOST_MEMORY_USAGE_LINE").
+        run_id: Test run identifier for output path.
+        resource_name: Entity name (hostname) for title and filename.
+
+    Returns:
+        dict with chart_id, path, resource, unit, and metrics keys.
+    """
+    if not metric_dataframes:
+        return {"chart_id": chart_id, "error": "No KPI data available for these metrics."}
+
+    unit_config = chart_spec.get("unit", {})
+    unit_type = unit_config.get("type", "")
+    conversion = _KPI_UNIT_CONVERSIONS.get(unit_type, 1.0)
+
+    raw_title = chart_spec.get("title", chart_id)
+    title = interpolate_placeholders(raw_title, resource_name=resource_name)
+    y_label = chart_spec.get("y_axis", {}).get("label", "Value")
+    x_label = chart_spec.get("x_axis", {}).get("label", "Time (hh:mm) UTC")
+    color_names = chart_spec.get("colors", ["primary", "secondary"])
+    colors = [resolve_color(c) for c in color_names]
+
+    dpi = int(chart_spec.get("dpi", 144))
+    width_px = int(chart_spec.get("width_px", 1280))
+    height_px = int(chart_spec.get("height_px", 720))
+    figsize = (width_px / dpi, height_px / dpi)
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+
+    plotted: List[str] = []
+    for i, (metric_name, mdf) in enumerate(sorted(metric_dataframes.items())):
+        if mdf is None or mdf.empty:
+            continue
+        mdf = mdf.copy()
+        mdf["timestamp_utc"] = pd.to_datetime(mdf["timestamp_utc"])
+        mdf = mdf.sort_values(by="timestamp_utc")
+        mdf["converted_value"] = mdf["value"] * conversion
+        ax.plot(mdf["timestamp_utc"], mdf["converted_value"],
+                color=colors[i % len(colors)], linewidth=1.5, label=metric_name)
+        plotted.append(metric_name)
+
+    if not plotted:
+        plt.close(fig)
+        return {"chart_id": chart_id, "error": "No valid data to plot."}
+
+    ax.set_title(title)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_ylim(bottom=0)
+    if chart_spec.get("show_grid", True):
+        ax.grid(True, linewidth=0.5, alpha=0.6)
+    apply_legend(ax, chart_spec, num_series=len(plotted))
+
+    locator = mdates.AutoDateLocator()
+    formatter = mdates.DateFormatter("%H:%M")
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(formatter)
+    for lbl in ax.get_xticklabels():
+        lbl.set_rotation(45)
+        lbl.set_horizontalalignment("right")
+        lbl.set_rotation_mode("anchor")
+
+    suffix = f"-{resource_name}" if resource_name else ""
+    chart_path = get_chart_output_path(run_id, f"{chart_id}{suffix}")
+    fig.savefig(chart_path, dpi=dpi, bbox_inches=chart_spec.get("bbox_inches", "tight"), facecolor="white")
+    plt.close(fig)
+
+    return {"chart_id": chart_id, "resource": resource_name, "path": str(chart_path),
+            "unit": unit_type, "metrics": plotted}

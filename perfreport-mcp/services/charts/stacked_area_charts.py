@@ -1,15 +1,16 @@
 """
-Stacked area chart generators for infrastructure metrics (Kubernetes only).
+Stacked area chart generators for infrastructure and KPI metrics.
 
-Shows per-service container/pod breakdown over time. Each band in the stack
-represents a distinct container_or_pod value (e.g., main container + sidecars).
-One chart is generated per service/pod filter.
+Infrastructure charts (Kubernetes only) show per-service container/pod
+breakdown over time. KPI charts show host-level metric breakdowns (e.g.,
+CPU time decomposition).
 
-Four chart variants:
-  - CPU_UTILIZATION_STACKED  (% utilization, requires k8s limits)
-  - MEM_UTILIZATION_STACKED  (% utilization, requires k8s limits)
-  - CPU_USAGE_STACKED        (raw millicores/cores, always available)
-  - MEM_USAGE_STACKED        (raw MB/GB, always available)
+Chart variants:
+  - CPU_UTILIZATION_STACKED       (% utilization, requires k8s limits)
+  - MEM_UTILIZATION_STACKED       (% utilization, requires k8s limits)
+  - CPU_USAGE_STACKED             (raw millicores/cores, always available)
+  - MEM_USAGE_STACKED             (raw MB/GB, always available)
+  - HOST_CPU_BREAKDOWN_STACKED    (KPI: host CPU user/system/iowait/stolen/idle)
 """
 
 import math
@@ -369,3 +370,48 @@ async def generate_memory_usage_stacked_chart(
     )
     result["unit"] = unit_type
     return result
+
+
+# -----------------------------------------------
+# KPI Stacked Area Charts
+# -----------------------------------------------
+
+async def generate_host_cpu_breakdown_stacked_chart(
+    metric_dataframes: Dict[str, pd.DataFrame],
+    chart_spec: dict,
+    run_id: str,
+    resource_name: str = "",
+) -> dict:
+    """
+    Generate a stacked area chart for host CPU time decomposition.
+
+    Each band represents a CPU component (user, system, iowait, stolen, idle).
+    The metric_dataframes dict is keyed by metric name (e.g. "host_cpu_user")
+    with a DataFrame containing 'timestamp_utc' and 'value' columns. Values
+    are already in percent and require no unit conversion.
+
+    Args:
+        metric_dataframes: Dict mapping metric_name -> DataFrame.
+        chart_spec: Chart configuration from chart_schema.yaml.
+        run_id: Test run identifier.
+        resource_name: Hostname for the chart title and filename.
+
+    Returns:
+        dict with chart_id, path, resource, and metrics keys.
+    """
+    chart_id = "HOST_CPU_BREAKDOWN_STACKED"
+    title = chart_spec.get("title", "Host CPU Breakdown - {resource_name}")
+    y_label = chart_spec.get("y_axis", {}).get("label", "CPU (%)")
+    y_max = chart_spec.get("y_axis", {}).get("max", 100)
+
+    return _render_stacked_area(
+        dataframes=metric_dataframes,
+        chart_spec=chart_spec,
+        run_id=run_id,
+        chart_id=chart_id,
+        resource_name=resource_name,
+        y_label=y_label,
+        title=title,
+        conversion_factor=1.0,
+        y_max=y_max,
+    )

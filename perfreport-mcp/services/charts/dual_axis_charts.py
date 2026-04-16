@@ -455,3 +455,152 @@ async def generate_memory_utilization_vusers_chart(
         "path": str(chart_path),
         "resources": resource_names
     }
+
+
+# -----------------------------------------------
+# KPI vs VUsers Dual-Axis Charts
+# -----------------------------------------------
+
+_KPI_DUAL_AXIS_CONVERSIONS = {
+    "ms": 1000.0,
+    "mb": 1.0 / (1024 * 1024),
+    "gb": 1.0 / (1024 * 1024 * 1024),
+    "kb": 1.0 / 1024,
+    "percent": 1.0,
+}
+
+
+async def generate_kpi_latency_vusers_chart(
+    kpi_df: pd.DataFrame,
+    perf_df: pd.DataFrame,
+    chart_spec: dict,
+    run_id: str,
+    resource_name: str = "",
+) -> dict:
+    """
+    Generate a dual-axis chart of server-side KPI latency vs virtual users.
+
+    Left axis: KPI P90 latency from kpi_metrics_*.csv (converted via unit.type).
+    Right axis: Virtual users from BlazeMeter test-results.csv.
+    Time ranges are aligned to the overlapping period.
+
+    Args:
+        kpi_df: Pre-filtered DataFrame for the target KPI metric with columns
+                'timestamp_utc' and 'value'.
+        perf_df: BlazeMeter test-results.csv DataFrame with columns
+                 'timeStamp' (epoch ms) and 'allThreads'.
+        chart_spec: Chart configuration from chart_schema.yaml.
+        run_id: Test run identifier for output path.
+        resource_name: Entity name for filename suffix (optional).
+
+    Returns:
+        dict with chart_id, path, resource, and unit keys.
+    """
+    chart_id = "KPI_LATENCY_VUSERS_DUALAXIS"
+
+    if kpi_df is None or kpi_df.empty:
+        return {"chart_id": chart_id, "error": "No KPI latency data available."}
+    if perf_df is None or perf_df.empty:
+        return {"chart_id": chart_id, "error": "No performance data (VUsers) available."}
+
+    # ---- 1) Process KPI data (left axis) ------------------------------------
+    kpi_df = kpi_df.copy()
+    kpi_df["timestamp_utc"] = pd.to_datetime(kpi_df["timestamp_utc"])
+    kpi_df = kpi_df.sort_values(by="timestamp_utc")
+    kpi_df["minute"] = kpi_df["timestamp_utc"].dt.floor("min")
+
+    unit_config = chart_spec.get("unit", {})
+    unit_type = unit_config.get("type", "ms")
+    conversion = _KPI_DUAL_AXIS_CONVERSIONS.get(unit_type, 1.0)
+    kpi_df["converted"] = kpi_df["value"] * conversion
+
+    kpi_series = kpi_df.groupby("minute")["converted"].mean()
+
+    # ---- 2) Process performance data (right axis) ---------------------------
+    perf_df = perf_df.copy()
+    perf_df["timeStamp"] = pd.to_datetime(perf_df["timeStamp"], unit="ms", errors="coerce")
+    perf_df = perf_df.dropna(subset=["timeStamp"]).sort_values("timeStamp")
+    perf_df["minute"] = perf_df["timeStamp"].dt.floor("min")
+    vusers = perf_df.groupby("minute")["allThreads"].max()
+
+    # ---- 3) Align time ranges -----------------------------------------------
+    common_start = max(kpi_series.index.min(), vusers.index.min())
+    common_end = min(kpi_series.index.max(), vusers.index.max())
+    kpi_series = kpi_series[(kpi_series.index >= common_start) & (kpi_series.index <= common_end)]
+    vusers = vusers[(vusers.index >= common_start) & (vusers.index <= common_end)]
+
+    if kpi_series.empty or vusers.empty:
+        return {"chart_id": chart_id, "error": "No overlapping time range between KPI and performance data."}
+
+    # ---- 4) Chart configuration ---------------------------------------------
+    kpi_title = chart_spec.get("title", "Server Latency (P90) vs Virtual Users")
+    kpi_title = interpolate_placeholders(kpi_title, resource_name=resource_name)
+    x_label = chart_spec.get("x_axis", {}).get("label", "Time (hh:mm) UTC")
+    y_left_label = chart_spec.get("y_axis_left", {}).get("label", "P90 Latency (ms)")
+    y_right_label = chart_spec.get("y_axis_right", {}).get("label", "Virtual Users")
+
+    color_tokens = chart_spec.get("colors", ["kpi_latency", "secondary"])
+    left_color = resolve_color(color_tokens[0] if color_tokens else "primary")
+    right_color = resolve_color(color_tokens[1] if len(color_tokens) > 1 else "secondary")
+
+    dpi = int(chart_spec.get("dpi", 144))
+    width_px = int(chart_spec.get("width_px", 1280))
+    height_px = int(chart_spec.get("height_px", 720))
+    figsize = (width_px / dpi, height_px / dpi)
+
+    # ---- 5) Create dual-axis plot -------------------------------------------
+    fig, ax_left = plt.subplots(figsize=figsize, dpi=dpi)
+
+    ax_left.plot(kpi_series.index, kpi_series.values, color=left_color, linewidth=1.8, label=y_left_label)
+    ax_left.fill_between(kpi_series.index, kpi_series.values, alpha=0.1, color=left_color)
+    ax_left.set_ylabel(y_left_label, color=left_color)
+    ax_left.tick_params(axis="y", labelcolor=left_color)
+    ax_left.set_xlabel(x_label)
+    ax_left.set_title(kpi_title)
+
+    ax_right = ax_left.twinx()
+    ax_right.plot(vusers.index, vusers.values, color=right_color, linewidth=1.8, label=y_right_label)
+    ax_right.set_ylabel(y_right_label, color=right_color)
+    ax_right.tick_params(axis="y", labelcolor=right_color)
+    ax_right.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax_right.set_ylim(bottom=0, top=int(vusers.max()) + 1)
+
+    # ---- 6) Time axis formatting --------------------------------------------
+    kpi_locator = mdates.AutoDateLocator(minticks=5, maxticks=10)
+    kpi_formatter = mdates.DateFormatter("%H:%M")
+    ax_left.xaxis.set_major_locator(kpi_locator)
+    ax_left.xaxis.set_major_formatter(kpi_formatter)
+    for lbl in ax_left.get_xticklabels():
+        lbl.set_rotation(45)
+        lbl.set_horizontalalignment("right")
+        lbl.set_rotation_mode("anchor")
+
+    # ---- 7) Grid / legend / save --------------------------------------------
+    if chart_spec.get("show_grid", True):
+        ax_left.grid(True, linewidth=0.5, alpha=0.6)
+
+    if chart_spec.get("include_legend", True):
+        kl1, klab1 = ax_left.get_legend_handles_labels()
+        kl2, klab2 = ax_right.get_legend_handles_labels()
+        loc_str = chart_spec.get("legend_location", "upper left")
+        fs = chart_spec.get("legend_fontsize", 8)
+        if loc_str in ("below", "above", "right"):
+            ncol = min(len(klab1) + len(klab2), 4)
+            anchor_map = {
+                "below": ("upper center", (0.5, -0.18)),
+                "above": ("lower center", (0.5, 1.05)),
+                "right": ("center left", (1.02, 0.5)),
+            }
+            loc_val, bbox_anchor = anchor_map[loc_str]
+            kw = {"ncol": ncol} if loc_str != "right" else {}
+            ax_left.legend(kl1 + kl2, klab1 + klab2, loc=loc_val, bbox_to_anchor=bbox_anchor,
+                           fontsize=fs, frameon=True, **kw)
+        else:
+            ax_left.legend(kl1 + kl2, klab1 + klab2, loc=loc_str, fontsize=fs)
+
+    suffix = f"-{resource_name}" if resource_name else ""
+    kpi_chart_path = get_chart_output_path(run_id, f"{chart_id}{suffix}")
+    fig.savefig(kpi_chart_path, dpi=dpi, bbox_inches=chart_spec.get("bbox_inches", "tight"), facecolor="white")
+    plt.close(fig)
+
+    return {"chart_id": chart_id, "resource": resource_name, "path": str(kpi_chart_path), "unit": unit_type}
