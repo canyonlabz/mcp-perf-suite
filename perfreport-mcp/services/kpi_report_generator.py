@@ -161,6 +161,31 @@ def build_kpi_correlation_section(
     )
     lines.append("")
 
+    lines.append(
+        "**Understanding correlation strength:** "
+        "Correlation measures how closely two metrics move together during the test. "
+        "The coefficient ranges from −1.0 to +1.0."
+    )
+    lines.append("")
+    lines.append(
+        "- 🔴 **Strong** — A clear and reliable relationship. "
+        "Changes in one metric consistently track changes in the other."
+    )
+    lines.append(
+        "- 🟡 **Moderate** — A noticeable relationship exists, "
+        "but other factors also influence the metrics."
+    )
+    lines.append(
+        "- 🟢 **Weak** — No meaningful relationship detected. "
+        "The two metrics appear to move independently."
+    )
+    lines.append("")
+    lines.append(
+        "A *positive* direction means both metrics increase together. "
+        "A *negative* direction means one increases while the other decreases."
+    )
+    lines.append("")
+
     # Notable correlations table (moderate and strong only, sorted strongest first)
     notable = [p for p in pairs if p.get("strength") in ("strong", "moderate")]
     if notable:
