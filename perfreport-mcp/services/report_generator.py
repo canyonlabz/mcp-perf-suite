@@ -29,6 +29,7 @@ from utils.report_utils import (
     strip_service_names_in_markdown
 )
 from utils.data_loader_utils import load_report_data
+from services.kpi_report_generator import build_kpi_analysis_section, build_kpi_correlation_section
 
 # Load configuration globally
 CONFIG = load_config()
@@ -105,6 +106,9 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
         apm_trace_summary = data["apm_trace_summary"]
         load_test_config = data["load_test_config"]
         load_test_public_report = data["load_test_public_report"]
+        kpi_data = data.get("kpi_data")
+        kpi_summary_md = data.get("kpi_summary_md")
+        kpi_correlations = data.get("kpi_correlations")
         source_files = data["source_files"]
         warnings = data["warnings"]
         missing_sections = data["missing_sections"]
@@ -138,7 +142,10 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
             apm_trace_summary,
             load_test_config,
             bottleneck_data,
-            jmeter_log_analysis_data
+            jmeter_log_analysis_data,
+            kpi_data=kpi_data,
+            kpi_summary_md=kpi_summary_md,
+            kpi_correlations=kpi_correlations
         )
         
         # Add load test public report link to context
@@ -360,7 +367,10 @@ def _build_report_context(
     apm_trace_summary: Optional[Dict] = None,
     load_test_config: Optional[Dict] = None,
     bottleneck_data: Optional[Dict] = None,
-    jmeter_log_analysis_data: Optional[Dict] = None
+    jmeter_log_analysis_data: Optional[Dict] = None,
+    kpi_data: Optional[Dict] = None,
+    kpi_summary_md: Optional[str] = None,
+    kpi_correlations: Optional[Dict] = None
 ) -> Dict:
     """Build context dictionary for template rendering"""
     
@@ -512,6 +522,10 @@ def _build_report_context(
     context["JMETER_LOG_ANALYSIS"] = _build_jmeter_log_analysis(log_data, jmeter_log_analysis_data)
     context["DATADOG_LOG_ANALYSIS"] = _build_datadog_log_analysis(log_data)
     context["APM_TRACE_ANALYSIS"] = _build_apm_trace_analysis(apm_trace_summary)
+    
+    # KPI analysis sections (from kpi_report_generator.py)
+    context["KPI_ANALYSIS_SECTION"] = build_kpi_analysis_section(kpi_data, kpi_summary_md)
+    context["KPI_CORRELATION_SECTION"] = build_kpi_correlation_section(kpi_correlations)
     
     return context
 

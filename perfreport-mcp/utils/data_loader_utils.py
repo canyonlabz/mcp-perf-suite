@@ -53,6 +53,7 @@ async def load_report_data(run_id: str) -> Dict:
             - bottleneck_data: Bottleneck analysis JSON from PerfAnalysis identify_bottlenecks (or None)
             - jmeter_log_analysis_data: BlazeMeter/JMeter log analysis JSON from JMeter MCP analyze_jmeter_log (or None)
             - kpi_data: KPI analysis JSON from PerfAnalysis analyze_apm_metrics (or None)
+            - kpi_summary_md: KPI summary markdown (or None)
             - kpi_correlations: KPI correlations dict extracted from correlation_analysis.json (or None)
             - apm_trace_summary: APM trace summary dict (or None)
             - load_test_config: Load test configuration (or None)
@@ -172,6 +173,13 @@ async def load_report_data(run_id: str) -> Dict:
         warnings
     )
     
+    kpi_summary_md = await _load_text_safe(
+        analysis_path / "kpi_summary.md",
+        "kpi_summary_md",
+        source_files,
+        warnings
+    )
+    
     # Load log analysis data (optional)
     log_data = await _load_json_safe(
         analysis_path / "log_analysis.json",
@@ -271,6 +279,7 @@ async def load_report_data(run_id: str) -> Dict:
         "perf_summary_md": perf_summary_md,
         "infra_summary_md": infra_summary_md,
         "corr_summary_md": corr_summary_md,
+        "kpi_summary_md": kpi_summary_md,
         
         # APM and Load Test data
         # TODO: Variable names are currently generic but load from tool-specific folders.
