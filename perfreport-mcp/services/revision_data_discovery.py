@@ -498,6 +498,24 @@ def _get_section_guidelines(section_id: str) -> List[str]:
             "Reference specific CPU/memory metrics and their impact on response times",
             "Highlight any services with consistently high resource utilization across runs",
             "Note whether scaling or optimization between runs improved correlations"
+        ],
+        "kpi_analysis": [
+            "Summarize application KPI metrics from kpi_analysis.json and kpi_summary.md",
+            "Group metrics by category (GC/Memory, Latency, CPU, Memory, Throughput, Disk, Network)",
+            "Highlight metrics with concerning trends (increasing heap, rising latency, high CPU)",
+            "Include specific values (avg, p90, p95) with their units for key metrics",
+            "Reference the scope (host-based or k8s) and affected services/hosts",
+            "Note any GC pressure, memory leak indicators, or latency degradation patterns",
+            "Provide actionable insights connecting KPI metric behavior to observed performance"
+        ],
+        "kpi_correlation": [
+            "Analyze KPI-to-performance correlations from the kpi_correlations section in correlation_analysis.json",
+            "Highlight strong and moderate correlations between KPI metrics and response times",
+            "Explain the practical significance of key correlation pairs (e.g., GC heap vs latency)",
+            "Note any unexpected or counter-intuitive correlations",
+            "Reference specific correlation coefficients and sample sizes for credibility",
+            "Connect correlation findings to bottleneck analysis when relevant",
+            "Suggest which KPI metrics are most predictive of performance degradation"
         ]
     }
     

@@ -129,6 +129,26 @@ revisable_sections:
       ai_placeholder: "AI_BOTTLENECK_ANALYSIS"
       output_file: "AI_BOTTLENECK_ANALYSIS"
       description: "Bottleneck identification with degradation thresholds, severity breakdown, and per-endpoint findings"
+    
+    # Section 4.4 - Application KPI Analysis
+    # Current placeholder: {{KPI_ANALYSIS_SECTION}}
+    # AI placeholder: {{AI_KPI_ANALYSIS_SECTION}}
+    kpi_analysis:
+      enabled: false
+      placeholder: "KPI_ANALYSIS_SECTION"
+      ai_placeholder: "AI_KPI_ANALYSIS_SECTION"
+      output_file: "AI_KPI_ANALYSIS_SECTION"
+      description: "Application KPI metric analysis with per-service/host tables, trend indicators, and insights from kpi_analysis.json"
+    
+    # Section 5.2 - KPI Correlations
+    # Current placeholder: {{KPI_CORRELATION_SECTION}}
+    # AI placeholder: {{AI_KPI_CORRELATION_SECTION}}
+    kpi_correlation:
+      enabled: false
+      placeholder: "KPI_CORRELATION_SECTION"
+      ai_placeholder: "AI_KPI_CORRELATION_SECTION"
+      output_file: "AI_KPI_CORRELATION_SECTION"
+      description: "KPI-to-performance correlation analysis with strength indicators, notable pairs, and insights from correlation_analysis.json"
 
   # Comparison report sections
   # ===========================================================
