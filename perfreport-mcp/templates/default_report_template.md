@@ -100,6 +100,17 @@
 
 > **Note:** Peak and Average values show actual memory consumed. MB = Megabytes (1 GB = 1024 MB).
 
+### 4.4 Application KPI Analysis
+
+{{KPI_ANALYSIS_SECTION}}
+
+{{CHART_PLACEHOLDER: GC_GEN2_HEAP_LINE}}
+{{CHART_PLACEHOLDER: GC_MEMORY_LOAD_LINE}}
+{{CHART_PLACEHOLDER: SERVER_LATENCY_LINE}}
+{{CHART_PLACEHOLDER: HOST_CPU_BREAKDOWN_STACKED}}
+{{CHART_PLACEHOLDER: HOST_MEMORY_USAGE_LINE}}
+{{CHART_PLACEHOLDER: KPI_LATENCY_VUSERS_DUALAXIS}}
+
 ---
 
 ## 5.0 Correlation Analysis
@@ -109,6 +120,10 @@
 ### 5.1 Performance-Infrastructure Correlations
 
 {{CORRELATION_DETAILS}}
+
+### 5.2 KPI Correlations
+
+{{KPI_CORRELATION_SECTION}}
 
 ---
 

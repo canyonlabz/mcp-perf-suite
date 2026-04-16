@@ -52,6 +52,8 @@ async def load_report_data(run_id: str) -> Dict:
             - log_data: Log analysis JSON (or None)
             - bottleneck_data: Bottleneck analysis JSON from PerfAnalysis identify_bottlenecks (or None)
             - jmeter_log_analysis_data: BlazeMeter/JMeter log analysis JSON from JMeter MCP analyze_jmeter_log (or None)
+            - kpi_data: KPI analysis JSON from PerfAnalysis analyze_apm_metrics (or None)
+            - kpi_correlations: KPI correlations dict extracted from correlation_analysis.json (or None)
             - apm_trace_summary: APM trace summary dict (or None)
             - load_test_config: Load test configuration (or None)
             - load_test_public_report: Load test public report URL (or None)
@@ -199,6 +201,23 @@ async def load_report_data(run_id: str) -> Dict:
         []  # Don't add to missing_sections - this is optional
     )
     
+    # Load KPI analysis data (optional - from PerfAnalysis analyze_apm_metrics when KPI files exist)
+    # Contains per-service/host metric summaries, categories, insights, and scope information.
+    kpi_data = await _load_json_safe(
+        analysis_path / "kpi_analysis.json",
+        "kpi_analysis",
+        source_files,
+        warnings,
+        []  # Don't add to missing_sections - this is optional
+    )
+    
+    # Extract KPI correlations from correlation_analysis.json (if present)
+    # The kpi_correlations section is embedded in correlation_analysis.json by PerfAnalysis
+    # when KPI timeseries files exist. Contains correlation pairs, available metrics, and insights.
+    kpi_correlations = None
+    if corr_data:
+        kpi_correlations = corr_data.get("kpi_correlations")
+    
     # Load APM trace data (optional)
     # TODO: Currently loads from Datadog-specific folder. Future schema-driven
     # architecture will support multiple APM tools.
@@ -245,6 +264,8 @@ async def load_report_data(run_id: str) -> Dict:
         "log_data": log_data,
         "bottleneck_data": bottleneck_data,
         "jmeter_log_analysis_data": jmeter_log_analysis_data,
+        "kpi_data": kpi_data,
+        "kpi_correlations": kpi_correlations,
         
         # Markdown summaries
         "perf_summary_md": perf_summary_md,
