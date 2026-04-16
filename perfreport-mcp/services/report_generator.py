@@ -506,6 +506,11 @@ def _build_report_context(
         correlation_summary = strip_report_headers_footers(corr_md) if corr_md else _build_correlation_summary(corr_data)
         correlation_details = _build_correlation_details(corr_data)
 
+        # Append KPI correlation highlights to the summary when available
+        kpi_highlight = _build_kpi_correlation_highlight(kpi_correlations)
+        if kpi_highlight:
+            correlation_summary = (correlation_summary or "") + "\n\n" + kpi_highlight
+
         context.update({
             "CORRELATION_SUMMARY": correlation_summary or "No correlation summary available",
             "CORRELATION_DETAILS": correlation_details
@@ -1224,6 +1229,43 @@ def _build_correlation_details(corr_data: Dict) -> str:
         lines.append(f"| {key} | {value:.4f} |")
     
     return "\n".join(lines)
+
+
+def _build_kpi_correlation_highlight(kpi_correlations: Optional[Dict]) -> str:
+    """
+    Build a brief KPI correlation highlight for the main correlation summary.
+
+    Extracts strong and moderate KPI-to-performance correlation pairs and
+    returns a short paragraph suitable for appending to Section 5.0.
+    Returns an empty string when no notable correlations exist.
+    """
+    if not kpi_correlations:
+        return ""
+
+    pairs = kpi_correlations.get("pairs", [])
+    if not pairs:
+        return ""
+
+    notable = [
+        p for p in pairs
+        if p.get("strength") in ("strong", "moderate")
+    ]
+    if not notable:
+        return ""
+
+    lines = [f"**Application KPI Correlations:** {len(notable)} notable KPI-to-performance correlation(s) detected:"]
+    lines.append("")
+    for p in notable:
+        coeff = p.get("coefficient", 0)
+        lines.append(
+            f"- **{p.get('kpi_metric', '')}** vs {p.get('compared_with', '')}: "
+            f"{p.get('strength', '')} {p.get('direction', '')} "
+            f"(r={coeff:.4f})"
+        )
+    lines.append("")
+    lines.append("See **Section 5.2 KPI Correlations** for the full analysis.")
+    return "\n".join(lines)
+
 
 def _build_bottleneck_analysis(
     corr_data: Optional[Dict],
