@@ -190,7 +190,46 @@ chart_map = {
         "module": "comparison_bar_charts",
         "data_source": "comparison_metadata",
     },
-    # Add more chart definitions here as needed
+    # KPI single-metric line charts (from kpi_metrics_*.csv)
+    "GC_GEN2_HEAP_LINE": {
+        "function": "generate_kpi_single_metric_chart",
+        "module": "single_axis_charts",
+        "data_source": "kpi_timeseries",
+        "metric_filter": "gc_size_gen2",
+    },
+    "GC_MEMORY_LOAD_LINE": {
+        "function": "generate_kpi_single_metric_chart",
+        "module": "single_axis_charts",
+        "data_source": "kpi_timeseries",
+        "metric_filter": "gc_memory_load",
+    },
+    "SERVER_LATENCY_LINE": {
+        "function": "generate_kpi_single_metric_chart",
+        "module": "single_axis_charts",
+        "data_source": "kpi_timeseries",
+        "metric_filter": "p90_latency",
+    },
+    # KPI multi-metric line chart (multiple metrics on same axis)
+    "HOST_MEMORY_USAGE_LINE": {
+        "function": "generate_kpi_multi_metric_chart",
+        "module": "single_axis_charts",
+        "data_source": "kpi_timeseries",
+        "metric_filter": ["host_mem_usable", "host_mem_total"],
+    },
+    # KPI stacked area chart (host CPU breakdown)
+    "HOST_CPU_BREAKDOWN_STACKED": {
+        "function": "generate_host_cpu_breakdown_stacked_chart",
+        "module": "stacked_area_charts",
+        "data_source": "kpi_timeseries",
+        "metric_filter": ["host_cpu_user", "host_cpu_system", "host_cpu_iowait", "host_cpu_stolen", "host_cpu_idle"],
+    },
+    # KPI + Performance dual-axis chart (KPI latency vs VUsers)
+    "KPI_LATENCY_VUSERS_DUALAXIS": {
+        "function": "generate_kpi_latency_vusers_chart",
+        "module": "dual_axis_charts",
+        "data_source": "kpi_performance",
+        "metric_filter": "p90_latency",
+    },
 }
 
 # -----------------------------------------------
@@ -441,6 +480,89 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
             results.append(out)
         except Exception as e:
             errors.append({"error": str(e)})
+
+    # KPI timeseries charts (from kpi_metrics_*.csv in datadog folder)
+    elif data_source == "kpi_timeseries":
+        kpi_files = _discover_kpi_csv_files(run_id)
+        if not kpi_files:
+            return {"error": f"No kpi_metrics_*.csv files found for run: {run_id}"}
+
+        metric_filter = mapping.get("metric_filter")
+        is_multi_metric = isinstance(metric_filter, list)
+
+        for entity_name, kpi_path in kpi_files:
+            try:
+                df = pd.read_csv(kpi_path)
+                if "metric" not in df.columns:
+                    errors.append({"resource": entity_name, "error": "KPI CSV missing 'metric' column"})
+                    continue
+
+                if is_multi_metric:
+                    # Multi-metric: build dict of metric_name -> filtered DataFrame
+                    metric_dfs = {}
+                    for m in metric_filter:
+                        mdf = df[df["metric"] == m].copy()
+                        if not mdf.empty:
+                            metric_dfs[m] = mdf
+                    if not metric_dfs:
+                        errors.append({"resource": entity_name, "error": f"No data for metrics {metric_filter}"})
+                        continue
+
+                    # Stacked area vs multi-metric line dispatch
+                    if chart_spec.get("chart_type") == "stacked_area":
+                        out = await chart_handler(metric_dfs, chart_spec, run_id, resource_name=entity_name)
+                    else:
+                        out = await chart_handler(metric_dfs, chart_spec, chart_id, run_id, resource_name=entity_name)
+                    results.append(out)
+                else:
+                    # Single metric filter
+                    df_filtered = df[df["metric"] == metric_filter].copy()
+                    if df_filtered.empty:
+                        errors.append({"resource": entity_name, "error": f"No data for metric '{metric_filter}'"})
+                        continue
+                    out = await chart_handler(df_filtered, chart_spec, chart_id, run_id, resource_name=entity_name)
+                    results.append(out)
+
+            except Exception as e:
+                errors.append({"resource": entity_name, "error": str(e)})
+
+        if not results and not errors:
+            errors.append({"error": "No valid KPI data found in any kpi_metrics CSV"})
+
+    # KPI + Performance combined charts (KPI metric vs VUsers dual-axis)
+    elif data_source == "kpi_performance":
+        kpi_files = _discover_kpi_csv_files(run_id)
+        if not kpi_files:
+            return {"error": f"No kpi_metrics_*.csv files found for run: {run_id}"}
+
+        metric_filter = mapping.get("metric_filter")
+
+        # Load performance data (BlazeMeter test-results.csv)
+        perf_path = ARTIFACTS_PATH / run_id / "blazemeter" / "test-results.csv"
+        perf_df = None
+        if perf_path.exists():
+            try:
+                perf_df = pd.read_csv(perf_path)
+            except Exception as e:
+                errors.append({"error": f"Failed to load performance data: {str(e)}"})
+        else:
+            errors.append({"error": f"Missing BlazeMeter test-results.csv for run: {run_id}"})
+
+        if perf_df is not None:
+            for entity_name, kpi_path in kpi_files:
+                try:
+                    df = pd.read_csv(kpi_path)
+                    df_filtered = df[df["metric"] == metric_filter].copy() if "metric" in df.columns else df
+                    if df_filtered.empty:
+                        errors.append({"resource": entity_name, "error": f"No data for metric '{metric_filter}'"})
+                        continue
+                    out = await chart_handler(df_filtered, perf_df, chart_spec, run_id, resource_name=entity_name)
+                    results.append(out)
+                except Exception as e:
+                    errors.append({"resource": entity_name, "error": str(e)})
+
+        if not results and not errors:
+            errors.append({"error": "No valid KPI+performance data found"})
 
     else:
         return {"error": f"Unknown data source: {data_source}"}
@@ -719,6 +841,36 @@ def _validate_chart_data(df: pd.DataFrame, chart_spec: Dict) -> Tuple[bool, str]
                     return False, f"Column '{y_col}' is not numeric and could not be converted: {str(e)}"
     
     return True, ""
+
+
+def _discover_kpi_csv_files(run_id: str) -> List[Tuple[str, Path]]:
+    """
+    Discover KPI metric CSV files for a given test run.
+
+    Scans the APM tool folder (e.g. datadog/) for files matching the
+    ``kpi_metrics_[<entity>].csv`` naming convention. The entity name
+    is extracted from the filename brackets and can be a k8s service
+    name or a hostname.
+
+    Args:
+        run_id: Test run identifier.
+
+    Returns:
+        List of (entity_name, csv_path) tuples for each discovered file.
+    """
+    import re
+    kpi_dir = ARTIFACTS_PATH / run_id / "datadog"
+    if not kpi_dir.exists():
+        return []
+
+    pattern = re.compile(r"^kpi_metrics_\[(.+)\]\.csv$")
+    found = []
+    for csv_file in sorted(kpi_dir.glob("kpi_metrics_*.csv")):
+        match = pattern.match(csv_file.name)
+        if match:
+            entity_name = match.group(1)
+            found.append((entity_name, csv_file))
+    return found
 
 
 def _get_chart_spec_by_id(chart_id: str) -> Optional[Dict]:
