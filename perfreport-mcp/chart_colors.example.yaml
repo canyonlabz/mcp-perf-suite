@@ -17,6 +17,31 @@ background: "#ffffff"
 grid: "#e0e0e0"
 
 # -----------------------------------------------
+# KPI Chart Colors
+# -----------------------------------------------
+# Distinct palette for Application KPI charts (Section 4.4).
+# Warm tones for GC/heap metrics visually separate them from
+# the cooler infrastructure blues/greens in Section 4.
+
+# GC heap and pressure (warm reds/oranges)
+kpi_gc_heap: "#E65100"       # Deep orange — GC heap sizes (gen0/gen1/gen2/loh)
+kpi_gc_pressure: "#BF360C"   # Burnt red — GC memory load %
+
+# Application latency (purple — distinct from client-side blue)
+kpi_latency: "#7B1FA2"       # Deep purple — server-side P90/P95/P99 latency
+
+# Host CPU breakdown (stacked area — ordered: user, system, iowait, stolen, idle)
+kpi_cpu_user: "#E53935"      # Red — user CPU (typically dominant)
+kpi_cpu_system: "#FF8F00"    # Amber — system/kernel CPU
+kpi_cpu_iowait: "#F4511E"    # Deep orange — I/O wait
+kpi_cpu_stolen: "#AD1457"    # Dark pink — stolen (hypervisor)
+kpi_cpu_idle: "#B0BEC5"      # Blue-gray — idle (low visual weight)
+
+# Host memory (teal/green — distinct from k8s memory charts)
+kpi_host_mem_usable: "#00897B"  # Teal — usable memory
+kpi_host_mem_total: "#B0BEC5"   # Blue-gray — total memory (reference line)
+
+# -----------------------------------------------
 # Multi-Line Chart Colors
 # -----------------------------------------------
 # Used for charts that display multiple hosts/services on the same chart.
