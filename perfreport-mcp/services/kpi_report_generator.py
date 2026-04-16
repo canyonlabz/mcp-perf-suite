@@ -79,7 +79,9 @@ def build_kpi_analysis_section(
             return strip_report_headers_footers(kpi_summary_md)
         return "No KPI analysis data available."
 
-    services = kpi_data.get("services", {})
+    # PerfAnalysis currently uses "services" for both k8s and host scopes.
+    # Fall back to "hosts" for future-proofing if the schema ever splits them.
+    services = kpi_data.get("services") or kpi_data.get("hosts") or {}
     if not services:
         return "No KPI metrics found in the analysis data."
 

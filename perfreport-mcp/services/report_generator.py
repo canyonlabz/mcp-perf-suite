@@ -231,6 +231,9 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
                     "strength": corr.get("strength", "N/A")
                 })
 
+        # Extract KPI metrics summary for metadata
+        kpi_metrics_summary = _extract_kpi_metadata(kpi_data, kpi_correlations)
+
         # Render template
         report_markdown = _render_template(template_content, context)
         
@@ -336,6 +339,8 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
                 "significant_correlations": correlation_insights,
                 "correlation_summary": corr_data.get("insights", "") if corr_data else ""
             },
+            
+            "kpi_metrics": kpi_metrics_summary,
             
             "bugs_created": []  # Placeholder for future enhancement
         }
@@ -1544,6 +1549,77 @@ def _safe_float(value, default=0.0):
         return float(value)
     except (ValueError, TypeError):
         return default
+
+
+def _extract_kpi_metadata(
+    kpi_data: Optional[Dict],
+    kpi_correlations: Optional[Dict],
+) -> Dict:
+    """
+    Extract KPI summary data for the report metadata JSON.
+
+    Returns a dict with scope, services/hosts, per-entity metric highlights,
+    category breakdown, insights, and top KPI correlations.  Returns an
+    ``available: false`` stub when no KPI data is present so downstream
+    consumers always see a consistent schema.
+    """
+    if not kpi_data:
+        return {"available": False}
+
+    # PerfAnalysis currently uses "services" for both k8s and host scopes.
+    # Fall back to "hosts" for future-proofing if the schema ever splits them.
+    services = kpi_data.get("services") or kpi_data.get("hosts") or {}
+    if not services:
+        return {"available": False}
+
+    scope = kpi_data.get("scope")
+    identifier_type = kpi_data.get("identifier_type")
+    categories_found = kpi_data.get("metric_categories_found", [])
+
+    entity_summaries = []
+    for entity_name, metrics in services.items():
+        metric_list = []
+        for metric_name, m in metrics.items():
+            metric_list.append({
+                "metric": metric_name,
+                "category": m.get("category", ""),
+                "avg": m.get("avg"),
+                "p90": m.get("p90"),
+                "p95": m.get("p95"),
+                "trend": m.get("trend", ""),
+                "display_unit": m.get("display_unit", m.get("unit", "")),
+                "samples": m.get("samples", 0),
+            })
+        entity_summaries.append({
+            "entity_name": entity_name,
+            "metric_count": len(metric_list),
+            "metrics": metric_list,
+        })
+
+    kpi_corr_summary = []
+    if kpi_correlations:
+        pairs = kpi_correlations.get("pairs", [])
+        for p in pairs:
+            strength = p.get("strength", "")
+            if strength in ("strong", "moderate"):
+                kpi_corr_summary.append({
+                    "kpi_metric": p.get("kpi_metric", ""),
+                    "compared_with": p.get("compared_with", ""),
+                    "coefficient": p.get("coefficient"),
+                    "strength": strength,
+                    "direction": p.get("direction", ""),
+                })
+
+    return {
+        "available": True,
+        "scope": scope,
+        "identifier_type": identifier_type,
+        "categories_found": categories_found,
+        "total_services": kpi_data.get("total_services", len(services)),
+        "entities": entity_summaries,
+        "insights": kpi_data.get("kpi_insights", []),
+        "notable_correlations": kpi_corr_summary,
+    }
 
 
 # -----------------------------------------------
