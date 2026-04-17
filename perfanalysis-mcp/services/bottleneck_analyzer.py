@@ -754,17 +754,28 @@ def _align_infra_to_buckets(
 
     infra = infra_df.set_index("timestamp").sort_index()
 
-    # Resample infra to same window size, averaging across all resources
-    infra_resampled = infra.resample(f"{bucket_seconds}s").agg(
-        avg_cpu=("cpu_util_pct", "mean"),
-        max_cpu=("cpu_util_pct", "max"),
-        avg_memory=("mem_util_pct", "mean"),
-        max_memory=("mem_util_pct", "max"),
-    )
+    # Build agg dict dynamically based on which columns are available
+    agg_dict = {}
+    if "cpu_util_pct" in infra.columns:
+        agg_dict["avg_cpu"] = ("cpu_util_pct", "mean")
+        agg_dict["max_cpu"] = ("cpu_util_pct", "max")
+    if "mem_util_pct" in infra.columns:
+        agg_dict["avg_memory"] = ("mem_util_pct", "mean")
+        agg_dict["max_memory"] = ("mem_util_pct", "max")
 
-    infra_resampled = infra_resampled[
-        infra_resampled["avg_cpu"].notna() | infra_resampled["avg_memory"].notna()
-    ]
+    if not agg_dict:
+        return buckets_df
+
+    infra_resampled = infra.resample(f"{bucket_seconds}s").agg(**agg_dict)
+
+    # Keep rows where at least one metric has data
+    notna_mask = pd.Series(False, index=infra_resampled.index)
+    if "avg_cpu" in infra_resampled.columns:
+        notna_mask = notna_mask | infra_resampled["avg_cpu"].notna()
+    if "avg_memory" in infra_resampled.columns:
+        notna_mask = notna_mask | infra_resampled["avg_memory"].notna()
+    infra_resampled = infra_resampled[notna_mask]
+
     infra_resampled = infra_resampled.reset_index().rename(columns={"timestamp": "bucket_start"})
 
     merged = pd.merge(buckets_df, infra_resampled, on="bucket_start", how="left")
