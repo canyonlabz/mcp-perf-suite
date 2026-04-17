@@ -1468,7 +1468,9 @@ def _detect_infra_saturation(
     cpu_threshold = cfg["cpu_high_pct"]
     mem_threshold = cfg["memory_high_pct"]
 
-    if "avg_cpu" not in buckets_df.columns:
+    has_cpu = "avg_cpu" in buckets_df.columns
+    has_mem = "avg_memory" in buckets_df.columns
+    if not has_cpu and not has_mem:
         return findings
 
     cpu_sustained = 0
@@ -1911,7 +1913,7 @@ def _detect_capacity_risks(
 
     findings: List[Dict] = []
 
-    if "avg_cpu" not in buckets_df.columns:
+    if "avg_cpu" not in buckets_df.columns and "avg_memory" not in buckets_df.columns:
         return findings
 
     warmup = cfg["warmup_buckets"]
