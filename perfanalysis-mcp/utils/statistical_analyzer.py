@@ -806,8 +806,17 @@ def load_and_process_infrastructure_data(infra_csv_files, granularity_window):
     combined_df = pd.concat(all_infra_data, ignore_index=True)
     
     # Merge CPU and Memory data on timestamp and identifier
-    cpu_data = combined_df[combined_df['cpu_util_pct'].notna()][['timestamp', 'identifier', 'cpu_util_pct']]
-    mem_data = combined_df[combined_df['mem_util_pct'].notna()][['timestamp', 'identifier', 'mem_util_pct']]
+    has_cpu = 'cpu_util_pct' in combined_df.columns
+    has_mem = 'mem_util_pct' in combined_df.columns
+
+    cpu_data = (
+        combined_df[combined_df['cpu_util_pct'].notna()][['timestamp', 'identifier', 'cpu_util_pct']]
+        if has_cpu else pd.DataFrame(columns=['timestamp', 'identifier', 'cpu_util_pct'])
+    )
+    mem_data = (
+        combined_df[combined_df['mem_util_pct'].notna()][['timestamp', 'identifier', 'mem_util_pct']]
+        if has_mem else pd.DataFrame(columns=['timestamp', 'identifier', 'mem_util_pct'])
+    )
     
     # Merge on timestamp and identifier
     merged_df = pd.merge(
@@ -889,8 +898,8 @@ def perform_temporal_correlation_analysis(perf_df: pd.DataFrame, infra_df: pd.Da
             return results
         
         # Add flags for constraints (vectorized boolean operations)
-        merged['cpu_constraint'] = merged['cpu_util_pct'] > cpu_high_threshold
-        merged['memory_constraint'] = merged['mem_util_pct'] > memory_high_threshold
+        merged['cpu_constraint'] = merged['cpu_util_pct'] > cpu_high_threshold if 'cpu_util_pct' in merged.columns else False
+        merged['memory_constraint'] = merged['mem_util_pct'] > memory_high_threshold if 'mem_util_pct' in merged.columns else False
         merged['performance_degradation'] = merged['avg_response_time'] > sla_threshold
         
         # Filter to interesting periods (performance issues OR high resource usage)
@@ -945,8 +954,8 @@ def perform_temporal_correlation_analysis(perf_df: pd.DataFrame, infra_df: pd.Da
                     "sla_violation_rate": float((row['sla_violations'] / row['request_count']) * 100) if row['request_count'] > 0 else 0
                 },
                 "infrastructure_metrics": {
-                    "avg_cpu": float(row['cpu_util_pct']),
-                    "avg_memory": float(row['mem_util_pct'])
+                    "avg_cpu": float(row['cpu_util_pct']) if 'cpu_util_pct' in row.index else None,
+                    "avg_memory": float(row['mem_util_pct']) if 'mem_util_pct' in row.index else None
                 },
                 "correlation_analysis": {
                     "cpu_constraint": bool(row['cpu_constraint']),
@@ -958,10 +967,12 @@ def perform_temporal_correlation_analysis(perf_df: pd.DataFrame, infra_df: pd.Da
         
         # === CALCULATE CORRELATIONS (vectorized) ===
         # Use all windows (not just interesting ones) for correlation
-        cpu_rt_corr = merged['cpu_util_pct'].corr(merged['avg_response_time'])
-        memory_rt_corr = merged['mem_util_pct'].corr(merged['avg_response_time'])
-        cpu_sla_corr = merged['cpu_util_pct'].corr(merged['sla_violations'])
-        memory_sla_corr = merged['mem_util_pct'].corr(merged['sla_violations'])
+        has_cpu_col = 'cpu_util_pct' in merged.columns
+        has_mem_col = 'mem_util_pct' in merged.columns
+        cpu_rt_corr = merged['cpu_util_pct'].corr(merged['avg_response_time']) if has_cpu_col else float('nan')
+        memory_rt_corr = merged['mem_util_pct'].corr(merged['avg_response_time']) if has_mem_col else float('nan')
+        cpu_sla_corr = merged['cpu_util_pct'].corr(merged['sla_violations']) if has_cpu_col else float('nan')
+        memory_sla_corr = merged['mem_util_pct'].corr(merged['sla_violations']) if has_mem_col else float('nan')
         
         # Handle NaN correlations (happens when all values are constant)
         cpu_rt_corr = 0.0 if pd.isna(cpu_rt_corr) else float(cpu_rt_corr)
@@ -1078,10 +1089,10 @@ def analyze_time_window(window_perf: pd.DataFrame, window_infra: pd.DataFrame,
         
         # Infrastructure analysis
         infra_metrics = {
-            "avg_cpu": window_infra['cpu_util_pct'].mean(),
-            "peak_cpu": window_infra['cpu_util_pct'].max(),
-            "avg_memory": window_infra['mem_util_pct'].mean(),
-            "peak_memory": window_infra['mem_util_pct'].max()
+            "avg_cpu": window_infra['cpu_util_pct'].mean() if 'cpu_util_pct' in window_infra.columns else 0,
+            "peak_cpu": window_infra['cpu_util_pct'].max() if 'cpu_util_pct' in window_infra.columns else 0,
+            "avg_memory": window_infra['mem_util_pct'].mean() if 'mem_util_pct' in window_infra.columns else 0,
+            "peak_memory": window_infra['mem_util_pct'].max() if 'mem_util_pct' in window_infra.columns else 0
         }
         
         # Only include windows with performance issues or high resource usage
