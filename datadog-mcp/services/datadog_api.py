@@ -34,52 +34,6 @@ CA_BUNDLE = os.getenv("REQUESTS_CA_BUNDLE") or os.getenv("SSL_CERT_FILE")
 # Helpers
 # -----------------------------------------------
 
-def _parse_resource_limit(resource_str: str) -> float:
-    """
-    Parse resource limit strings like "4.05 core", "16 GiB", "50 millicores" into numeric values.
-    
-    Args:
-        resource_str: Resource string from environments.json
-    
-    Returns:
-        float: Numeric value in base units (cores for CPU, bytes for memory)
-    """
-    if not resource_str:
-        return 0.0
-    
-    resource_str = resource_str.strip().lower()
-    
-    # CPU parsing
-    if 'core' in resource_str:
-        value = float(re.findall(r'[\d.]+', resource_str)[0])
-        if 'millicore' in resource_str:
-            return value / 1000.0  # Convert millicores to cores
-        return value  # cores
-    
-    # Memory parsing
-    elif 'gib' in resource_str:
-        value = float(re.findall(r'[\d.]+', resource_str)[0])
-        return value * 1024**3  # Convert GiB to bytes
-    elif 'gb' in resource_str:
-        value = float(re.findall(r'[\d.]+', resource_str)[0])
-        return value * 1000**3  # Convert GB to bytes
-    elif 'mib' in resource_str:
-        value = float(re.findall(r'[\d.]+', resource_str)[0])
-        return value * 1024**2  # Convert MiB to bytes
-    elif 'mb' in resource_str:
-        value = float(re.findall(r'[\d.]+', resource_str)[0])
-        return value * 1000**2  # Convert MB to bytes
-    
-    return 0.0
-
-def _calculate_cpu_percentage(usage_nanocores: float, limit_cores: float) -> float:
-    """Calculate CPU utilization percentage."""
-    if limit_cores <= 0:
-        return 0.0
-    # Convert nanocores to cores: 1 core = 1,000,000,000 nanocores
-    usage_cores = usage_nanocores / 1_000_000_000.0
-    return (usage_cores / limit_cores) * 100.0
-
 def _calculate_memory_percentage(usage_bytes: float, limit_bytes: float) -> float:
     """Calculate memory utilization percentage."""
     if limit_bytes <= 0:
@@ -291,14 +245,12 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
             if not hostname:
                 continue
 
-            # Parse CPU limit for percentage calculation
-            cpu_limit_cores = _parse_resource_limit(h.get("cpus", ""))
-
             query = q_tpl % {"h": hostname}
             params = {"from": v1_from_s, "to": v1_to_s, "query": query}
 
             # Collect series values keyed by metric name
             series_map: Dict[str, List[Tuple[int, float]]] = {}
+            cpu_unit_family: Optional[str] = None
             try:
                 resp = await client.get(V1_QUERY_URL, params=params, headers=headers, timeout=60.0)
                 resp.raise_for_status()
@@ -308,6 +260,11 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
                     pts = series.get("pointlist", [])
                     # each point is [ms, value]
                     series_map[metric] = [(int(ts), val if val is not None else float("nan")) for ts, val in pts]
+                    # Extract unit family from system.cpu.user to determine if values are already %
+                    if metric == "system.cpu.user" and cpu_unit_family is None:
+                        unit_info = series.get("unit")
+                        if unit_info and isinstance(unit_info, list) and len(unit_info) > 0 and unit_info[0]:
+                            cpu_unit_family = unit_info[0].get("family", "").lower()
             except Exception as e:
                 warnings.append(f"Host '{hostname}': API error — {e}; Request params: {params}; Response: {json.dumps(data, indent=2) if 'data' in locals() else 'N/A'}")
                 await ctx.error(f"Host '{hostname}': API error — {e}; Request params: {params}; Response: {json.dumps(data, indent=2) if 'data' in locals() else 'N/A'}")
@@ -349,17 +306,22 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
                         dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
                         w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, "mem_util_pct", pct, "%"])
 
-                # Derived CPU percent per timestamp (if CPU limit is configured)
-                if cpu_limit_cores > 0:
-                    cpu_user = dict(series_map.get("system.cpu.user", []))
-                    cpu_sys = dict(series_map.get("system.cpu.system", []))
-                    common_ts = sorted(set(cpu_user.keys()) & set(cpu_sys.keys()))
-                    
+                # Derived CPU percent per timestamp
+                cpu_user = dict(series_map.get("system.cpu.user", []))
+                cpu_sys = dict(series_map.get("system.cpu.system", []))
+                common_ts = sorted(set(cpu_user.keys()) & set(cpu_sys.keys()))
+
+                if cpu_unit_family == "percentage" and common_ts:
                     for ts_ms in common_ts:
                         cpu_total = (cpu_user.get(ts_ms, 0) or 0) + (cpu_sys.get(ts_ms, 0) or 0)
-                        cpu_pct = (cpu_total / cpu_limit_cores) * 100.0
                         dt_iso = datetime.utcfromtimestamp(ts_ms / 1000).isoformat()
-                        w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, "cpu_util_pct", cpu_pct, "%"])
+                        w.writerow([env_name, env_tag, "host", hostname, "", "", dt_iso, "cpu_util_pct", cpu_total, "%"])
+                elif common_ts:
+                    warnings.append(
+                        f"Host '{hostname}': CPU metrics returned in non-percent units "
+                        f"({cpu_unit_family or 'unknown'}) — cpu_util_pct cannot be derived"
+                    )
+                    await ctx.warning(warnings[-1])
 
             # Aggregates
             # CPU utilization ≈ avg(user + system) over overlapping timestamps
