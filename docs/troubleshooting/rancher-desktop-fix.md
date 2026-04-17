@@ -1,6 +1,6 @@
 # Rancher Desktop Specific Fix
 
-This guide addresses permission and file sharing issues specific to Rancher Desktop on macOS when running PostgreSQL 18 with pgvector and/or Apache AGE.
+This guide addresses permission, file sharing, and TLS/SSL issues specific to Rancher Desktop when running PostgreSQL 18 with pgvector and/or Apache AGE.
 
 > **See also:**
 > - [MacBook Troubleshooting Guide](pgvector-fix-on-macbook.md) — general PG18 startup fixes
@@ -8,7 +8,55 @@ This guide addresses permission and file sharing issues specific to Rancher Desk
 
 ---
 
-## Mount Type Fix
+## Docker Pull 403 Forbidden on Windows (Corporate Proxy / CA Certificate Issue)
+
+When pulling images from Docker Hub on Windows with Rancher Desktop, you may see:
+
+```
+Error response from daemon: unknown: failed to resolve reference "docker.io/pgvector/pgvector:pg18":
+unexpected status from HEAD request to https://registry-1.docker.io/v2/pgvector/pgvector/manifests/pg18: 403 Forbidden
+```
+
+This is caused by corporate SSL/TLS inspection proxies (e.g., Zscaler, Netskope, Palo Alto) intercepting HTTPS connections. The proxy re-signs traffic with a corporate root CA that Rancher Desktop's WSL VM doesn't trust.
+
+### Fix: Inject Corporate CA Certificate via File Explorer
+
+On locked-down Windows machines where WSL terminal access is restricted, you can inject the corporate CA certificate directly through File Explorer:
+
+1. Obtain your corporate root CA certificate (`.pem` or `.crt` format)
+   - Export from Windows Certificate Manager: `certmgr.msc` → Trusted Root Certification Authorities
+   - Or ask IT/Security for the proxy CA bundle
+2. If the file has a `.pem` extension, rename it to `.crt`
+3. Open **Windows File Explorer** and paste this path in the address bar:
+   ```
+   \\wsl$\rancher-desktop\usr\local\share\ca-certificates
+   ```
+4. Copy the `.crt` file into this folder
+5. Restart Rancher Desktop
+6. Verify: `docker pull pgvector/pgvector:pg18`
+
+> **Why this works:** Rancher Desktop runs a WSL2 distribution named `rancher-desktop`. The `\\wsl$\` UNC path lets you access its filesystem from File Explorer without needing a WSL terminal. On startup, Rancher Desktop runs `update-ca-certificates` which picks up any `.crt` files in this directory.
+
+### Alternative: Docker save/load (Immediate Workaround)
+
+If CA certificate injection isn't possible, transfer the image offline from a machine that can pull it:
+
+**On an unrestricted machine (e.g., macOS):**
+
+```bash
+docker pull pgvector/pgvector:pg18
+docker save pgvector/pgvector:pg18 -o pgvector-pg18.tar
+```
+
+**On the Windows machine (PowerShell or cmd):**
+
+```bash
+docker load -i pgvector-pg18.tar
+```
+
+---
+
+## Mount Type Fix on MacBooks
 
 If `chown` doesn't work, it's often because of how Rancher Desktop handles file sharing on macOS.
 
@@ -77,4 +125,4 @@ services:
 
 ## TLS Certificate Issues During Docker Build (Corporate Environments)
 
-If building the Apache AGE custom image fails with `server certificate verification failed` during `git clone`, this is a TLS inspection issue — not a Rancher Desktop issue. See the [Apache AGE Installation Guide — Corporate Environment Build](../apache_age_installation_guide.md#corporate-environment-build-tlsssl-certificate-issues) for the fix.
+If building the Apache AGE custom image fails with `server certificate verification failed` during `git clone`, this is a TLS inspection issue — not a Rancher Desktop issue. If you've already injected the corporate CA into the WSL VM (see [Docker Pull 403 Forbidden](#docker-pull-403-forbidden-on-windows-corporate-proxy--ca-certificate-issue) above), the build-time `git clone` may still fail because the CA is trusted by the Docker daemon but not inside the build container. See the [Apache AGE Installation Guide — Corporate Environment Build](../apache_age_installation_guide.md#corporate-environment-build-tlsssl-certificate-issues) for the build-specific fix.
