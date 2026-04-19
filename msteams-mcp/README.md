@@ -60,10 +60,28 @@ Call `teams_login` from any Cursor agent conversation. On first run:
 
 ### 📝 Available MCP Tools
 
+#### Authentication
+
 | 🛠️ Tool Name | 📃 Description |
 |--------------|----------------|
 | `teams_login` | Authenticate to MS Teams (SSO → headless → visible browser fallback) |
 | `teams_status` | Check session health, token validity, and user info (no network calls) |
+
+#### Messaging & Channels
+
+| 🛠️ Tool Name | 📃 Description |
+|--------------|----------------|
+| `teams_send_message` | Send a message to a channel, chat, or group conversation |
+| `teams_list_channels` | List all teams and channels the authenticated user has access to |
+| `teams_find_channel` | Search for channels by name (org-wide discovery + membership status) |
+
+#### Search & People
+
+| 🛠️ Tool Name | 📃 Description |
+|--------------|----------------|
+| `teams_search` | Full-text search across Teams messages with operator support |
+| `teams_search_people` | Search for people by name or email (returns job title, department, MRI) |
+| `teams_get_me` | Get the current user's profile (display name, email, tenant ID, MRI) |
 
 ### Example: Login Flow
 ```
@@ -90,6 +108,50 @@ teams_status()
 #   "messageAuth": {"hasSkypeToken": true, "hasAuthToken": true, "skypeTokenRemainingMinutes": 110.5},
 #   "user": "you@company.com"
 # }
+```
+
+### Example: Send a Notification
+```
+# List available channels first
+teams_list_channels()
+# → [{"displayName": "Performance Engineering", "channels": [{"id": "19:abc@thread.tacv2", ...}]}]
+
+# Send a message to the channel
+teams_send_message(conversation_id="19:abc@thread.tacv2", message="Load test starting in 5 minutes")
+# → {"status": "sent", "message": "Message delivered successfully"}
+```
+
+### Example: Search Messages
+```
+# Search for recent test notifications
+teams_search(query="load test results sent:>=2026-04-01")
+# → {"resultCount": 5, "pagination": {"total": 12, "hasMore": true}, "results": [...]}
+
+# Search with operators
+teams_search(query="from:homer.simpson@company.com is:Channels hasattachment:true")
+```
+
+### Example: Find a Channel
+```
+# Search when you know part of the name
+teams_find_channel(query="performance")
+# → {"count": 3, "channels": [
+#     {"channelName": "Performance Engineering", "teamName": "QA", "isMember": true},
+#     {"channelName": "Performance Results", "teamName": "DevOps", "isMember": false}
+# ]}
+```
+
+### Example: People Search
+```
+# Find someone for @mentions
+teams_search_people(query="Homer")
+# → {"returned": 2, "results": [
+#     {"displayName": "Homer Simpson", "email": "homer.simpson@company.com", "jobTitle": "Power Plant Operator", ...}
+# ]}
+
+# Get your own profile
+teams_get_me()
+# → {"displayName": "Your Name", "email": "you@company.com", "mri": "8:orgid:abc-123-..."}
 ```
 
 ## 🔐 Authentication Architecture
@@ -130,9 +192,10 @@ Instead, we authenticate the same way a human does — through the Teams web cli
 
 | Token | Source | Used For | Typical TTL |
 |-------|--------|----------|-------------|
-| **Skype Token** | `skypetoken_asm` cookie | Messaging APIs (chatsvc) | ~24 hours |
+| **Skype Token** | `skypetoken_asm` cookie | Messaging APIs (chatsvc), CSA channel listing | ~24 hours |
 | **Auth Token** | `authtoken` cookie | General Teams API auth | ~24 hours |
-| **Substrate Token** | MSAL localStorage | Search & People APIs | ~1 hour |
+| **Substrate Token** | MSAL localStorage | Search, People, and Channel discovery APIs | ~1 hour |
+| **CSA Token** | `chatsvcagg` localStorage | Teams/channels list API (CSA v3) | ~24 hours |
 
 ### Login Detection
 
@@ -175,7 +238,10 @@ msteams-mcp/
 │   ├── token_extractor.py          # JWT decode + token extraction from localStorage
 │   ├── session_store.py            # Encrypted session persistence
 │   ├── crypto.py                   # AES-256-GCM encryption primitives
-│   └── errors.py                   # ErrorCode enum, McpError, Result monad
+│   ├── errors.py                   # ErrorCode enum, McpError, Result monad
+│   ├── teams_api.py                # Chatsvc + CSA API client (messaging, channel listing)
+│   ├── substrate_api.py            # Substrate API client (search, people, channel discovery)
+│   └── parsers.py                  # Pure parsing functions for API responses
 ├── utils/
 │   └── config.py                   # Platform-aware YAML config loader
 ├── config.yaml                     # Application configuration
@@ -198,14 +264,17 @@ general:
   enable_logging: true
 
 teams:
+  browser_channel: "chrome"         # Browser for login: "chrome", "msedge", or "chromium"
   session_expiry_hours: 12          # Max session age before re-login
   token_refresh_threshold_sec: 600  # Refresh tokens 10 min before expiry
   http_request_timeout_sec: 30      # HTTP request timeout
   retry_max_attempts: 3             # Max retry attempts
   retry_base_delay_sec: 1           # Initial retry backoff
   retry_max_delay_sec: 10           # Max retry backoff
-  default_page_size: 25             # Default pagination size
-  max_page_size: 100                # Max pagination size
+  default_page_size: 25             # Default search results page size
+  max_page_size: 100                # Max search results page size
+  default_people_limit: 10          # Default people search results
+  default_channel_limit: 10         # Default channel search results
 ```
 
 ### OS-Specific Overrides
@@ -218,15 +287,21 @@ Create `config.windows.yaml` or `config.mac.yaml` for platform-specific settings
 - `teams_login` — Browser-based auth with three-layer token resolution
 - `teams_status` — Diagnostic session health check
 
-### Phase 2 — Channel Discovery & Messaging (Next)
-- `teams_list_channels` — Discover channels across joined teams
-- `teams_send_message` — Send messages/notifications to channels
-- `teams_search_channels` — Search for channels by name
+### Phase 2 — Channel Discovery & Messaging ✅
+- `teams_list_channels` — List all joined teams and channels
+- `teams_send_message` — Send messages/notifications to channels and chats
+- `teams_find_channel` — Search for channels by name (org-wide + membership)
 
-### Phase 3 — Performance Testing Integration (Planned)
+### Phase 3 — Search & People ✅
+- `teams_search` — Full-text message search with operator support
+- `teams_search_people` — People search by name or email
+- `teams_get_me` — Current user profile extraction
+
+### Phase 4 — Performance Testing Integration (Planned)
 - Pre-test notification templates
 - Post-test result summaries with links to reports
 - Adaptive Card formatting for rich messages
+- `teams_logout` tool for explicit session cleanup
 
 ## 🐛 Troubleshooting
 
@@ -243,6 +318,11 @@ Create `config.windows.yaml` or `config.mac.yaml` for platform-specific settings
 - Some Tenant configurations may not populate all token types (e.g., personal accounts may lack Substrate search tokens)
 - Call `teams_status` to see which tokens are available
 - Core messaging uses Skype tokens (from cookies), not Substrate tokens
+
+### Search/People Tools Return AUTH_EXPIRED
+- Substrate tokens have a short TTL (~1 hour). The server proactively refreshes via headless browser when within 10 minutes of expiry.
+- If refresh fails, call `teams_login()` to re-authenticate
+- Check `teams_status()` → `substrateToken.remainingMinutes` to see current token health
 
 ### Session Expired
 - Call `teams_login(force=True)` to force a fresh browser login
