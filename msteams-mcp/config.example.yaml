@@ -23,3 +23,24 @@ teams:
   max_page_size: 100
   default_people_limit: 10
   default_channel_limit: 10
+
+  # Path to notification templates (default: ./templates)
+  templates_path: "./templates"
+
+  # Named notification targets — auto-resolved by teams_send_message
+  notification_targets:
+    channels:
+      # Example: teams_send_message(target="perf-channel", ...)
+      perf-channel:
+        conversation_id: "19:abc123@thread.tacv2"
+        description: "Performance testing notifications"
+        # Optional per-channel template override
+        # template: "custom-notification-start-test.md"
+      # release-channel:
+      #   conversation_id: "19:def456@thread.tacv2"
+      #   description: "Release notifications"
+
+    # Default chat target — used with target="default_chat"
+    default_chat:
+      conversation_id: ""
+      description: "Default 1:1 or group chat for notifications"

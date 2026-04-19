@@ -2,14 +2,16 @@
 Microsoft Teams MCP Server
 
 Tools:
-  teams_login          — authenticate to MS Teams via browser-based SSO/manual login
-  teams_status         — check authentication state and token health
-  teams_list_channels  — list joined teams and their channels
-  teams_send_message   — send a message to a Teams conversation
-  teams_get_me         — get the current user's profile (email, name, Teams ID)
-  teams_search         — search messages across Teams conversations
-  teams_search_people  — search for people by name or email
-  teams_find_channel   — discover channels by name (org-wide + membership)
+  teams_login              — authenticate to MS Teams via browser-based SSO/manual login
+  teams_status             — check authentication state and token health
+  teams_list_channels      — list joined teams and their channels
+  teams_send_message       — send a message (with optional template/target support)
+  teams_get_me             — get the current user's profile (email, name, Teams ID)
+  teams_search             — search messages across Teams conversations
+  teams_search_people      — search for people by name or email
+  teams_find_channel       — discover channels by name (org-wide + membership)
+  teams_get_chat           — get 1:1 chat conversation ID for another user
+  teams_create_group_chat  — create a new group chat with multiple members
 """
 
 import json
@@ -17,7 +19,14 @@ import logging
 import sys
 from fastmcp import FastMCP
 from utils.config import load_config
-from services import auth_manager, teams_api, substrate_api, token_extractor
+from services import (
+    auth_manager,
+    teams_api,
+    substrate_api,
+    token_extractor,
+    template_manager,
+    target_resolver,
+)
 
 config = load_config()
 server_cfg = config.get("server", {})
@@ -102,29 +111,67 @@ async def teams_list_channels() -> str:
 
 @mcp.tool()
 async def teams_send_message(
-    conversation_id: str,
-    message: str,
+    conversation_id: str = "",
+    message: str = "",
     content_type: str = "text",
     reply_to_message_id: str = "",
+    template: str = "",
+    variables: str = "",
+    target: str = "",
+    test_run_id: str = "",
 ) -> str:
     """
     Send a message to a Microsoft Teams conversation (channel, chat, or group).
 
+    Supports plain text, markdown (auto-converted to Teams HTML), and
+    template-based notifications with {{PLACEHOLDER}} interpolation.
+
     Args:
-        conversation_id: The conversation/channel ID (from teams_list_channels).
-                         Channels look like "19:xxx@thread.tacv2".
-        message: The message content to send.
-        content_type: "text" for plain text, "html" for rich HTML content.
-        reply_to_message_id: Optional. For channel thread replies, the root message ID.
+        conversation_id: The conversation/channel ID. Channels look like
+                         "19:xxx@thread.tacv2". Not needed when target is set.
+        message: The message content to send (text, markdown, or HTML).
+                 When using a template, this fills the {{MESSAGE}} placeholder.
+        content_type: "text" for plain/markdown, "html" for pre-formatted HTML.
+        reply_to_message_id: For channel thread replies, the root message ID.
+        template: Template filename (e.g. "notification-start-test.md").
+                  Falls back to "default-{name}" if custom not found.
+        variables: JSON string of key-value pairs for template placeholders.
+                   Example: '{"TEST_NAME": "Load Test", "ENVIRONMENT": "staging"}'
+        target: Named target from config (e.g. "perf-channel") or raw
+                conversation ID. Overrides conversation_id when set.
+        test_run_id: Auto-populates template variables from
+                     artifacts/<test_run_id>/ (BlazeMeter, Confluence links, etc.)
+                     and logs the notification for context tracking.
 
     Returns:
         JSON result with send status and message ID.
     """
+    parsed_vars: dict[str, str] = {}
+    if variables:
+        try:
+            parsed_vars = json.loads(variables)
+            if not isinstance(parsed_vars, dict):
+                return json.dumps({
+                    "status": "error",
+                    "code": "INVALID_INPUT",
+                    "message": "variables must be a JSON object of key-value pairs",
+                }, indent=2)
+        except json.JSONDecodeError as exc:
+            return json.dumps({
+                "status": "error",
+                "code": "INVALID_INPUT",
+                "message": f"Invalid JSON in variables: {exc}",
+            }, indent=2)
+
     result = await teams_api.send_message(
         conversation_id=conversation_id,
         content=message,
         content_type=content_type,
         reply_to_message_id=reply_to_message_id or None,
+        template=template or None,
+        variables=parsed_vars or None,
+        target=target or None,
+        test_run_id=test_run_id or None,
     )
 
     if result.ok:
@@ -320,6 +367,91 @@ async def teams_find_channel(
         "query": query,
         "count": result.value["returned"],
         "channels": result.value["results"],
+    }, indent=2)
+
+
+@mcp.tool()
+async def teams_get_chat(
+    user_identifier: str,
+) -> str:
+    """
+    Get the 1:1 chat conversation ID for another user.
+
+    The conversation ID is deterministic — the chat is implicitly created
+    when the first message is sent. Use the returned conversationId with
+    teams_send_message.
+
+    Args:
+        user_identifier: The other user's MRI (8:orgid:guid), object ID,
+                         or raw GUID. Use teams_search_people to find it.
+
+    Returns:
+        JSON with conversationId, otherUserId, and currentUserId.
+    """
+    result = teams_api.get_one_on_one_chat_id(user_identifier)
+
+    if result.ok:
+        return json.dumps(result.value, indent=2)
+
+    return json.dumps({
+        "status": "error",
+        "code": result.error.code.value,
+        "message": result.error.message,
+        "suggestions": result.error.suggestions,
+    }, indent=2)
+
+
+@mcp.tool()
+async def teams_create_group_chat(
+    member_identifiers: str,
+    topic: str = "",
+) -> str:
+    """
+    Create a new group chat with multiple members.
+
+    Requires at least 2 other members (you are added automatically).
+    Use teams_search_people to find user MRIs/IDs first.
+
+    Args:
+        member_identifiers: JSON array of user identifiers (MRIs, object IDs,
+                            or GUIDs). Example: '["8:orgid:abc...", "8:orgid:def..."]'
+        topic: Optional chat topic/name shown in Teams.
+
+    Returns:
+        JSON with conversationId and member list.
+    """
+    try:
+        members = json.loads(member_identifiers)
+        if not isinstance(members, list):
+            return json.dumps({
+                "status": "error",
+                "code": "INVALID_INPUT",
+                "message": "member_identifiers must be a JSON array of strings",
+            }, indent=2)
+    except json.JSONDecodeError as exc:
+        return json.dumps({
+            "status": "error",
+            "code": "INVALID_INPUT",
+            "message": f"Invalid JSON in member_identifiers: {exc}",
+        }, indent=2)
+
+    result = await teams_api.create_group_chat(
+        member_identifiers=members,
+        topic=topic or None,
+    )
+
+    if result.ok:
+        return json.dumps({
+            "status": "created",
+            "message": "Group chat created successfully",
+            "details": result.value,
+        }, indent=2)
+
+    return json.dumps({
+        "status": "error",
+        "code": result.error.code.value,
+        "message": result.error.message,
+        "suggestions": result.error.suggestions,
     }, indent=2)
 
 

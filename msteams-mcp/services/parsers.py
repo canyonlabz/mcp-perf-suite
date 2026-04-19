@@ -13,9 +13,13 @@ import base64
 import re
 import uuid
 from html import unescape
+from html import escape as escape_html
 from typing import Any
 
 MIN_CONTENT_LENGTH = 5
+MRI_TYPE_PREFIX = "8:"
+ORGID_PREFIX = "orgid:"
+MRI_ORGID_PREFIX = f"{MRI_TYPE_PREFIX}{ORGID_PREFIX}"
 
 # ---------------------------------------------------------------------------
 # HTML utilities
@@ -357,3 +361,133 @@ def filter_channels_by_name(
                 })
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Markdown to Teams HTML conversion
+# (ported from TypeScript parsers-markdown.ts)
+# ---------------------------------------------------------------------------
+
+_INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+_BOLD_STAR_RE = re.compile(r"\*\*(.+?)\*\*")
+_BOLD_UNDER_RE = re.compile(r"__(.+?)__")
+_ITALIC_STAR_RE = re.compile(r"\*(.+?)\*")
+_ITALIC_UNDER_RE = re.compile(r"(?<!\w)_(.+?)_(?!\w)")
+_STRIKE_RE = re.compile(r"~~(.+?)~~")
+_FENCED_BLOCK_RE = re.compile(r"```(\w*)\n?([\s\S]*?)```")
+_UNORDERED_LINE_RE = re.compile(r"^\s*[-*]\s+")
+_ORDERED_LINE_RE = re.compile(r"^\s*\d+[.)]\s+")
+
+_HAS_MD_RE = re.compile(
+    r"```[\s\S]*```|`[^`]+`|\*\*.+?\*\*|__.+?__|(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"
+    r"|~~.+?~~|^\s*[-*]\s+|^\s*\d+[.)]\s+|\n",
+    re.MULTILINE,
+)
+
+
+def _convert_inline_formatting(line: str) -> str:
+    """Convert inline markdown to Teams HTML within a single line."""
+    parts = _INLINE_CODE_RE.split(line)
+    result_parts: list[str] = []
+
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            result_parts.append(f"<code>{escape_html(part)}</code>")
+        else:
+            segment = escape_html(part)
+            segment = _BOLD_STAR_RE.sub(r"<b>\1</b>", segment)
+            segment = _BOLD_UNDER_RE.sub(r"<b>\1</b>", segment)
+            segment = _ITALIC_STAR_RE.sub(r"<i>\1</i>", segment)
+            segment = _ITALIC_UNDER_RE.sub(r"<i>\1</i>", segment)
+            segment = _STRIKE_RE.sub(r"<s>\1</s>", segment)
+            result_parts.append(segment)
+
+    return "".join(result_parts)
+
+
+def has_markdown_formatting(text: str) -> bool:
+    """Check whether text contains markdown formatting worth converting."""
+    return bool(_HAS_MD_RE.search(text))
+
+
+def markdown_to_teams_html(text: str) -> str:
+    """
+    Convert markdown-formatted text to Teams-compatible HTML.
+
+    Supports bold, italic, strikethrough, inline code, fenced code blocks,
+    ordered/unordered lists, paragraph breaks, and line breaks.
+    """
+    segments: list[dict[str, str]] = []
+    last_index = 0
+
+    for match in _FENCED_BLOCK_RE.finditer(text):
+        if match.start() > last_index:
+            segments.append({"type": "text", "content": text[last_index:match.start()]})
+        segments.append({"type": "codeblock", "content": match.group(2)})
+        last_index = match.end()
+
+    if last_index < len(text):
+        segments.append({"type": "text", "content": text[last_index:]})
+
+    html_parts: list[str] = []
+
+    for segment in segments:
+        if segment["type"] == "codeblock":
+            escaped = escape_html(segment["content"].rstrip("\n"))
+            html_parts.append(f"<pre><code>{escaped}</code></pre>")
+            continue
+
+        paragraphs = re.split(r"\n{2,}", segment["content"])
+
+        for para in paragraphs:
+            trimmed = para.strip()
+            if not trimmed:
+                continue
+
+            lines = trimmed.split("\n")
+
+            is_ul = all(_UNORDERED_LINE_RE.match(ln) for ln in lines)
+            is_ol = all(_ORDERED_LINE_RE.match(ln) for ln in lines)
+
+            if is_ul:
+                items = "".join(
+                    f"<li>{_convert_inline_formatting(_UNORDERED_LINE_RE.sub('', ln))}</li>"
+                    for ln in lines
+                )
+                html_parts.append(f"<ul>{items}</ul>")
+            elif is_ol:
+                items = "".join(
+                    f"<li>{_convert_inline_formatting(_ORDERED_LINE_RE.sub('', ln))}</li>"
+                    for ln in lines
+                )
+                html_parts.append(f"<ol>{items}</ol>")
+            else:
+                html_lines = [_convert_inline_formatting(ln) for ln in lines]
+                html_parts.append(f"<p>{'<br>'.join(html_lines)}</p>")
+
+    return "".join(html_parts) or "<p></p>"
+
+
+# ---------------------------------------------------------------------------
+# 1:1 chat conversation ID builder
+# ---------------------------------------------------------------------------
+
+def build_one_on_one_conversation_id(
+    user_id_1: str,
+    user_id_2: str,
+) -> str | None:
+    """
+    Build a deterministic 1:1 conversation ID from two user identifiers.
+
+    Format: 19:{sortedId1}_{sortedId2}@unq.gbl.spaces
+    IDs are sorted lexicographically so both participants produce the same result.
+    Accepts MRI, object ID with tenant, or raw GUID.
+    """
+    id1 = _extract_object_id(user_id_1)
+    id2 = _extract_object_id(user_id_2)
+
+    if not id1 or not id2:
+        return None
+
+    sorted_ids = sorted([id1, id2])
+    return f"19:{sorted_ids[0]}_{sorted_ids[1]}@unq.gbl.spaces"

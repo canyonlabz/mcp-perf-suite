@@ -2,7 +2,7 @@
 HTTP client for Microsoft Teams APIs.
 
 Uses the Skype token (from cookie-based auth) to call:
-  - chatsvc: send/receive messages (users/ME/conversations endpoint)
+  - chatsvc: send/receive messages, create group chats (users/ME/conversations)
   - CSA: teams/channels listing (v3 API)
 
 Endpoints are dynamically resolved from the user's session config
@@ -16,6 +16,8 @@ import logging
 import time
 from typing import Any
 from urllib.parse import quote, urlparse
+
+from . import parsers
 
 import httpx
 
@@ -92,6 +94,11 @@ def _chatsvc_messages_url(region: str, conversation_id: str, base: str, reply_to
     """Build chatsvc messages URL. Mirrors CHATSVC_API.messages() from TS source."""
     conv_path = f"{conversation_id};messageid={reply_to}" if reply_to else conversation_id
     return f"{base}/api/chatsvc/{region}/v1/users/ME/conversations/{quote(conv_path, safe='')}/messages"
+
+
+def _chatsvc_threads_url(region: str, base: str) -> str:
+    """Build chatsvc threads URL for creating group chats."""
+    return f"{base}/api/chatsvc/{region}/v1/threads"
 
 
 def _csa_teams_list_url(region: str, base: str) -> str:
@@ -308,33 +315,91 @@ async def send_message(
     *,
     content_type: str = "text",
     reply_to_message_id: str | None = None,
+    template: str | None = None,
+    variables: dict[str, str] | None = None,
+    target: str | None = None,
+    test_run_id: str | None = None,
 ) -> Result[dict[str, Any]]:
     """
     Send a message to a Teams conversation (channel, chat, or group).
 
-    Mirrors sendMessage() from chatsvc-messaging.ts.
+    Supports optional template rendering: when `template` is provided,
+    the template is loaded, placeholders are interpolated, markdown is
+    converted to Teams HTML, and the result is sent as rich content.
 
     Args:
-        conversation_id: Channel ID (19:xxx@thread.tacv2) or chat ID
-        content: Message body (plain text or HTML)
-        content_type: "text" for plain text, "html" for rich content
-        reply_to_message_id: For channel thread replies, the root message ID
+        conversation_id: Channel/chat ID. Ignored when `target` is provided.
+        content: Message body (plain text, markdown, or HTML).
+        content_type: "text" for plain text, "html" for rich content.
+        reply_to_message_id: For channel thread replies, the root message ID.
+        template: Template filename (e.g. "notification-start-test.md").
+        variables: Key-value pairs to interpolate into the template.
+        target: Named target from config or raw conversation ID.
+        test_run_id: Loads context variables from artifacts/<test_run_id>/.
     """
+    from . import template_manager, target_resolver
+
+    resolved_conversation_id = conversation_id
+    channel_template: str | None = None
+
+    if target:
+        resolved = target_resolver.resolve_target(target)
+        if resolved["conversation_id"]:
+            resolved_conversation_id = resolved["conversation_id"]
+        channel_template = resolved.get("template")
+
+    if not resolved_conversation_id:
+        return err(create_error(
+            ErrorCode.INVALID_INPUT,
+            "No conversation_id resolved. Provide conversation_id or a valid target name.",
+        ))
+
+    final_content = content
+    final_content_type = content_type
+    used_template: str | None = None
+
+    if template:
+        merged_vars = {}
+
+        if test_run_id:
+            merged_vars.update(template_manager.load_context_variables(test_run_id))
+
+        if variables:
+            merged_vars.update(variables)
+
+        if content and "MESSAGE" not in merged_vars:
+            merged_vars["MESSAGE"] = content
+
+        try:
+            tmpl_content, used_template = template_manager.load_template(
+                template, channel_template=channel_template,
+            )
+        except FileNotFoundError as exc:
+            return err(create_error(ErrorCode.NOT_FOUND, str(exc)))
+
+        rendered_md = template_manager.render_template(tmpl_content, merged_vars)
+        final_content = parsers.markdown_to_teams_html(rendered_md)
+        final_content_type = "html"
+
+    elif content_type == "text" and parsers.has_markdown_formatting(content):
+        final_content = parsers.markdown_to_teams_html(content)
+        final_content_type = "html"
+
     headers_result = await _get_messaging_headers()
     if not headers_result.ok:
         return err(headers_result.error)
 
     rc = _get_region_config()
     url = _chatsvc_messages_url(
-        rc["region"], conversation_id, rc["teams_base_url"],
+        rc["region"], resolved_conversation_id, rc["teams_base_url"],
         reply_to=reply_to_message_id,
     )
 
     display_name = token_extractor.get_user_display_name()
 
     body: dict[str, Any] = {
-        "content": content,
-        "messagetype": "RichText/Html" if content_type == "html" else "Text",
+        "content": final_content,
+        "messagetype": "RichText/Html" if final_content_type == "html" else "Text",
         "contenttype": "text",
         "imdisplayname": display_name,
         "clientmessageid": str(int(time.time() * 1000)),
@@ -344,7 +409,178 @@ async def send_message(
     if not result.ok:
         return result
 
+    message_id = body["clientmessageid"]
+
+    if test_run_id and used_template:
+        try:
+            template_manager.log_notification(
+                test_run_id,
+                template=used_template,
+                target=resolved_conversation_id,
+                variables=variables or {},
+                rendered_content=final_content,
+                message_id=message_id,
+            )
+        except Exception as log_exc:
+            logger.warning("Failed to log notification: %s", log_exc)
+
     return ok({
-        "messageId": body["clientmessageid"],
+        "messageId": message_id,
         "timestamp": result.value.get("OriginalArrivalTime") if isinstance(result.value, dict) else None,
+        "template": used_template,
+        "target": resolved_conversation_id,
+    })
+
+
+# ---------------------------------------------------------------------------
+# 1:1 Chat (deterministic conversation ID)
+# ---------------------------------------------------------------------------
+
+def get_one_on_one_chat_id(
+    other_user_identifier: str,
+) -> Result[dict[str, Any]]:
+    """
+    Get the conversation ID for a 1:1 chat with another user.
+
+    The ID is deterministic (19:{sorted_id1}_{sorted_id2}@unq.gbl.spaces).
+    The conversation is implicitly created when the first message is sent.
+
+    Args:
+        other_user_identifier: MRI (8:orgid:guid), object-id, or raw GUID.
+
+    Returns:
+        Result with conversationId, otherUserId, and currentUserId.
+    """
+    profile = token_extractor.get_user_profile()
+    if not profile or not profile.object_id:
+        return err(create_error(
+            ErrorCode.AUTH_REQUIRED,
+            "No valid session. Please use teams_login first.",
+        ))
+
+    current_user_id = profile.object_id
+
+    conversation_id = parsers.build_one_on_one_conversation_id(
+        current_user_id, other_user_identifier,
+    )
+
+    if not conversation_id:
+        return err(create_error(
+            ErrorCode.INVALID_INPUT,
+            f"Invalid user identifier: {other_user_identifier}. "
+            "Expected MRI (8:orgid:guid), ID with tenant (guid@tenant), or raw GUID.",
+        ))
+
+    other_user_id = parsers._extract_object_id(other_user_identifier) or other_user_identifier
+
+    return ok({
+        "conversationId": conversation_id,
+        "otherUserId": other_user_id,
+        "currentUserId": current_user_id,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Group Chat (API-created conversation)
+# ---------------------------------------------------------------------------
+
+MRI_ORGID_PREFIX = "8:orgid:"
+
+async def create_group_chat(
+    member_identifiers: list[str],
+    topic: str | None = None,
+) -> Result[dict[str, Any]]:
+    """
+    Create a new group chat with multiple members.
+
+    Unlike 1:1 chats, group chat IDs are server-assigned and require
+    an API call. Requires at least 2 other members (3+ total with you).
+
+    Args:
+        member_identifiers: User MRIs, object IDs, or GUIDs.
+        topic: Optional chat topic/name shown in Teams.
+
+    Returns:
+        Result with conversationId, members list, and optional topic.
+    """
+    if not member_identifiers or len(member_identifiers) < 2:
+        return err(create_error(
+            ErrorCode.INVALID_INPUT,
+            "Group chat requires at least 2 other members. "
+            "For 1:1 chats, use teams_get_chat instead.",
+        ))
+
+    unique = set(member_identifiers)
+    if len(unique) != len(member_identifiers):
+        return err(create_error(
+            ErrorCode.INVALID_INPUT,
+            "Duplicate members detected in group chat request.",
+        ))
+
+    if len(member_identifiers) > 250:
+        return err(create_error(
+            ErrorCode.INVALID_INPUT,
+            "Group chat cannot have more than 250 members.",
+        ))
+
+    auth_result = await auth_manager.get_message_auth()
+    if not auth_result.ok:
+        return err(auth_result.error)
+
+    tokens = auth_result.value
+    current_mri = tokens.get("user_mri", "")
+
+    member_mris: list[str] = [current_mri]
+
+    for identifier in member_identifiers:
+        obj_id = parsers._extract_object_id(identifier)
+        if not obj_id:
+            return err(create_error(
+                ErrorCode.INVALID_INPUT,
+                f"Invalid user identifier: {identifier}. "
+                "Expected MRI (8:orgid:guid), ID with tenant (guid@tenant), or raw GUID.",
+            ))
+        mri = identifier if identifier.startswith(MRI_ORGID_PREFIX) else f"{MRI_ORGID_PREFIX}{obj_id}"
+        member_mris.append(mri)
+
+    body: dict[str, Any] = {
+        "members": [{"id": mri, "role": "Admin"} for mri in member_mris],
+        "properties": {"threadType": "chat"},
+    }
+
+    if topic:
+        body["properties"]["topic"] = topic
+
+    headers_result = await _get_messaging_headers()
+    if not headers_result.ok:
+        return err(headers_result.error)
+
+    rc = _get_region_config()
+    url = _chatsvc_threads_url(rc["region"], rc["teams_base_url"])
+
+    result = await _request("POST", url, headers=headers_result.value, json_body=body)
+    if not result.ok:
+        return result
+
+    conversation_id = None
+    if isinstance(result.value, dict):
+        tr = result.value.get("threadResource", {})
+        conversation_id = (
+            (tr.get("id") if isinstance(tr, dict) else None)
+            or result.value.get("id")
+            or result.value.get("threadId")
+        )
+
+    if not conversation_id:
+        return ok({
+            "conversationId": "(created — check Teams for conversation ID)",
+            "members": member_mris,
+            "topic": topic,
+            "note": "Group chat created but API did not return the conversation ID.",
+        })
+
+    return ok({
+        "conversationId": conversation_id,
+        "members": member_mris,
+        "topic": topic,
     })
