@@ -10,6 +10,10 @@ A Python-based MCP server built with FastMCP 2.0 to automate Microsoft Teams not
 - 🔄 **Three-Layer Token Resolution**: In-memory cache → encrypted session file → browser login (fast path avoids browser launches)
 - 🛡️ **Encrypted Session Storage**: AES-256-GCM encryption with machine-bound scrypt key derivation
 - 📡 **SSO Support**: Automatic session reuse across server restarts — login once, reuse silently until tokens expire
+- 💬 **Chat & Group Chat**: Create 1:1 chats and group chats with multiple members for stakeholder communication
+- 📋 **Templated Notifications**: Pre-defined markdown templates with `{{PLACEHOLDER}}` interpolation, auto-converted to Teams HTML
+- 🎯 **Config-Driven Targets**: Named notification targets (channels, chats) in YAML config with auto-resolution
+- 📁 **Test Run Context**: Auto-populates template variables from `artifacts/<test_run_id>/` (BlazeMeter, Confluence links) and logs notifications for context tracking
 - 🧩 **FastMCP 2.0**: Consistent architecture with the rest of the mcp-perf-suite ecosystem
 
 ## 🛠️ Prerequisites
@@ -71,9 +75,16 @@ Call `teams_login` from any Cursor agent conversation. On first run:
 
 | 🛠️ Tool Name | 📃 Description |
 |--------------|----------------|
-| `teams_send_message` | Send a message to a channel, chat, or group conversation |
+| `teams_send_message` | Send a message to a channel, chat, or group — supports templates, named targets, and `test_run_id` context |
 | `teams_list_channels` | List all teams and channels the authenticated user has access to |
 | `teams_find_channel` | Search for channels by name (org-wide discovery + membership status) |
+
+#### Chats
+
+| 🛠️ Tool Name | 📃 Description |
+|--------------|----------------|
+| `teams_get_chat` | Get a 1:1 chat conversation ID for another user (deterministic, no API call) |
+| `teams_create_group_chat` | Create a new group chat with 2+ members and optional topic |
 
 #### Search & People
 
@@ -110,15 +121,50 @@ teams_status()
 # }
 ```
 
-### Example: Send a Notification
+### Example: Send a Plain Message
 ```
 # List available channels first
 teams_list_channels()
 # → [{"displayName": "Performance Engineering", "channels": [{"id": "19:abc@thread.tacv2", ...}]}]
 
-# Send a message to the channel
-teams_send_message(conversation_id="19:abc@thread.tacv2", message="Load test starting in 5 minutes")
-# → {"status": "sent", "message": "Message delivered successfully"}
+# Send a plain message (markdown auto-converted to Teams HTML)
+teams_send_message(conversation_id="19:abc@thread.tacv2", message="**Load test** starting in 5 minutes")
+# → {"status": "sent", "details": {"messageId": "...", "target": "19:abc@thread.tacv2"}}
+```
+
+### Example: Send a Templated Notification
+```
+# Send a start-test notification using a template + named target from config
+teams_send_message(
+    target="perf-channel",
+    template="notification-start-test.md",
+    variables='{"TEST_NAME": "50-User Load Test", "ENVIRONMENT": "staging", "DURATION": "30 min", "VIRTUAL_USERS": "50"}',
+    message="Heads up — starting load test shortly."
+)
+# → Template loaded, placeholders interpolated, markdown→HTML converted, sent to perf-channel
+
+# Send a test-results notification with auto-populated context from artifacts
+teams_send_message(
+    target="perf-channel",
+    template="notification-test-results.md",
+    test_run_id="abc-123-run",
+    message="Test completed successfully. See report for details."
+)
+# → Auto-reads BlazeMeter/Confluence links from artifacts/abc-123-run/, fills template, sends
+```
+
+### Example: 1:1 and Group Chats
+```
+# Get a 1:1 chat with a colleague (deterministic ID, no API call)
+teams_get_chat(user_identifier="8:orgid:abc-123-456")
+# → {"conversationId": "19:abc_def@unq.gbl.spaces", "otherUserId": "abc-123-456"}
+
+# Create a group chat for triage
+teams_create_group_chat(
+    member_identifiers='["8:orgid:abc-123", "8:orgid:def-456"]',
+    topic="Load Test Triage"
+)
+# → {"status": "created", "details": {"conversationId": "19:xyz@thread.v2", "members": [...]}}
 ```
 
 ### Example: Search Messages
@@ -230,7 +276,7 @@ After the user logs in, the system detects success by checking for **tokens in l
 
 ```
 msteams-mcp/
-├── msteams.py                      # FastMCP server entry point
+├── msteams.py                      # FastMCP server entry point (10 tools)
 ├── services/
 │   ├── auth_manager.py             # Three-layer auth orchestration
 │   ├── browser_auth.py             # Teams navigation + login detection
@@ -239,9 +285,15 @@ msteams-mcp/
 │   ├── session_store.py            # Encrypted session persistence
 │   ├── crypto.py                   # AES-256-GCM encryption primitives
 │   ├── errors.py                   # ErrorCode enum, McpError, Result monad
-│   ├── teams_api.py                # Chatsvc + CSA API client (messaging, channel listing)
+│   ├── teams_api.py                # Chatsvc + CSA API client (messaging, chats, channels)
 │   ├── substrate_api.py            # Substrate API client (search, people, channel discovery)
-│   └── parsers.py                  # Pure parsing functions for API responses
+│   ├── parsers.py                  # Parsing functions + markdown→Teams HTML converter
+│   ├── template_manager.py         # Template loading, rendering, and notification logging
+│   └── target_resolver.py          # Named target resolution from config
+├── templates/
+│   ├── default-notification-start-test.md    # Start-test notification template
+│   ├── default-notification-stop-test.md     # Stop-test notification template
+│   └── default-notification-test-results.md  # Results summary notification template
 ├── utils/
 │   └── config.py                   # Platform-aware YAML config loader
 ├── config.yaml                     # Application configuration
@@ -275,6 +327,18 @@ teams:
   max_page_size: 100                # Max search results page size
   default_people_limit: 10          # Default people search results
   default_channel_limit: 10         # Default channel search results
+  templates_path: "./templates"     # Path to notification templates
+
+  # Named notification targets — auto-resolved by teams_send_message
+  notification_targets:
+    channels:
+      perf-channel:
+        conversation_id: "19:abc@thread.tacv2"
+        description: "Performance testing notifications"
+        # template: "custom-start-test.md"   # Optional per-channel template override
+    default_chat:
+      conversation_id: ""
+      description: "Default chat for notifications"
 ```
 
 ### OS-Specific Overrides
@@ -297,11 +361,19 @@ Create `config.windows.yaml` or `config.mac.yaml` for platform-specific settings
 - `teams_search_people` — People search by name or email
 - `teams_get_me` — Current user profile extraction
 
-### Phase 4 — Performance Testing Integration (Planned)
-- Pre-test notification templates
-- Post-test result summaries with links to reports
-- Adaptive Card formatting for rich messages
+### Phase 4 — Chats & Templated Notifications ✅
+- `teams_get_chat` — 1:1 chat conversation ID resolution
+- `teams_create_group_chat` — Group chat creation with member management
+- Markdown → Teams HTML auto-conversion
+- `{{PLACEHOLDER}}` notification templates (start, stop, results) with default/custom fallback
+- Config-driven named targets with per-channel template overrides
+- `test_run_id` context auto-population from BlazeMeter/Confluence artifacts
+- Notification logging to `artifacts/<test_run_id>/notifications/`
+
+### Phase 5 — Future Enhancements (Planned)
+- Adaptive Card formatting for rich structured messages
 - `teams_logout` tool for explicit session cleanup
+- Integration with `performance-testing-workflow` skill for end-to-end notifications
 
 ## 🐛 Troubleshooting
 
@@ -327,6 +399,46 @@ Create `config.windows.yaml` or `config.mac.yaml` for platform-specific settings
 ### Session Expired
 - Call `teams_login(force=True)` to force a fresh browser login
 - Check `teams_status` for `sessionAgeHours` — sessions expire after 12 hours by default
+
+## 📋 Notification Templates
+
+### How Templates Work
+
+Templates are markdown files in the `templates/` directory with `{{PLACEHOLDER}}` variables. When `teams_send_message` is called with a `template` parameter:
+
+1. **Load**: Template is loaded using layered fallback (channel-specific → caller-specified → default)
+2. **Populate**: Variables are interpolated from three sources (merged in order):
+   - `test_run_id` context (auto-read from `artifacts/<test_run_id>/`)
+   - Explicit `variables` parameter
+   - `message` parameter (fills `{{MESSAGE}}`)
+3. **Convert**: Rendered markdown is converted to Teams-compatible HTML
+4. **Send**: HTML content is sent to the resolved target
+5. **Log**: Notification is logged to `artifacts/<test_run_id>/notifications/notification_log.json`
+
+### Default Templates
+
+| Template | Purpose | Key Placeholders |
+|----------|---------|------------------|
+| `default-notification-start-test.md` | Pre-test alert | `TEST_NAME`, `ENVIRONMENT`, `DURATION`, `VIRTUAL_USERS` |
+| `default-notification-stop-test.md` | Post-test completion | Same as start + `END_TIME`, `STATUS` |
+| `default-notification-test-results.md` | Results summary | Same as stop + `AVG_RESPONSE_TIME`, `ERROR_RATE`, `BLAZEMETER_REPORT_LINK`, `CONFLUENCE_REPORT_LINK` |
+
+### Custom Templates
+
+Create your own templates in the `templates/` directory. Name them without the `default-` prefix to override the defaults:
+
+- `notification-start-test.md` overrides `default-notification-start-test.md`
+- Or use a completely custom name like `my-team-notification.md` and pass it directly via the `template` parameter
+
+### Auto-Populated Variables from `test_run_id`
+
+When `test_run_id` is provided, these variables are auto-populated from artifacts:
+
+| Source File | Variable |
+|-------------|----------|
+| `blazemeter/public_report.json` | `{{BLAZEMETER_REPORT_LINK}}`, `{{REPORT_LINK}}` |
+| `confluence/report_metadata.json` | `{{CONFLUENCE_REPORT_LINK}}`, `{{REPORT_LINK}}` |
+| `notifications/notification_log.json` | `{{TEST_NAME}}`, `{{ENVIRONMENT}}`, `{{DURATION}}`, `{{START_TIME}}` (from last start notification) |
 
 ## 📄 License
 
