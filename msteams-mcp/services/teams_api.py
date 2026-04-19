@@ -1,0 +1,350 @@
+"""
+HTTP client for Microsoft Teams APIs.
+
+Uses the Skype token (from cookie-based auth) to call:
+  - chatsvc: send/receive messages (users/ME/conversations endpoint)
+  - CSA: teams/channels listing (v3 API)
+
+Endpoints are dynamically resolved from the user's session config
+(DISCOVER-REGION-GTM) to support commercial, GCC, and DoD tenants.
+
+All methods return Result[T] for consistent error handling.
+"""
+
+import asyncio
+import logging
+import time
+from typing import Any
+from urllib.parse import quote, urlparse
+
+import httpx
+
+from . import auth_manager, token_extractor
+from .errors import (
+    ErrorCode,
+    Result,
+    ok,
+    err,
+    create_error,
+    classify_http_error,
+)
+from utils.config import load_config
+
+logger = logging.getLogger("msteams-mcp.teams-api")
+
+_config = load_config()
+_teams_cfg = _config.get("teams", {})
+
+HTTP_TIMEOUT = _teams_cfg.get("http_request_timeout_sec", 30)
+RETRY_MAX = _teams_cfg.get("retry_max_attempts", 3)
+RETRY_BASE_DELAY = _teams_cfg.get("retry_base_delay_sec", 1)
+RETRY_MAX_DELAY = _teams_cfg.get("retry_max_delay_sec", 10)
+
+# Fallback values if region config isn't available
+_DEFAULT_REGION = "amer"
+_DEFAULT_TEAMS_BASE = "https://teams.microsoft.com"
+
+# Cached region config (populated on first API call)
+_region_cache: dict[str, str] | None = None
+
+
+def _get_region_config() -> dict[str, str]:
+    """
+    Extract region and base URLs from session localStorage.
+
+    Returns dict with keys: region, teams_base_url
+    """
+    global _region_cache
+    if _region_cache:
+        return _region_cache
+
+    config = token_extractor.extract_region_config()
+    region = _DEFAULT_REGION
+    teams_base = _DEFAULT_TEAMS_BASE
+
+    if config:
+        region = config.get("region", _DEFAULT_REGION)
+        chat_svc_afd = config.get("chatServiceAfd", "")
+        if chat_svc_afd:
+            parsed = urlparse(chat_svc_afd)
+            teams_base = f"{parsed.scheme}://{parsed.hostname}"
+
+    _region_cache = {
+        "region": region,
+        "teams_base_url": teams_base,
+    }
+
+    logger.info("Region config: region=%s, base=%s", region, teams_base)
+    return _region_cache
+
+
+def _reset_region_cache() -> None:
+    """Reset cached region config (e.g., after re-login)."""
+    global _region_cache
+    _region_cache = None
+
+
+# ---------------------------------------------------------------------------
+# URL builders (matching api-config.ts patterns)
+# ---------------------------------------------------------------------------
+
+def _chatsvc_messages_url(region: str, conversation_id: str, base: str, reply_to: str | None = None) -> str:
+    """Build chatsvc messages URL. Mirrors CHATSVC_API.messages() from TS source."""
+    conv_path = f"{conversation_id};messageid={reply_to}" if reply_to else conversation_id
+    return f"{base}/api/chatsvc/{region}/v1/users/ME/conversations/{quote(conv_path, safe='')}/messages"
+
+
+def _csa_teams_list_url(region: str, base: str) -> str:
+    """Build CSA teams list URL. Mirrors CSA_API.teamsList() — uses v3."""
+    return f"{base}/api/csa/{region}/api/v3/teams/users/me?isPrefetch=false&enableMembershipSummary=true"
+
+
+# ---------------------------------------------------------------------------
+# Headers
+# ---------------------------------------------------------------------------
+
+def _get_common_headers(base_url: str) -> dict[str, str]:
+    """Common headers matching getTeamsHeaders() from TS source."""
+    return {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Origin": base_url,
+        "Referer": f"{base_url}/",
+    }
+
+
+async def _get_skype_auth_headers() -> Result[dict[str, str]]:
+    """Build auth headers using skypetoken. Mirrors getSkypeAuthHeaders()."""
+    auth_result = await auth_manager.get_message_auth()
+    if not auth_result.ok:
+        return err(auth_result.error)
+
+    tokens = auth_result.value
+    rc = _get_region_config()
+    base = rc["teams_base_url"]
+
+    headers = _get_common_headers(base)
+    headers["Authentication"] = f"skypetoken={tokens['skype_token']}"
+    if tokens.get("auth_token"):
+        headers["Authorization"] = f"Bearer {tokens['auth_token']}"
+
+    return ok(headers)
+
+
+async def _get_messaging_headers() -> Result[dict[str, str]]:
+    """Build messaging headers. Mirrors getMessagingHeaders()."""
+    result = await _get_skype_auth_headers()
+    if not result.ok:
+        return result
+
+    headers = result.value
+    headers["X-Ms-Client-Version"] = "1415/1.0.0.2025010401"
+    return ok(headers)
+
+
+# ---------------------------------------------------------------------------
+# HTTP client with retry
+# ---------------------------------------------------------------------------
+
+async def _request(
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    json_body: dict | None = None,
+    params: dict | None = None,
+) -> Result[Any]:
+    """Make an HTTP request with retry logic. Returns parsed JSON on success."""
+    if headers is None:
+        h_result = await _get_skype_auth_headers()
+        if not h_result.ok:
+            return err(h_result.error)
+        headers = h_result.value
+
+    last_error = None
+
+    for attempt in range(1, RETRY_MAX + 1):
+        try:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                response = await client.request(
+                    method, url, headers=headers, json=json_body, params=params,
+                )
+
+            if response.status_code in (200, 201):
+                try:
+                    return ok(response.json())
+                except Exception:
+                    return ok(response.text)
+
+            error_code = classify_http_error(response.status_code)
+
+            if response.status_code == 429:
+                retry_after = float(response.headers.get("Retry-After", RETRY_BASE_DELAY))
+                logger.warning("Rate limited, waiting %.1fs (attempt %d/%d)", retry_after, attempt, RETRY_MAX)
+                await asyncio.sleep(retry_after)
+                continue
+
+            if response.status_code >= 500 and attempt < RETRY_MAX:
+                delay = min(RETRY_BASE_DELAY * (2 ** (attempt - 1)), RETRY_MAX_DELAY)
+                logger.warning("Server error %d, retrying in %.1fs (attempt %d/%d)", response.status_code, delay, attempt, RETRY_MAX)
+                await asyncio.sleep(delay)
+                continue
+
+            body_text = response.text[:500]
+            last_error = create_error(error_code, f"HTTP {response.status_code}: {body_text}")
+            break
+
+        except httpx.TimeoutException:
+            last_error = create_error(ErrorCode.TIMEOUT, f"Request timed out after {HTTP_TIMEOUT}s")
+            if attempt < RETRY_MAX:
+                await asyncio.sleep(RETRY_BASE_DELAY)
+                continue
+            break
+
+        except httpx.ConnectError as exc:
+            last_error = create_error(ErrorCode.NETWORK_ERROR, f"Connection failed: {exc}")
+            if attempt < RETRY_MAX:
+                await asyncio.sleep(RETRY_BASE_DELAY)
+                continue
+            break
+
+        except Exception as exc:
+            last_error = create_error(ErrorCode.UNKNOWN, f"Unexpected error: {exc}")
+            break
+
+    return err(last_error)
+
+
+# ---------------------------------------------------------------------------
+# Teams / Channel discovery (CSA v3 API)
+# ---------------------------------------------------------------------------
+
+async def _get_csa_headers() -> Result[dict[str, str]]:
+    """Build CSA headers: skypetoken Authentication + CSA Bearer token."""
+    auth_result = await auth_manager.get_message_auth()
+    if not auth_result.ok:
+        return err(auth_result.error)
+
+    csa_token = token_extractor.extract_csa_token()
+    if not csa_token:
+        return err(create_error(
+            ErrorCode.AUTH_REQUIRED,
+            "No CSA token found — call teams_login to authenticate",
+        ))
+
+    tokens = auth_result.value
+    rc = _get_region_config()
+    base = rc["teams_base_url"]
+
+    headers = _get_common_headers(base)
+    headers["Authentication"] = f"skypetoken={tokens['skype_token']}"
+    headers["Authorization"] = f"Bearer {csa_token}"
+
+    return ok(headers)
+
+
+async def get_my_teams_and_channels() -> Result[list[dict[str, Any]]]:
+    """
+    Get all teams and channels the user is a member of.
+
+    Uses the CSA v3 teams/users/me endpoint — returns the full list,
+    not a search. Mirrors getMyTeamsAndChannels() from csa-api.ts.
+    """
+    headers_result = await _get_csa_headers()
+    if not headers_result.ok:
+        return err(headers_result.error)
+
+    rc = _get_region_config()
+    url = _csa_teams_list_url(rc["region"], rc["teams_base_url"])
+
+    result = await _request("GET", url, headers=headers_result.value)
+    if not result.ok:
+        return result
+
+    data = result.value
+
+    # Parse the response — structure varies, extract teams with channels
+    raw_teams = []
+    if isinstance(data, dict):
+        raw_teams = data.get("teams", data.get("value", []))
+    elif isinstance(data, list):
+        raw_teams = data
+
+    teams = []
+    for team in raw_teams:
+        if not isinstance(team, dict):
+            continue
+
+        channels = []
+        raw_channels = team.get("channels", [])
+        if isinstance(raw_channels, list):
+            for ch in raw_channels:
+                if not isinstance(ch, dict):
+                    continue
+                channels.append({
+                    "id": ch.get("id", ""),
+                    "displayName": ch.get("displayName", ch.get("name", "")),
+                    "description": ch.get("description", ""),
+                    "membershipType": ch.get("membershipType", ""),
+                })
+
+        teams.append({
+            "id": team.get("id", ""),
+            "displayName": team.get("displayName", team.get("name", "")),
+            "description": team.get("description", ""),
+            "channels": channels,
+        })
+
+    return ok(teams)
+
+
+# ---------------------------------------------------------------------------
+# Messaging (chatsvc API)
+# ---------------------------------------------------------------------------
+
+async def send_message(
+    conversation_id: str,
+    content: str,
+    *,
+    content_type: str = "text",
+    reply_to_message_id: str | None = None,
+) -> Result[dict[str, Any]]:
+    """
+    Send a message to a Teams conversation (channel, chat, or group).
+
+    Mirrors sendMessage() from chatsvc-messaging.ts.
+
+    Args:
+        conversation_id: Channel ID (19:xxx@thread.tacv2) or chat ID
+        content: Message body (plain text or HTML)
+        content_type: "text" for plain text, "html" for rich content
+        reply_to_message_id: For channel thread replies, the root message ID
+    """
+    headers_result = await _get_messaging_headers()
+    if not headers_result.ok:
+        return err(headers_result.error)
+
+    rc = _get_region_config()
+    url = _chatsvc_messages_url(
+        rc["region"], conversation_id, rc["teams_base_url"],
+        reply_to=reply_to_message_id,
+    )
+
+    display_name = token_extractor.get_user_display_name()
+
+    body: dict[str, Any] = {
+        "content": content,
+        "messagetype": "RichText/Html" if content_type == "html" else "Text",
+        "contenttype": "text",
+        "imdisplayname": display_name,
+        "clientmessageid": str(int(time.time() * 1000)),
+    }
+
+    result = await _request("POST", url, headers=headers_result.value, json_body=body)
+    if not result.ok:
+        return result
+
+    return ok({
+        "messageId": body["clientmessageid"],
+        "timestamp": result.value.get("OriginalArrivalTime") if isinstance(result.value, dict) else None,
+    })

@@ -325,6 +325,9 @@ perfreport-mcp/tests/**
 # Ignore the following Streamlit files and directories
 streamlit-ui/config.yaml
 
+# Ignore the following Microsoft Teams local configuration files
+msteams-mcp/config.yaml
+
 # Ignore all Playwright output files
 .playwright-mcp/*
 
