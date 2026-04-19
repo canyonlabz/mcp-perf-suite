@@ -6,6 +6,10 @@ Tools:
   teams_status         — check authentication state and token health
   teams_list_channels  — list joined teams and their channels
   teams_send_message   — send a message to a Teams conversation
+  teams_get_me         — get the current user's profile (email, name, Teams ID)
+  teams_search         — search messages across Teams conversations
+  teams_search_people  — search for people by name or email
+  teams_find_channel   — discover channels by name (org-wide + membership)
 """
 
 import json
@@ -13,7 +17,7 @@ import logging
 import sys
 from fastmcp import FastMCP
 from utils.config import load_config
-from services import auth_manager, teams_api
+from services import auth_manager, teams_api, substrate_api, token_extractor
 
 config = load_config()
 server_cfg = config.get("server", {})
@@ -135,6 +139,187 @@ async def teams_send_message(
         "code": result.error.code.value,
         "message": result.error.message,
         "suggestions": result.error.suggestions,
+    }, indent=2)
+
+
+@mcp.tool()
+async def teams_get_me() -> str:
+    """
+    Get the current user's profile information.
+
+    Returns display name, email, Azure AD object ID, tenant ID, and Teams MRI.
+    Useful for finding your own @mention or identifying the current user.
+    No network calls — reads from local session tokens only.
+    Call teams_login first if not yet authenticated.
+
+    Returns:
+        JSON user profile with identity fields.
+    """
+    profile = token_extractor.get_user_profile()
+
+    if not profile:
+        return json.dumps({
+            "status": "error",
+            "code": "AUTH_REQUIRED",
+            "message": "No valid session. Please use teams_login first.",
+            "suggestions": ["Call teams_login to authenticate"],
+        }, indent=2)
+
+    return json.dumps({
+        "displayName": profile.display_name,
+        "email": profile.email,
+        "objectId": profile.object_id,
+        "tenantId": profile.tenant_id,
+        "mri": f"8:orgid:{profile.object_id}",
+    }, indent=2)
+
+
+@mcp.tool()
+async def teams_search(
+    query: str,
+    max_results: int = 25,
+    from_offset: int = 0,
+    size: int = 25,
+) -> str:
+    """
+    Search for messages in Microsoft Teams.
+
+    Returns matching messages with sender, timestamp, content, conversationId
+    (for replies), and pagination info. Results sorted by recency.
+
+    Supported search operators:
+      from:email       — filter by sender (email or name)
+      to:name          — filter by recipient (use spaces not dots: "to:rob macdonald")
+      sent:YYYY-MM-DD  — filter by date (also sent:>=YYYY-MM-DD, sent:today)
+      is:Messages      — only messages (case-sensitive, plural required)
+      is:Channels      — only channel posts
+      is:Chats         — only chat messages
+      hasattachment:true — only messages with attachments
+      "Display Name"   — search for @mentions (quote the name)
+      NOT              — exclude terms (e.g., "budget NOT draft")
+
+    Note: in:channel only works reliably WITH content terms (e.g., "budget in:IT Support").
+    Use teams_get_me first to get your email/displayName for from: queries.
+
+    Args:
+        query: Search query with optional operators.
+        max_results: Maximum results to return (default: 25).
+        from_offset: Pagination offset, 0-based (default: 0).
+        size: Page size per request (default: 25).
+
+    Returns:
+        JSON with results array and pagination info.
+    """
+    result = await substrate_api.search_messages(
+        query,
+        from_=from_offset,
+        size=size,
+        max_results=max_results,
+    )
+
+    if not result.ok:
+        return json.dumps({
+            "status": "error",
+            "code": result.error.code.value,
+            "message": result.error.message,
+            "suggestions": result.error.suggestions,
+        }, indent=2)
+
+    pagination = result.value["pagination"]
+    return json.dumps({
+        "query": query,
+        "resultCount": len(result.value["results"]),
+        "pagination": {
+            "from": pagination["from"],
+            "size": pagination["size"],
+            "returned": pagination["returned"],
+            "total": pagination["total"],
+            "hasMore": pagination["hasMore"],
+            "nextFrom": (
+                pagination["from"] + pagination["returned"]
+                if pagination["hasMore"]
+                else None
+            ),
+        },
+        "results": result.value["results"],
+    }, indent=2)
+
+
+@mcp.tool()
+async def teams_search_people(
+    query: str,
+    limit: int = 10,
+) -> str:
+    """
+    Search for people in Microsoft Teams by name or email.
+
+    Returns matching users with display name, email, job title, department,
+    and Teams MRI (for @mentions in messages). Useful for finding someone
+    to message or resolving a name to an email address.
+
+    Args:
+        query: Search term — name, email address, or partial match.
+        limit: Maximum number of results (default: 10).
+
+    Returns:
+        JSON with results array and count.
+    """
+    result = await substrate_api.search_people(query, limit=limit)
+
+    if not result.ok:
+        return json.dumps({
+            "status": "error",
+            "code": result.error.code.value,
+            "message": result.error.message,
+            "suggestions": result.error.suggestions,
+        }, indent=2)
+
+    return json.dumps({
+        "query": query,
+        "returned": result.value["returned"],
+        "results": result.value["results"],
+    }, indent=2)
+
+
+@mcp.tool()
+async def teams_find_channel(
+    query: str,
+    limit: int = 10,
+) -> str:
+    """
+    Find Teams channels by name.
+
+    Searches both (1) channels in teams you are a member of (reliable) and
+    (2) channels across the organisation (discovery). Results indicate
+    whether you are already a member via the isMember field.
+
+    Use this when you know part of a channel name but need the channel ID.
+    Use teams_list_channels instead to browse all your channels.
+
+    Channel IDs can be used as conversation_id in teams_send_message.
+
+    Args:
+        query: Channel name to search for (partial match).
+        limit: Maximum number of results (default: 10, max: 50).
+
+    Returns:
+        JSON with matching channels including channelId, channelName,
+        teamName, and isMember status.
+    """
+    result = await substrate_api.search_channels(query, limit=limit)
+
+    if not result.ok:
+        return json.dumps({
+            "status": "error",
+            "code": result.error.code.value,
+            "message": result.error.message,
+            "suggestions": result.error.suggestions,
+        }, indent=2)
+
+    return json.dumps({
+        "query": query,
+        "count": result.value["returned"],
+        "channels": result.value["results"],
     }, indent=2)
 
 
