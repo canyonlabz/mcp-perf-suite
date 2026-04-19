@@ -10,6 +10,8 @@ This document summarizes the enhancements and new features added to the MCP Perf
 - [2. Cursor Subagents](#2-cursor-subagents)
 - [3. PerfMemory MCP Server](#3-perfmemory-mcp-server)
 - [4. PerfMemory AI Skill & Debugging Integration](#4-perfmemory-ai-skill--debugging-integration)
+- [5. MS Teams MCP Server](#5-ms-teams-mcp-server)
+- [6. PerfMemory Apache AGE Knowledge Graph](#6-perfmemory-apache-age-knowledge-graph)
 - [Previous Changelogs](#previous-changelogs)
 
 ---
@@ -243,6 +245,244 @@ Updated the smoke test monitoring logic (Steps 3c, 7a, 9c) to stop tests early w
 
 ---
 
+## 5. MS Teams MCP Server
+
+### 5.1 Overview
+
+A new MCP server (`msteams-mcp`) that automates Microsoft Teams notifications for performance testing workflows. Enables pre-test alerts, post-test result sharing, channel/chat discovery, and stakeholder communication — all driven by AI agents.
+
+The server uses browser-based authentication (via Playwright) instead of Azure AD app registration, removing the need for admin consent, client secrets, and OAuth2 flows. Authentication architecture informed by [m0nkmaster/msteams-mcp](https://github.com/nicholasgriffintn/msteams-mcp) (MIT License), reimplemented in Python for the mcp-perf-suite ecosystem.
+
+### 5.2 Authentication Architecture
+
+Three-layer token resolution for fast, reliable authentication:
+
+| Layer | Strategy | Speed |
+|-------|----------|-------|
+| 1. In-Memory Cache | Reuse tokens already in memory | Instant |
+| 2. Encrypted Session File | Decrypt `session-state.json` (AES-256-GCM, machine-bound key) | Fast |
+| 3. Browser Login | SSO first (headless), then visible browser fallback | Slow |
+
+Token types used:
+
+| Token | Used For | TTL |
+|-------|----------|-----|
+| Skype Token | Messaging APIs (chatsvc), CSA channel listing | ~24 hours |
+| Auth Token | General Teams API auth | ~24 hours |
+| Substrate Token | Search, People, and Channel discovery APIs | ~1 hour |
+| CSA Token | Teams/channels list API (CSA v3) | ~24 hours |
+
+### 5.3 MCP Tools (10 total)
+
+#### Authentication
+
+| Tool | Description |
+|------|-------------|
+| `teams_login` | Authenticate to MS Teams (SSO → headless → visible browser fallback) |
+| `teams_status` | Check session health, token validity, and user info (no network calls) |
+
+#### Messaging & Channels
+
+| Tool | Description |
+|------|-------------|
+| `teams_send_message` | Send a message to a channel, chat, or group — supports templates, named targets, and `test_run_id` context |
+| `teams_list_channels` | List all teams and channels the authenticated user has access to |
+| `teams_find_channel` | Search for channels by name (org-wide discovery + membership status) |
+
+#### Chats
+
+| Tool | Description |
+|------|-------------|
+| `teams_get_chat` | Get a 1:1 chat conversation ID for another user (deterministic, no API call) |
+| `teams_create_group_chat` | Create a new group chat with 2+ members and optional topic |
+
+#### Search & People
+
+| Tool | Description |
+|------|-------------|
+| `teams_search` | Full-text search across Teams messages with operator support |
+| `teams_search_people` | Search for people by name or email (returns job title, department, MRI) |
+| `teams_get_me` | Get the current user's profile (display name, email, tenant ID, MRI) |
+
+### 5.4 Templated Notifications
+
+Markdown notification templates with `{{PLACEHOLDER}}` interpolation, auto-converted to Teams-compatible HTML. The enhanced `teams_send_message` tool supports:
+
+- **Template loading** with layered fallback: channel-specific → caller-specified → `default-` prefixed
+- **Variable interpolation** from explicit parameters, `test_run_id` artifact files, or the `message` parameter
+- **Config-driven named targets** — map friendly names (e.g. `perf-channel`) to conversation IDs in `config.yaml`
+- **Per-channel template overrides** — bind a custom template to a specific channel in config
+- **Notification logging** to `artifacts/<test_run_id>/notifications/notification_log.json` for context tracking across notifications (e.g. stop-test references start-test details)
+
+Default templates provided:
+
+| Template | Purpose |
+|----------|---------|
+| `default-notification-start-test.md` | Pre-test alert with test name, environment, duration, virtual users |
+| `default-notification-stop-test.md` | Post-test completion with status and end time |
+| `default-notification-test-results.md` | Results summary with key metrics and report links |
+
+Auto-populated variables from `test_run_id` artifacts:
+
+| Source | Variables |
+|--------|-----------|
+| `blazemeter/public_report.json` | `BLAZEMETER_REPORT_LINK`, `REPORT_LINK` |
+| `confluence/report_metadata.json` | `CONFLUENCE_REPORT_LINK`, `REPORT_LINK` |
+| `notifications/notification_log.json` | `TEST_NAME`, `ENVIRONMENT`, `DURATION`, `START_TIME` (from last start notification) |
+
+### 5.5 Markdown to Teams HTML Conversion
+
+A Python port of the TypeScript markdown converter, supporting:
+
+- Bold, italic, strikethrough, inline code, fenced code blocks
+- Ordered and unordered lists
+- Paragraph breaks and line breaks
+- Auto-detection: plain text with markdown formatting is automatically converted when `content_type="text"`
+
+### 5.6 Files Created
+
+| File | Purpose |
+|------|---------|
+| `msteams-mcp/msteams.py` | FastMCP server entry point with 10 tool definitions |
+| `msteams-mcp/services/auth_manager.py` | Three-layer auth orchestration |
+| `msteams-mcp/services/browser_auth.py` | Teams navigation + login detection |
+| `msteams-mcp/services/browser_context.py` | Playwright persistent browser context |
+| `msteams-mcp/services/token_extractor.py` | JWT decode + token extraction from localStorage |
+| `msteams-mcp/services/session_store.py` | Encrypted session persistence |
+| `msteams-mcp/services/crypto.py` | AES-256-GCM encryption primitives |
+| `msteams-mcp/services/errors.py` | ErrorCode enum, McpError, Result monad |
+| `msteams-mcp/services/teams_api.py` | Chatsvc + CSA API client (messaging, chats, channels) |
+| `msteams-mcp/services/substrate_api.py` | Substrate API client (search, people, channel discovery) |
+| `msteams-mcp/services/parsers.py` | Parsing functions + markdown to Teams HTML converter |
+| `msteams-mcp/services/template_manager.py` | Template loading, rendering, and notification logging |
+| `msteams-mcp/services/target_resolver.py` | Named target resolution from config |
+| `msteams-mcp/templates/default-notification-start-test.md` | Start-test notification template |
+| `msteams-mcp/templates/default-notification-stop-test.md` | Stop-test notification template |
+| `msteams-mcp/templates/default-notification-test-results.md` | Results summary notification template |
+| `msteams-mcp/utils/config.py` | Platform-aware YAML config loader |
+| `msteams-mcp/config.example.yaml` | Configuration template with notification targets |
+| `msteams-mcp/pyproject.toml` | Python project metadata + dependencies |
+| `msteams-mcp/README.md` | Setup guide, tool reference, and workflow documentation |
+
+---
+
+## 6. PerfMemory Apache AGE Knowledge Graph
+
+### 6.1 Overview
+
+Enhanced the PerfMemory MCP server (v0.2.0) with an Apache AGE knowledge graph layer alongside the existing pgvector vector search. This enables structural relationship traversal across projects, error patterns, and fix patterns — complementing semantic similarity search with graph-based issue discovery. The goal: give AI agents enough structural memory to recognize patterns and auto-fix JMeter scripts, breaking out of repetitive debugging loops.
+
+### 6.2 Infrastructure
+
+Built a custom Docker image (`perfmem-pgvector-age`) that compiles Apache AGE from source against PostgreSQL 18, layered on top of the existing `pgvector/pgvector:pg18` base image.
+
+| Component | Details |
+|-----------|---------|
+| Base image | `pgvector/pgvector:pg18` |
+| AGE version | `PG18/v1.7.0-rc0` (compiled from source) |
+| Container name | `perfmem-pgvector-age` |
+| Preloaded libraries | `shared_preload_libraries = 'age'` |
+
+Existing pgvector data is fully preserved — the volume mount is unchanged and no migration is needed for relational/vector data.
+
+### 6.3 Graph Schema
+
+The `perf_knowledge` graph uses 4 vertex labels and 4 edge types:
+
+**Vertex Labels:**
+
+| Label | Purpose | Key Properties |
+|-------|---------|----------------|
+| `Attempt` | Maps 1:1 to a `debug_attempts` row | `attempt_id`, `project`, `error_category`, `fix_type`, `outcome` |
+| `Project` | Groups attempts by `system_under_test` | `name` |
+| `ErrorPattern` | Represents a class of error | `error_category`, `response_code` |
+| `FixPattern` | Represents a class of fix | `fix_type`, `component_type` |
+
+**Edge Types:**
+
+| Edge | From → To | Purpose |
+|------|-----------|---------|
+| `BELONGS_TO` | Attempt → Project | Project membership |
+| `HAS_ERROR` | Attempt → ErrorPattern | Links attempt to its error class |
+| `FIXED_BY` | Attempt → FixPattern | Links resolved attempt to its fix class |
+| `SIMILAR_TO` | Attempt → Attempt | Structural or embedding-based similarity |
+
+### 6.4 New MCP Tools
+
+Two new graph-specific tools added (11 tools total):
+
+| Tool | Purpose |
+|------|---------|
+| `find_cross_project_patterns` | Graph traversal to find resolved attempts from other projects sharing the same ErrorPattern. Used as a fallback when vector search returns no matches. Supports enrichment with full relational details. |
+| `get_related_issues` | Explore the graph neighborhood of a specific attempt — returns connected ErrorPatterns, FixPatterns, and neighboring attempts via SIMILAR_TO edges. Supports enrichment. |
+
+### 6.5 Hybrid Search Enhancement
+
+`find_similar_attempts` now performs both vector and graph searches, merging results with configurable weighted scoring:
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `graph.vector_weight` | 0.6 | Weight for vector cosine similarity |
+| `graph.graph_weight` | 0.4 | Weight for graph match presence |
+
+Results include a `source` field (`vector`, `graph`, or `both`) and a `combined_score`. Matches found by both vector and graph (`source: "both"`) are highest confidence.
+
+### 6.6 Graph Manager Module
+
+A new `graph_manager.py` module encapsulates all Apache AGE/Cypher operations, keeping them isolated from the relational `session_manager.py`:
+
+- Separate `psycopg2` connection pool with AGE-specific `search_path` and `statement_timeout` (10s)
+- Custom `agtype` result parsing for Python interop
+- Write operations: `create_attempt_node`, `create_cross_project_edges`, `create_embedding_edges`
+- Read operations: `find_graph_related`, `find_cross_project_patterns`, `get_related_issues`
+
+### 6.7 Automatic Graph Population
+
+When `graph.enabled: true`, `store_debug_attempt` automatically:
+
+1. Creates an Attempt node with BELONGS_TO → Project edge
+2. MERGEs ErrorPattern and FixPattern nodes with HAS_ERROR / FIXED_BY edges
+3. Creates deterministic SIMILAR_TO edges to attempts from other projects sharing the same ErrorPattern
+4. Creates embedding-based SIMILAR_TO edges for attempts above the configurable similarity threshold (default 0.82)
+
+Existing data can be backfilled using `sql/graph/002_seed_graph_from_existing_data.sql`.
+
+### 6.8 PerfMemory Skill Updates
+
+Updated `.cursor/skills/perfmemory/SKILL.md` with:
+
+- New **Step 3** in Workflow A: Cross-project graph search as fallback when vector returns no matches
+- New **Step 4** in Workflow A: Graph neighborhood exploration for deeper context
+- `enrich` parameter documentation for both graph tools
+- "When to use" guidance for `get_related_issues` (post-match exploration, pre-fix context, cross-project verification)
+
+### 6.9 Files Created
+
+| File | Purpose |
+|------|---------|
+| `docker/Dockerfile.pgvector-age` | Custom Docker image: pgvector + Apache AGE on PostgreSQL 18 |
+| `perfmemory-mcp/services/graph_manager.py` | Apache AGE/Cypher operations module |
+| `perfmemory-mcp/sql/graph/001_create_graph.sql` | Graph schema creation (vertex/edge labels) |
+| `perfmemory-mcp/sql/graph/002_seed_graph_from_existing_data.sql` | Backfill graph from existing relational data |
+| `perfmemory-mcp/sql/graph/README.md` | Graph schema documentation |
+
+### 6.10 Files Modified
+
+| File | Changes |
+|------|---------|
+| `docker/docker-compose-windows.yaml` | Custom build from `Dockerfile.pgvector-age`, renamed container to `perfmem-pgvector-age` |
+| `docker/docker-compose-mac.yaml` | Same as Windows compose changes |
+| `perfmemory-mcp/perfmemory.py` | Added 2 graph tools, hybrid search in `find_similar_attempts`, graph ingestion in `store_debug_attempt` |
+| `perfmemory-mcp/services/session_manager.py` | Added `get_attempt_by_id()` for enriching graph results |
+| `perfmemory-mcp/utils/config.py` | Added graph config loading and `ef_search` parameter |
+| `perfmemory-mcp/config.example.yaml` | Added `server` version block and `graph` configuration section |
+| `perfmemory-mcp/README.md` | Added graph tools, updated workflow diagram, project structure, and config reference |
+| `.cursor/skills/perfmemory/SKILL.md` | Added graph workflow steps, `enrich` parameter docs, usage guidance |
+| `README.md` | Updated PerfMemory description, workflow diagram, architecture tree, removed MS Graph references |
+| `docs/enhancements/Enhancement_Apache AGE Graph Layer for PerfMemory.md` | Updated status to "In Progress" |
+
+---
+
 ## Previous Changelogs
 
 | Month | File | Highlights |
@@ -253,4 +493,4 @@ Updated the smoke test monitoring logic (Steps 3c, 7a, 9c) to stop tests early w
 
 ---
 
-*Last Updated: April 5, 2026*
+*Last Updated: April 19, 2026*

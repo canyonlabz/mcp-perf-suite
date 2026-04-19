@@ -3,6 +3,16 @@
 # For platform-specific overrides, create config.windows.yaml or config.mac.yaml.
 
 # ----------------------------------------
+# Server
+# ----------------------------------------
+server:
+  name: "perfmemory-mcp"
+  version: "0.2.0"
+  description: "PerfMemory MCP Server — persistent memory and lessons-learned layer with pgvector + Apache AGE"
+  build:
+    date: "2026-04-12"
+
+# ----------------------------------------
 # Vector Similarity Search
 # ----------------------------------------
 search:
