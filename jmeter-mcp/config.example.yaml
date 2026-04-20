@@ -1,9 +1,9 @@
 server:
   name: "jmeter-mcp"
-  version: "0.7.0"
+  version: "0.9.0-beta.1"
   description: "JMeter MCP Server for test script generation, correlation analysis, and test execution"
   build:
-    date: "2026-03-18"
+    date: "2026-04-19"
 
 general:
   enable_debug: False   # Enable/disable debug mode

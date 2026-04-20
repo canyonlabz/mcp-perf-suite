@@ -1,9 +1,9 @@
 server:
   name: "confluence-mcp"
-  version: "0.8.0-beta.1"
+  version: "0.8.0-rc.1"
   description: "Confluence MCP Server for publishing performance reports to Confluence (Cloud and Data Center)"
   build:
-    date: "2026-01-23"
+    date: "2026-04-19"
 
 general:
   enable_debug: False   # Enable/disable debug mode

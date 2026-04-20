@@ -35,11 +35,15 @@ This repository hosts multiple MCP servers, each designed for a specific role in
 - **Confluence MCP Server:**  
   Publish Performance Test reports by converting Markdown files into Confluence XHTML format.
 
+### 💬 Notifications & Communication
+- **MS Teams MCP Server:**  
+  Automate Microsoft Teams notifications for performance testing workflows. Send pre-test alerts before execution, post-test completion summaries with high-level results, and share report links — all driven by AI agents. Uses browser-based authentication (no Azure AD app registration required) with templated notifications and config-driven channel targets.
+
 ---
 
 ## 🔄 Pipeline & Workflow
 
-The MCP servers in this repository (and external integrations like Playwright MCP) form a complete performance testing pipeline. This workflow illustrates how scripts are created, validated, executed, monitored, analyzed, and finally reported and shared across teams.
+The MCP servers in this repository (and external integrations like Playwright MCP) form a complete performance testing pipeline. This workflow illustrates how scripts are created, validated, executed, monitored, analyzed, reported, and communicated across teams — with stakeholder notifications at key milestones.
 
 ### 📐 Workflow Diagram
 
@@ -60,6 +64,12 @@ The MCP servers in this repository (and external integrations like Playwright MC
                             │ Validated JMX      │  - Knowledge graph      │
                             ▼                    │    (Apache AGE)         │
                 ┌────────────────────────┐       └─────────────────────────┘
+                │   MS Teams MCP Server  │
+                │   (Pre-test notify)    │
+                └───────────┬────────────┘
+                            │
+                            ▼
+                ┌────────────────────────┐
                 │   BlazeMeter MCP Server│
                 │  - Execute full-scale  │
                 │    performance tests   │
@@ -86,13 +96,16 @@ The MCP servers in this repository (and external integrations like Playwright MC
         ┌────────────────────────────────┐
         │ Performance Reporting MCP      │
         │ (PDF, Word, Markdown reports)  │
-        └───────────┬────────────────────┘
-                    │
-                    ▼
-        ┌────────────────────────────────┐
-        │ Confluence MCP Server          │
-        │ (Publish reports to Confluence)│
-        └────────────────────────────────┘
+        └────────────────┬───────────────┘
+                         │
+                 ┌───────┴───────┐
+                 ▼               ▼
+      ┌──────────────────────┐ ┌──────────────────────────┐
+      │ Confluence MCP       │ │ MS Teams MCP Server      │
+      │ (Publish reports to  │ │ (Post-test notification: │
+      │  Confluence; HITL    │ │  high-level summary      │
+      │  review cycle)       │ │  results & report links) │
+      └──────────────────────┘ └──────────────────────────┘
 ```
 
 ---
@@ -110,6 +123,7 @@ mcp-perf-suite/
 ├── datadog-mcp/             # Datadog MCP server (current)
 ├── docker/                  # Dockerfiles and Compose files (pgvector + Apache AGE)
 ├── jmeter-mcp/              # JMeter MCP server (current)
+├── msteams-mcp/             # MS Teams notifications MCP (current)
 ├── perfanalysis-mcp/        # LLM-powered test analysis MCP (current)
 ├── perfmemory-mcp/          # AI memory & lessons learned MCP (current)
 ├── perfreport-mcp/          # Reporting and formatting MCP (current)
@@ -133,6 +147,7 @@ All MCP servers use **FastMCP** and **Python 3.12+**. Each server has its own RE
 | PerfMemory | `perfmemory-mcp/` | [README](perfmemory-mcp/README.md) | PostgreSQL + pgvector + Apache AGE ([setup guide](docs/pgvector_installation_guide.md)), embedding API key |
 | Performance Report | `perfreport-mcp/` | [README](perfreport-mcp/README.md) | Analysis artifacts |
 | Confluence | `confluence-mcp/` | [README](confluence-mcp/README.md) | Confluence token (cloud or on-prem) |
+| MS Teams | `msteams-mcp/` | [README](msteams-mcp/README.md) | Microsoft Teams account, Edge or Chrome |
 
 **Common setup steps:**
 
