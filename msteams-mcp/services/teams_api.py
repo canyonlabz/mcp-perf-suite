@@ -12,6 +12,7 @@ All methods return Result[T] for consistent error handling.
 """
 
 import asyncio
+import json
 import logging
 import time
 from typing import Any
@@ -306,6 +307,150 @@ async def get_my_teams_and_channels() -> Result[list[dict[str, Any]]]:
 
 
 # ---------------------------------------------------------------------------
+# Mention resolution
+# ---------------------------------------------------------------------------
+
+async def resolve_mentions(
+    mention_entries: list[dict[str, str]],
+) -> Result[list[dict[str, Any]]]:
+    """
+    Resolve a list of mention entries to fully-qualified mention objects.
+
+    Each entry may contain:
+      - ``email`` (required unless ``id`` is provided)
+      - ``id`` — Azure AD object ID (skips search when provided)
+      - ``displayName`` — fallback display name
+
+    Resolution logic per entry:
+      1. If ``id`` is already provided, use it directly.
+      2. Otherwise search by ``email`` via Substrate API.
+      3. If the search returns exactly 1 match, use that result.
+      4. If 0 matches → collect a warning.
+      5. If >1 matches → collect a warning with the ambiguous results.
+
+    Returns Ok with resolved list, or Err if any entry could not be
+    unambiguously resolved (the message should NOT be sent).
+    """
+    from . import substrate_api
+
+    resolved: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    for entry in mention_entries:
+        email = entry.get("email", "")
+        object_id = entry.get("id", "")
+        display_name = entry.get("displayName", "")
+
+        if object_id:
+            resolved.append({
+                "objectId": object_id,
+                "displayName": display_name or email or object_id,
+                "email": email,
+            })
+            continue
+
+        if not email:
+            warnings.append(
+                "Mention entry missing both 'email' and 'id': "
+                f"{json.dumps(entry)}"
+            )
+            continue
+
+        search_result = await substrate_api.search_people(email, limit=5)
+        if not search_result.ok:
+            warnings.append(
+                f"Failed to search for '{email}': {search_result.error.message}"
+            )
+            continue
+
+        people = search_result.value.get("results", [])
+
+        exact = [
+            p for p in people
+            if (p.get("email") or "").lower() == email.lower()
+        ]
+
+        if len(exact) == 1:
+            match = exact[0]
+            resolved.append({
+                "objectId": match["id"],
+                "displayName": match.get("displayName") or display_name or email,
+                "email": match.get("email", email),
+            })
+        elif len(exact) == 0:
+            candidates = ", ".join(
+                f'{p.get("displayName")} <{p.get("email")}>' for p in people
+            )
+            if candidates:
+                warnings.append(
+                    f"No exact email match for '{email}'. "
+                    f"Possible matches: {candidates}"
+                )
+            else:
+                warnings.append(
+                    f"No results found for '{email}'. "
+                    "Verify the email address is correct."
+                )
+        else:
+            candidates = ", ".join(
+                f'{p.get("displayName")} <{p.get("email")}> '
+                f'(id: {p.get("id")})' for p in exact
+            )
+            warnings.append(
+                f"Ambiguous: multiple people match '{email}': {candidates}. "
+                "Please pass the specific 'id' to disambiguate."
+            )
+
+    if warnings:
+        return err(create_error(
+            ErrorCode.INVALID_INPUT,
+            "Could not resolve all mentions. Message NOT sent.\n"
+            + "\n".join(f"  - {w}" for w in warnings),
+            suggestions=[
+                "Fix the email addresses or provide 'id' directly",
+                "Use teams_search_people to find the correct person",
+            ],
+        ))
+
+    return ok(resolved)
+
+
+def build_mention_tags(
+    resolved_mentions: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]]:
+    """
+    Build the HTML ``<at>`` tags and the chatsvc POST body ``mentions`` array.
+
+    Returns:
+        (html_snippet, mentions_body) — the HTML to append to content and
+        the list to include in the POST body.
+    """
+    if not resolved_mentions:
+        return "", []
+
+    at_tags: list[str] = []
+    mentions_body: list[dict[str, Any]] = []
+
+    for idx, person in enumerate(resolved_mentions):
+        display = person["displayName"]
+        at_tags.append(f'<at id="{idx}">{display}</at>')
+        mentions_body.append({
+            "id": idx,
+            "mentionText": display,
+            "mentioned": {
+                "user": {
+                    "displayName": display,
+                    "id": person["objectId"],
+                    "userIdentityType": "aadUser",
+                },
+            },
+        })
+
+    html_snippet = "<p>" + " ".join(at_tags) + "</p>"
+    return html_snippet, mentions_body
+
+
+# ---------------------------------------------------------------------------
 # Messaging (chatsvc API)
 # ---------------------------------------------------------------------------
 
@@ -313,12 +458,14 @@ async def send_message(
     conversation_id: str,
     content: str,
     *,
+    subject: str | None = None,
     content_type: str = "text",
     reply_to_message_id: str | None = None,
     template: str | None = None,
     variables: dict[str, str] | None = None,
     target: str | None = None,
     test_run_id: str | None = None,
+    mentions: list[dict[str, str]] | None = None,
 ) -> Result[dict[str, Any]]:
     """
     Send a message to a Teams conversation (channel, chat, or group).
@@ -330,23 +477,29 @@ async def send_message(
     Args:
         conversation_id: Channel/chat ID. Ignored when `target` is provided.
         content: Message body (plain text, markdown, or HTML).
+        subject: Optional subject line (bold title above message in channels).
         content_type: "text" for plain text, "html" for rich content.
         reply_to_message_id: For channel thread replies, the root message ID.
         template: Template filename (e.g. "notification-start-test.md").
         variables: Key-value pairs to interpolate into the template.
         target: Named target from config or raw conversation ID.
         test_run_id: Loads context variables from artifacts/<test_run_id>/.
+        mentions: People to @mention. Each entry has ``email`` and/or ``id``
+                  (object ID) plus optional ``displayName``. Merged with
+                  any config-level mentions for the resolved target.
     """
     from . import template_manager, target_resolver
 
     resolved_conversation_id = conversation_id
     channel_template: str | None = None
+    config_mentions: list[str] = []
 
     if target:
         resolved = target_resolver.resolve_target(target)
         if resolved["conversation_id"]:
             resolved_conversation_id = resolved["conversation_id"]
         channel_template = resolved.get("template")
+        config_mentions = resolved.get("mentions", [])
 
     if not resolved_conversation_id:
         return err(create_error(
@@ -385,6 +538,42 @@ async def send_message(
         final_content = parsers.markdown_to_teams_html(content)
         final_content_type = "html"
 
+    # -----------------------------------------------------------------------
+    # Merge and resolve @mentions (config-driven + caller-provided)
+    # -----------------------------------------------------------------------
+    all_mention_entries: list[dict[str, str]] = []
+    seen_emails: set[str] = set()
+
+    for email in config_mentions:
+        key = email.lower()
+        if key not in seen_emails:
+            seen_emails.add(key)
+            all_mention_entries.append({"email": email})
+
+    for entry in (mentions or []):
+        key = (entry.get("email") or entry.get("id") or "").lower()
+        if key and key not in seen_emails:
+            seen_emails.add(key)
+            all_mention_entries.append(entry)
+
+    mentions_html = ""
+    mentions_body: list[dict[str, Any]] = []
+
+    if all_mention_entries:
+        resolve_result = await resolve_mentions(all_mention_entries)
+        if not resolve_result.ok:
+            return err(resolve_result.error)
+        mentions_html, mentions_body = build_mention_tags(resolve_result.value)
+
+    if mentions_html:
+        if final_content_type != "html":
+            final_content = parsers.markdown_to_teams_html(final_content)
+            final_content_type = "html"
+        final_content += mentions_html
+
+    # -----------------------------------------------------------------------
+    # Build and send POST body
+    # -----------------------------------------------------------------------
     headers_result = await _get_messaging_headers()
     if not headers_result.ok:
         return err(headers_result.error)
@@ -404,6 +593,12 @@ async def send_message(
         "imdisplayname": display_name,
         "clientmessageid": str(int(time.time() * 1000)),
     }
+
+    if subject:
+        body["subject"] = subject
+
+    if mentions_body:
+        body["mentions"] = mentions_body
 
     result = await _request("POST", url, headers=headers_result.value, json_body=body)
     if not result.ok:

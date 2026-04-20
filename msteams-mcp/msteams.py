@@ -113,12 +113,14 @@ async def teams_list_channels() -> str:
 async def teams_send_message(
     conversation_id: str = "",
     message: str = "",
+    subject: str = "",
     content_type: str = "text",
     reply_to_message_id: str = "",
     template: str = "",
     variables: str = "",
     target: str = "",
     test_run_id: str = "",
+    mentions: str = "",
 ) -> str:
     """
     Send a message to a Microsoft Teams conversation (channel, chat, or group).
@@ -131,6 +133,8 @@ async def teams_send_message(
                          "19:xxx@thread.tacv2". Not needed when target is set.
         message: The message content to send (text, markdown, or HTML).
                  When using a template, this fills the {{MESSAGE}} placeholder.
+        subject: Optional subject line displayed as a bold title above the
+                 message body in channels. Most useful for notifications.
         content_type: "text" for plain/markdown, "html" for pre-formatted HTML.
         reply_to_message_id: For channel thread replies, the root message ID.
         template: Template filename (e.g. "notification-start-test.md").
@@ -142,6 +146,12 @@ async def teams_send_message(
         test_run_id: Auto-populates template variables from
                      artifacts/<test_run_id>/ (BlazeMeter, Confluence links, etc.)
                      and logs the notification for context tracking.
+        mentions: JSON string of people to @mention in the message.
+                  Each entry needs "email" and/or "id" (Azure AD object ID),
+                  plus optional "displayName". Emails are auto-resolved to
+                  object IDs via teams_search_people. Merged with any
+                  config-level mentions for the resolved target.
+                  Example: '[{"email": "john@company.com"}]'
 
     Returns:
         JSON result with send status and message ID.
@@ -163,15 +173,34 @@ async def teams_send_message(
                 "message": f"Invalid JSON in variables: {exc}",
             }, indent=2)
 
+    parsed_mentions: list[dict[str, str]] = []
+    if mentions:
+        try:
+            parsed_mentions = json.loads(mentions)
+            if not isinstance(parsed_mentions, list):
+                return json.dumps({
+                    "status": "error",
+                    "code": "INVALID_INPUT",
+                    "message": "mentions must be a JSON array of objects",
+                }, indent=2)
+        except json.JSONDecodeError as exc:
+            return json.dumps({
+                "status": "error",
+                "code": "INVALID_INPUT",
+                "message": f"Invalid JSON in mentions: {exc}",
+            }, indent=2)
+
     result = await teams_api.send_message(
         conversation_id=conversation_id,
         content=message,
+        subject=subject or None,
         content_type=content_type,
         reply_to_message_id=reply_to_message_id or None,
         template=template or None,
         variables=parsed_vars or None,
         target=target or None,
         test_run_id=test_run_id or None,
+        mentions=parsed_mentions or None,
     )
 
     if result.ok:

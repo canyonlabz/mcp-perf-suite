@@ -36,11 +36,23 @@ teams:
         description: "Performance testing notifications"
         # Optional per-channel template override
         # template: "custom-notification-start-test.md"
+        # Emails to @mention on every notification to this channel
+        mentions:
+          - "homer.simpson@company.com"
+          - "marge.simpson@company.com"
       # release-channel:
       #   conversation_id: "19:def456@thread.tacv2"
       #   description: "Release notifications"
+      #   mentions:
+      #     - "mr.burns@company.com"
 
-    # Default chat target — used with target="default_chat"
-    default_chat:
-      conversation_id: ""
-      description: "Default 1:1 or group chat for notifications"
+    chats:
+      # Default chat target — used with target="default_chat"
+      default_chat:
+        conversation_id: ""
+        description: "Default 1:1 or group chat for notifications"
+      # stakeholder-triage:
+      #   conversation_id: "19:xyz789@thread.v2"
+      #   description: "Performance triage group chat"
+      #   mentions:
+      #     - "bart.simpson@company.com"

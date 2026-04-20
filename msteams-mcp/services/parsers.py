@@ -465,7 +465,7 @@ def _convert_table_to_html(lines: list[str]) -> str:
         ) + "</tr>"
         for row in data_rows
     )
-    return f'<table style="margin-bottom:8px">{thead}{tbody}</table>'
+    return f"<table>{thead}{tbody}</table>"
 
 
 def markdown_to_teams_html(text: str) -> str:
@@ -525,7 +525,9 @@ def markdown_to_teams_html(text: str) -> str:
                 html_lines = [_convert_inline_formatting(ln) for ln in lines]
                 html_parts.append(f"<p>{'<br>'.join(html_lines)}</p>")
 
-    return "".join(html_parts) or "<p></p>"
+    result = "".join(html_parts)
+    result = result.replace("</table><table>", "</table><br><table>")
+    return result or "<p></p>"
 
 
 # ---------------------------------------------------------------------------

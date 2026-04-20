@@ -2,7 +2,8 @@
 Target resolver for MS Teams notification destinations.
 
 Resolves named targets (from config.yaml) to conversation IDs,
-or passes raw IDs through unchanged.
+or passes raw IDs through unchanged.  Supports both ``channels``
+and ``chats`` blocks under ``notification_targets``.
 """
 
 import logging
@@ -21,8 +22,8 @@ def _get_channels() -> dict[str, dict[str, Any]]:
     return _targets_cfg.get("channels", {})
 
 
-def _get_default_chat() -> dict[str, Any]:
-    return _targets_cfg.get("default_chat", {})
+def _get_chats() -> dict[str, dict[str, Any]]:
+    return _targets_cfg.get("chats", {})
 
 
 def resolve_target(target: str) -> dict[str, Any]:
@@ -30,13 +31,13 @@ def resolve_target(target: str) -> dict[str, Any]:
     Resolve a target string to a conversation ID and metadata.
 
     Resolution logic:
-        1. If target matches a named channel in config → use its conversation_id.
-        2. If target == "default_chat" → use the default_chat entry.
+        1. If target matches a named channel in config → use it.
+        2. If target matches a named chat in config → use it.
         3. Otherwise, treat target as a raw conversation ID.
 
     Returns:
         Dict with keys: conversation_id, target_name, target_type,
-        and optional template (per-channel template override).
+        optional template, and optional mentions list.
     """
     channels = _get_channels()
 
@@ -50,16 +51,22 @@ def resolve_target(target: str) -> dict[str, Any]:
             "target_name": target,
             "target_type": "channel",
             "template": entry.get("template"),
+            "mentions": entry.get("mentions", []),
         }
 
-    if target == "default_chat":
-        chat = _get_default_chat()
-        conversation_id = chat.get("conversation_id", "")
+    chats = _get_chats()
+
+    if target in chats:
+        entry = chats[target]
+        conversation_id = entry.get("conversation_id", "")
+        if not conversation_id:
+            logger.warning("Named chat '%s' has no conversation_id in config", target)
         return {
             "conversation_id": conversation_id,
-            "target_name": "default_chat",
+            "target_name": target,
             "target_type": "chat",
-            "template": chat.get("template"),
+            "template": entry.get("template"),
+            "mentions": entry.get("mentions", []),
         }
 
     return {
@@ -67,6 +74,7 @@ def resolve_target(target: str) -> dict[str, Any]:
         "target_name": None,
         "target_type": "raw",
         "template": None,
+        "mentions": [],
     }
 
 
@@ -74,30 +82,26 @@ def list_configured_targets() -> dict[str, Any]:
     """
     List all configured notification targets from config.yaml.
 
-    Returns channels and default_chat entries with their metadata.
+    Returns channels and chats entries with their metadata.
     """
     channels = _get_channels()
-    chat = _get_default_chat()
+    chats = _get_chats()
 
-    channel_list = []
-    for name, entry in channels.items():
-        channel_list.append({
-            "name": name,
-            "conversation_id": entry.get("conversation_id", ""),
-            "description": entry.get("description", ""),
-            "template": entry.get("template"),
-        })
+    def _format_entries(entries: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        result = []
+        for name, entry in entries.items():
+            result.append({
+                "name": name,
+                "conversation_id": entry.get("conversation_id", ""),
+                "description": entry.get("description", ""),
+                "template": entry.get("template"),
+                "mentions": entry.get("mentions", []),
+            })
+        return result
 
-    result: dict[str, Any] = {
-        "channels": channel_list,
-        "channel_count": len(channel_list),
+    return {
+        "channels": _format_entries(channels),
+        "channel_count": len(channels),
+        "chats": _format_entries(chats),
+        "chat_count": len(chats),
     }
-
-    if chat:
-        result["default_chat"] = {
-            "conversation_id": chat.get("conversation_id", ""),
-            "description": chat.get("description", ""),
-            "template": chat.get("template"),
-        }
-
-    return result
