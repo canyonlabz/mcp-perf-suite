@@ -369,6 +369,7 @@ def filter_channels_by_name(
 # ---------------------------------------------------------------------------
 
 _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
 _BOLD_STAR_RE = re.compile(r"\*\*(.+?)\*\*")
 _BOLD_UNDER_RE = re.compile(r"__(.+?)__")
 _ITALIC_STAR_RE = re.compile(r"\*(.+?)\*")
@@ -389,6 +390,18 @@ _HAS_MD_RE = re.compile(
 
 def _convert_inline_formatting(line: str) -> str:
     """Convert inline markdown to Teams HTML within a single line."""
+    link_placeholders: list[str] = []
+
+    def _stash_link(m: re.Match) -> str:
+        label = escape_html(m.group(1))
+        url = m.group(2).replace('"', '&quot;')
+        tag = f'<a href="{url}">{label}</a>'
+        idx = len(link_placeholders)
+        link_placeholders.append(tag)
+        return f"\uE010LINK{idx}\uE011"
+
+    line = _LINK_RE.sub(_stash_link, line)
+
     parts = _INLINE_CODE_RE.split(line)
     result_parts: list[str] = []
 
@@ -404,7 +417,12 @@ def _convert_inline_formatting(line: str) -> str:
             segment = _STRIKE_RE.sub(r"<s>\1</s>", segment)
             result_parts.append(segment)
 
-    return "".join(result_parts)
+    result = "".join(result_parts)
+
+    for idx, tag in enumerate(link_placeholders):
+        result = result.replace(f"\uE010LINK{idx}\uE011", tag)
+
+    return result
 
 
 def has_markdown_formatting(text: str) -> bool:

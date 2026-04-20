@@ -21,8 +21,8 @@
 
 🔗 **Report Links**
 
-- 🔵 BlazeMeter Report: {{BLAZEMETER_REPORT_LINK}}
-- 📄 Confluence Report: {{CONFLUENCE_REPORT_LINK}}
+- 🔵 [View BlazeMeter Report]({{BLAZEMETER_REPORT_LINK}})
+- 📄 [View Confluence Report]({{CONFLUENCE_REPORT_LINK}})
 
 {{MESSAGE}}
 
