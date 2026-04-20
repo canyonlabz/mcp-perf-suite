@@ -1,4 +1,4 @@
-**Performance Test Starting**
+🚀 **Performance Test Starting**
 
 | Field | Value |
 |-------|-------|
@@ -12,4 +12,4 @@
 {{MESSAGE}}
 
 ---
-*Automated notification from mcp-perf-suite*
+*🤖 Automated notification from mcp-perf-suite*

@@ -377,6 +377,8 @@ _STRIKE_RE = re.compile(r"~~(.+?)~~")
 _FENCED_BLOCK_RE = re.compile(r"```(\w*)\n?([\s\S]*?)```")
 _UNORDERED_LINE_RE = re.compile(r"^\s*[-*]\s+")
 _ORDERED_LINE_RE = re.compile(r"^\s*\d+[.)]\s+")
+_TABLE_ROW_RE = re.compile(r"^\|.+\|")
+_TABLE_SEP_RE = re.compile(r"^\|[\s\-:|]+\|$")
 
 _HAS_MD_RE = re.compile(
     r"```[\s\S]*```|`[^`]+`|\*\*.+?\*\*|__.+?__|(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"
@@ -410,12 +412,50 @@ def has_markdown_formatting(text: str) -> bool:
     return bool(_HAS_MD_RE.search(text))
 
 
+def _parse_table_cells(line: str) -> list[str]:
+    """Split a pipe-delimited table row into trimmed cell strings."""
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    return [cell.strip() for cell in stripped.split("|")]
+
+
+def _is_table_paragraph(lines: list[str]) -> bool:
+    """Return True if the line block is a valid markdown table (header + separator + rows)."""
+    if len(lines) < 3:
+        return False
+    if not _TABLE_ROW_RE.match(lines[0].strip()):
+        return False
+    if not _TABLE_SEP_RE.match(lines[1].strip()):
+        return False
+    return all(_TABLE_ROW_RE.match(ln.strip()) for ln in lines[2:])
+
+
+def _convert_table_to_html(lines: list[str]) -> str:
+    """Convert markdown table lines to a Teams-compatible HTML <table>."""
+    headers = _parse_table_cells(lines[0])
+    data_rows = [_parse_table_cells(ln) for ln in lines[2:]]
+
+    thead = "<tr>" + "".join(
+        f"<th><b>{_convert_inline_formatting(h)}</b></th>" for h in headers
+    ) + "</tr>"
+    tbody = "".join(
+        "<tr>" + "".join(
+            f"<td>{_convert_inline_formatting(cell)}</td>" for cell in row
+        ) + "</tr>"
+        for row in data_rows
+    )
+    return f'<table style="margin-bottom:8px">{thead}{tbody}</table>'
+
+
 def markdown_to_teams_html(text: str) -> str:
     """
     Convert markdown-formatted text to Teams-compatible HTML.
 
     Supports bold, italic, strikethrough, inline code, fenced code blocks,
-    ordered/unordered lists, paragraph breaks, and line breaks.
+    ordered/unordered lists, markdown tables, paragraph breaks, and line breaks.
     """
     segments: list[dict[str, str]] = []
     last_index = 0
@@ -461,6 +501,8 @@ def markdown_to_teams_html(text: str) -> str:
                     for ln in lines
                 )
                 html_parts.append(f"<ol>{items}</ol>")
+            elif _is_table_paragraph(lines):
+                html_parts.append(_convert_table_to_html(lines))
             else:
                 html_lines = [_convert_inline_formatting(ln) for ln in lines]
                 html_parts.append(f"<p>{'<br>'.join(html_lines)}</p>")

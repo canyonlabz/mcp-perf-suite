@@ -1,4 +1,4 @@
-**Performance Test Results Summary**
+📊 **Performance Test Results Summary**
 
 | Field | Value |
 |-------|-------|
@@ -8,7 +8,7 @@
 | **Duration** | {{DURATION}} |
 | **Virtual Users** | {{VIRTUAL_USERS}} |
 
-**Key Metrics**
+📈 **Key Metrics**
 
 | Metric | Value |
 |--------|-------|
@@ -19,12 +19,12 @@
 | **Error Rate** | {{ERROR_RATE}} |
 | **Throughput** | {{THROUGHPUT}} |
 
-**Report Links**
+🔗 **Report Links**
 
-- BlazeMeter Report: {{BLAZEMETER_REPORT_LINK}}
-- Confluence Report: {{CONFLUENCE_REPORT_LINK}}
+- 🔵 BlazeMeter Report: {{BLAZEMETER_REPORT_LINK}}
+- 📄 Confluence Report: {{CONFLUENCE_REPORT_LINK}}
 
 {{MESSAGE}}
 
 ---
-*Automated notification from mcp-perf-suite*
+*🤖 Automated notification from mcp-perf-suite*

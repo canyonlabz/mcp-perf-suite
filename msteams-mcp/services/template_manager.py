@@ -101,11 +101,12 @@ def render_template(
     """
     Replace {{VARIABLE}} placeholders with provided values.
 
-    Unmatched placeholders are left as-is so the caller can see what's missing.
+    Unmatched placeholders are replaced with an empty string so they do not
+    appear verbatim in delivered messages.
     """
     def _replacer(match: re.Match) -> str:
         key = match.group(1)
-        return variables.get(key, match.group(0))
+        return variables.get(key, "")
 
     return _PLACEHOLDER_RE.sub(_replacer, template_content)
 
