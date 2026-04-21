@@ -527,6 +527,8 @@ def markdown_to_teams_html(text: str) -> str:
 
     result = "".join(html_parts)
     result = result.replace("</table><table>", "</table><br><table>")
+    result = result.replace("</table><p>", "</table><br><p>")
+    result = result.replace("</p><table>", "</p><br><table>")
     return result or "<p></p>"
 
 

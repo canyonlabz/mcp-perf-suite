@@ -344,6 +344,7 @@ async def resolve_mentions(
         if object_id:
             resolved.append({
                 "objectId": object_id,
+                "mri": f"8:orgid:{object_id}",
                 "displayName": display_name or email or object_id,
                 "email": email,
             })
@@ -374,6 +375,7 @@ async def resolve_mentions(
             match = exact[0]
             resolved.append({
                 "objectId": match["id"],
+                "mri": match.get("mri") or f"8:orgid:{match['id']}",
                 "displayName": match.get("displayName") or display_name or email,
                 "email": match.get("email", email),
             })
@@ -417,37 +419,45 @@ async def resolve_mentions(
 
 def build_mention_tags(
     resolved_mentions: list[dict[str, Any]],
-) -> tuple[str, list[dict[str, Any]]]:
+) -> tuple[str, str]:
     """
-    Build the HTML ``<at>`` tags and the chatsvc POST body ``mentions`` array.
+    Build HTML mention tags and the chatsvc ``properties.mentions`` JSON string.
+
+    Uses the schema.skype.com/Mention format required by the chatsvc API:
+    HTML uses ``<readonly><span>`` wrappers, and the mentions array is a
+    JSON-encoded string placed inside ``properties.mentions``.
 
     Returns:
-        (html_snippet, mentions_body) — the HTML to append to content and
-        the list to include in the POST body.
+        (html_snippet, mentions_json_string)
     """
     if not resolved_mentions:
-        return "", []
+        return "", ""
 
     at_tags: list[str] = []
-    mentions_body: list[dict[str, Any]] = []
+    mentions_list: list[dict[str, Any]] = []
 
     for idx, person in enumerate(resolved_mentions):
         display = person["displayName"]
-        at_tags.append(f'<at id="{idx}">{display}</at>')
-        mentions_body.append({
-            "id": idx,
-            "mentionText": display,
-            "mentioned": {
-                "user": {
-                    "displayName": display,
-                    "id": person["objectId"],
-                    "userIdentityType": "aadUser",
-                },
-            },
+        mri = person.get("mri") or f"8:orgid:{person['objectId']}"
+
+        at_tags.append(
+            f'<readonly class="skipProofing" contenteditable="false" '
+            f'spellcheck="false" itemtype="http://schema.skype.com/Mention">'
+            f'<span itemtype="http://schema.skype.com/Mention" '
+            f'itemscope itemid="{idx}">{display}</span></readonly>'
+        )
+
+        mentions_list.append({
+            "@type": "http://schema.skype.com/Mention",
+            "itemid": str(idx),
+            "mri": mri,
+            "mentionType": "person",
+            "displayName": display,
         })
 
-    html_snippet = "<p>" + " ".join(at_tags) + "</p>"
-    return html_snippet, mentions_body
+    html_snippet = "<p>" + "&nbsp;".join(at_tags) + "</p>"
+    mentions_json = json.dumps(mentions_list)
+    return html_snippet, mentions_json
 
 
 # ---------------------------------------------------------------------------
@@ -557,13 +567,13 @@ async def send_message(
             all_mention_entries.append(entry)
 
     mentions_html = ""
-    mentions_body: list[dict[str, Any]] = []
+    mentions_json = ""
 
     if all_mention_entries:
         resolve_result = await resolve_mentions(all_mention_entries)
         if not resolve_result.ok:
             return err(resolve_result.error)
-        mentions_html, mentions_body = build_mention_tags(resolve_result.value)
+        mentions_html, mentions_json = build_mention_tags(resolve_result.value)
 
     if mentions_html:
         if final_content_type != "html":
@@ -594,11 +604,14 @@ async def send_message(
         "clientmessageid": str(int(time.time() * 1000)),
     }
 
-    if subject:
-        body["subject"] = subject
-
-    if mentions_body:
-        body["mentions"] = mentions_body
+    properties: dict[str, str] = {
+        "importance": "",
+        "subject": subject or "",
+        "cards": "[]",
+        "links": "[]",
+        "mentions": mentions_json or "[]",
+    }
+    body["properties"] = properties
 
     result = await _request("POST", url, headers=headers_result.value, json_body=body)
     if not result.ok:
