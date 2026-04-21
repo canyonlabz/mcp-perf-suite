@@ -378,6 +378,7 @@ _STRIKE_RE = re.compile(r"~~(.+?)~~")
 _FENCED_BLOCK_RE = re.compile(r"```(\w*)\n?([\s\S]*?)```")
 _UNORDERED_LINE_RE = re.compile(r"^\s*[-*]\s+")
 _ORDERED_LINE_RE = re.compile(r"^\s*\d+[.)]\s+")
+_HEADING_RE = re.compile(r"^(#{1,3})\s+(.+)$")
 _TABLE_ROW_RE = re.compile(r"^\|.+\|")
 _TABLE_SEP_RE = re.compile(r"^\|[\s\-:|]+\|$")
 
@@ -521,6 +522,10 @@ def markdown_to_teams_html(text: str) -> str:
                 html_parts.append(f"<ol>{items}</ol>")
             elif _is_table_paragraph(lines):
                 html_parts.append(_convert_table_to_html(lines))
+            elif len(lines) == 1 and (heading_m := _HEADING_RE.match(trimmed)):
+                level = len(heading_m.group(1))
+                text = _convert_inline_formatting(heading_m.group(2))
+                html_parts.append(f"<h{level}>{text}</h{level}>")
             else:
                 html_lines = [_convert_inline_formatting(ln) for ln in lines]
                 html_parts.append(f"<p>{'<br>'.join(html_lines)}</p>")
@@ -528,7 +533,6 @@ def markdown_to_teams_html(text: str) -> str:
     result = "".join(html_parts)
     result = result.replace("</table><table>", "</table><br><table>")
     result = result.replace("</table><p>", "</table><br><p>")
-    result = result.replace("</p><table>", "</p><br><table>")
     return result or "<p></p>"
 
 
