@@ -182,7 +182,9 @@ PerfMemory steps.
 
 **Input:** `test_run_id`
 
-**Action:** Call `analyze_jmeter_script` to find the Thread Group node:
+**Action:** Call `analyze_jmeter_script` to find the Thread Group node. The tool
+automatically exports the structure to versioned files under
+`artifacts/{test_run_id}/jmeter/analysis/`.
 
 ```
 analyze_jmeter_script(
@@ -190,6 +192,10 @@ analyze_jmeter_script(
   detail_level = "detailed"
 )
 ```
+
+**Save:** `exported_files` from the response — contains paths to the persisted
+`jmx_structure_*.json` and `.md` files. For large scripts, read the JSON file for
+node lookups instead of relying on the in-context response.
 
 **Check** the Thread Group properties. If not set to 1/1/1, override:
 
@@ -397,7 +403,8 @@ in the Reference section.
 8a. Apply a **single** targeted fix using `add_jmeter_component` or `edit_jmeter_component`.
 Always use `dry_run=true` first, then `dry_run=false` to apply.
 
-8b. Re-analyze the script to verify structure:
+8b. Re-analyze the script to verify structure. This also refreshes the persisted
+structure files so the latest node_ids are available on disk:
 
 ```
 analyze_jmeter_script(

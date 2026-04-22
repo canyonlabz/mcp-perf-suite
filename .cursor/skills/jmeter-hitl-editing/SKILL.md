@@ -46,7 +46,7 @@ A JMX script can arrive in the artifacts folder from any of these sources:
 
 | Tool | Purpose | Key Parameters |
 |------|---------|---------------|
-| `analyze_jmeter_script` | Get script structure and node IDs | `test_run_id`, `jmx_filename`, `detail_level` |
+| `analyze_jmeter_script` | Get script structure and node IDs. Exports versioned structure files to disk. | `test_run_id`, `jmx_filename`, `detail_level`, `export_structure`, `output_format` |
 | `list_jmeter_component_types` | Discover available component types | `category` (optional filter) |
 | `add_jmeter_component` | Add a new component to the script | `test_run_id`, `component_type`, `parent_node_id`, `component_config`, `position`, `dry_run` |
 | `edit_jmeter_component` | Edit an existing component | `test_run_id`, `target_node_id`, `operations`, `dry_run` |
@@ -164,12 +164,18 @@ analyze_jmeter_script(
   "jmx_path": "artifacts/{test_run_id}/jmeter/...",
   "hierarchy": "... tree outline ...",
   "node_index": [ { "node_id": "...", "type": "...", "name": "..." }, ... ],
-  "variables": { "defined": {}, "used": [], "undefined": [] }
+  "variables": { "defined": {}, "used": [], "undefined": [] },
+  "exported_files": {
+    "json": "artifacts/{test_run_id}/jmeter/analysis/jmx_structure_<timestamp>.json",
+    "markdown": "artifacts/{test_run_id}/jmeter/analysis/jmx_structure_<timestamp>.md"
+  }
 }
 ```
 
 **Save:** `node_index` and `hierarchy` from the response. These contain the `node_id`
-values needed for add/edit operations.
+values needed for add/edit operations. Also save `exported_files` — the persisted
+structure files. For large scripts with many components, read the JSON file at
+`exported_files.json` for node lookups instead of relying on the in-context response.
 
 **On error:** If `status` is `"ERROR"`, stop. Report the error to the user.
 
@@ -239,7 +245,8 @@ edit_jmeter_component(
 
 **Input:** `test_run_id`
 
-**Action:** Call MCP tool `analyze_jmeter_script`
+**Action:** Call MCP tool `analyze_jmeter_script`. This also refreshes the persisted
+structure files so the latest node_ids are available on disk.
 
 ```
 analyze_jmeter_script(
@@ -250,7 +257,8 @@ analyze_jmeter_script(
 
 **Verify** the script structure is correct after the edit.
 
-**Save:** Updated `node_index` (node IDs may have changed after edits).
+**Save:** Updated `node_index` (node IDs may have changed after edits) and
+`exported_files` (refreshed structure files).
 
 **Ask the user:** "Do you want to make more changes?" — If yes, go back to Step 3.
 

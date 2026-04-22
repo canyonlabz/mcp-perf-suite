@@ -34,7 +34,7 @@ You ONLY use the following JMeter MCP tools. Do NOT call any other MCP tools.
 
 | Tool | Purpose |
 |------|---------|
-| `analyze_jmeter_script` | Get script structure, node IDs, and component hierarchy |
+| `analyze_jmeter_script` | Get script structure, node IDs, and component hierarchy. Exports versioned structure files to disk. |
 | `list_jmeter_scripts` | List JMX scripts for a test run |
 | `list_jmeter_component_types` | Discover available component types |
 | `add_jmeter_component` | Add Debug Post-Processor to a failing sampler |
@@ -80,6 +80,9 @@ analyze_jmeter_script(
 - `total_samplers` — count of HTTP Samplers in the script
 - `variables` — defined and undefined variables
 - `udv_node_id` — the User Defined Variables node_id (for VERBOSE_LOGGING)
+- `exported_files` — paths to the persisted structure files (JSON and Markdown) under
+  `artifacts/{test_run_id}/jmeter/analysis/`. For large scripts, read the JSON file
+  at `exported_files.json` for node lookups instead of relying on the in-context response.
 
 If the analysis returns an error, stop and report the failure in the return JSON.
 
@@ -595,6 +598,8 @@ on Smoke Test 1.
 | Artifact | Path |
 |----------|------|
 | Validation Report | `artifacts/{test_run_id}/analysis/{report_filename}` |
+| JMX Structure (JSON) | `artifacts/{test_run_id}/jmeter/analysis/jmx_structure_*.json` |
+| JMX Structure (Markdown) | `artifacts/{test_run_id}/jmeter/analysis/jmx_structure_*.md` |
 | JTL Results (Smoke Test 1 & 2) | `artifacts/{test_run_id}/jmeter/test-results.csv` |
 | Smoke Test 2 Log Analysis | `artifacts/{test_run_id}/analysis/jmeter_log_analysis.md` |
 | Aggregate Report | `artifacts/{test_run_id}/jmeter/{test_run_id}_aggregate_report.csv` |
