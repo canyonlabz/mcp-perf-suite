@@ -6,6 +6,7 @@ End-users and developers can extend or modify these functions independently
 of the core JMeter component utilities.
 """
 import csv
+import fnmatch
 import re
 import xml.etree.ElementTree as ET
 import datetime
@@ -36,6 +37,66 @@ def get_jmeter_artifacts_dir(run_id: str) -> str:
     output_dir = os.path.join(ARTIFACTS_PATH, str(run_id), "jmeter")
     os.makedirs(output_dir, exist_ok=True)
     return output_dir
+
+def get_jmeter_analysis_dir(run_id: str) -> str:
+    """
+    Returns the absolute directory path for JMeter analysis output files.
+    Creates the directory if it does not exist.
+
+    Final layout:
+      artifacts/<run_id>/jmeter/analysis/
+
+    Args:
+        run_id: Test run identifier.
+
+    Returns:
+        Absolute path to the JMeter analysis output directory.
+    """
+    output_dir = os.path.join(ARTIFACTS_PATH, str(run_id), "jmeter", "analysis")
+    os.makedirs(output_dir, exist_ok=True)
+    return output_dir
+
+
+def rotate_analysis_files(
+    directory: str,
+    prefix: str,
+    max_count: int,
+) -> List[str]:
+    """
+    Prune oldest versioned analysis files when count exceeds max_count.
+
+    Matches files whose name starts with `prefix` (e.g. "jmx_structure_")
+    inside `directory`. Files are sorted by modification time (oldest first)
+    and the oldest are deleted until at most `max_count` remain.
+
+    Args:
+        directory: Absolute path to the analysis directory.
+        prefix: Filename prefix to match (e.g. "jmx_structure_").
+        max_count: Maximum number of files to retain.
+
+    Returns:
+        List of absolute paths that were deleted (empty if none pruned).
+    """
+    if not os.path.isdir(directory) or max_count < 1:
+        return []
+
+    matched = []
+    for filename in os.listdir(directory):
+        if filename.startswith(prefix):
+            full_path = os.path.join(directory, filename)
+            if os.path.isfile(full_path):
+                matched.append(full_path)
+
+    matched.sort(key=lambda p: os.path.getmtime(p))
+
+    deleted: List[str] = []
+    while len(matched) > max_count:
+        oldest = matched.pop(0)
+        os.remove(oldest)
+        deleted.append(oldest)
+
+    return deleted
+
 
 def save_jmx_file(root_element: ET.Element, run_id: str) -> str:
     """
