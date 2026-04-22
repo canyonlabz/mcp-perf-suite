@@ -55,9 +55,9 @@ def load_template(
     Load a notification template with layered fallback.
 
     Resolution order:
-        1. channel_template (per-channel override from config)
-        2. template_name (caller-specified)
-        3. default-{template_name} (default fallback)
+        1. template_name (caller-specified — highest priority)
+        2. channel_template (per-channel default from config)
+        3. default-{template_name} (built-in fallback)
 
     Returns:
         Tuple of (template_content, resolved_template_name).
@@ -68,10 +68,10 @@ def load_template(
     templates_dir = _resolve_templates_dir()
     candidates: list[str] = []
 
-    if channel_template:
-        candidates.append(channel_template)
-
     candidates.append(template_name)
+
+    if channel_template and channel_template != template_name:
+        candidates.append(channel_template)
 
     if not template_name.startswith(_DEFAULT_PREFIX):
         candidates.append(f"{_DEFAULT_PREFIX}{template_name}")

@@ -377,6 +377,8 @@ Create `config.windows.yaml` or `config.mac.yaml` for platform-specific settings
 
 ## 🐛 Troubleshooting
 
+> **Full troubleshooting guide:** [`docs/troubleshooting/msteams-mcp-troubleshooting.md`](../docs/troubleshooting/msteams-mcp-troubleshooting.md)
+
 ### Server Won't Start
 - Ensure `mcp.json` entry points to the correct `msteams-mcp` directory
 - Verify Python 3.12+ is available: `python --version`
@@ -399,6 +401,10 @@ Create `config.windows.yaml` or `config.mac.yaml` for platform-specific settings
 ### Session Expired
 - Call `teams_login(force=True)` to force a fresh browser login
 - Check `teams_status` for `sessionAgeHours` — sessions expire after 12 hours by default
+
+### Substrate Token Missing / `force=True` Not Opening Browser
+- See [full troubleshooting guide](../docs/troubleshooting/msteams-mcp-troubleshooting.md) for token recovery steps
+- Quick fix: delete `~/.teams-mcp-server/*`, restart Cursor, then call `teams_login()`
 
 ## 📋 Notification Templates
 
