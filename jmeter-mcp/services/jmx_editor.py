@@ -23,6 +23,7 @@ from xml.dom import minidom
 
 from utils.config import load_config
 from utils.file_utils import get_jmeter_artifacts_dir
+from services.helpers.analysis_export_helpers import export_structure_files
 
 from services.jmx.component_registry import (
     build_component,
@@ -447,6 +448,8 @@ async def analyze_jmx_file(
     jmx_filename: str,
     detail_level: str,
     ctx,
+    export_structure: bool = True,
+    output_format: str = "both",
 ) -> dict:
     """
     Parse and analyse a JMX file, returning structure, summary, and variable info.
@@ -456,9 +459,11 @@ async def analyze_jmx_file(
         jmx_filename: Optional filename override (empty for auto-discover).
         detail_level: "summary", "detailed", or "full".
         ctx: FastMCP context.
+        export_structure: If True, persist analysis to versioned files.
+        output_format: "json", "markdown", or "both" (only when export_structure is True).
 
     Returns:
-        dict with status, hierarchy, node_index, summary, variables.
+        dict with status, hierarchy, node_index, summary, variables, exported_files.
     """
     try:
         jmx_path = discover_jmx_file(test_run_id, jmx_filename)
@@ -492,18 +497,14 @@ async def analyze_jmx_file(
         "by_type": dict(sorted(type_counts.items())),
     }
 
-    result: Dict[str, Any] = {
-        "status": "OK",
-        "message": f"Analysis complete for {os.path.basename(jmx_path)}",
-        "test_run_id": test_run_id,
-        "jmx_path": jmx_path,
-        "jmx_filename": os.path.basename(jmx_path),
-        "detail_level": detail_level,
-        "hierarchy": hierarchy,
-        "summary": summary,
-    }
+    # When exporting, ensure node_index is built even if caller requested "summary"
+    export_detail = detail_level
+    if export_structure and detail_level == "summary":
+        export_detail = "detailed"
 
-    if detail_level in ("detailed", "full"):
+    # Build node_index_output for detailed/full (or when export needs it)
+    node_index_output: Optional[dict] = None
+    if detail_level in ("detailed", "full") or export_detail in ("detailed", "full"):
         node_index_output = {}
         for nid, info in node_index.items():
             entry = {
@@ -518,13 +519,47 @@ async def analyze_jmx_file(
             if detail_level == "full":
                 entry["props"] = info["props"]
             node_index_output[nid] = entry
-        result["node_index"] = node_index_output
 
-    if detail_level in ("detailed", "full"):
-        result["variables"] = _scan_variables(root)
+    # Build variables for detailed/full (or when export needs it)
+    variables: Optional[dict] = None
+    if detail_level in ("detailed", "full") or export_detail in ("detailed", "full"):
+        variables = _scan_variables(root)
 
     # Build human-readable outline
-    result["outline"] = _build_outline_text(hierarchy)
+    outline = _build_outline_text(hierarchy)
+
+    # Assemble result dict
+    result: Dict[str, Any] = {
+        "status": "OK",
+        "message": f"Analysis complete for {os.path.basename(jmx_path)}",
+        "test_run_id": test_run_id,
+        "jmx_path": jmx_path,
+        "jmx_filename": os.path.basename(jmx_path),
+        "detail_level": detail_level,
+        "hierarchy": hierarchy,
+        "summary": summary,
+        "outline": outline,
+    }
+
+    if detail_level in ("detailed", "full") and node_index_output is not None:
+        result["node_index"] = node_index_output
+    if detail_level in ("detailed", "full") and variables is not None:
+        result["variables"] = variables
+
+    # Export structure files when requested
+    if export_structure:
+        exported = export_structure_files(
+            test_run_id=test_run_id,
+            jmx_path=jmx_path,
+            detail_level=export_detail,
+            summary=summary,
+            hierarchy=hierarchy,
+            node_index_output=node_index_output,
+            variables=variables,
+            outline=outline,
+            output_format=output_format,
+        )
+        result["exported_files"] = exported
 
     return result
 
