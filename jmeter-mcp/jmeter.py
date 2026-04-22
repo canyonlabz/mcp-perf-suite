@@ -399,6 +399,8 @@ async def analyze_jmeter_script(
     ctx: Context,
     jmx_filename: str = "",
     detail_level: str = "summary",
+    export_structure: bool = True,
+    output_format: str = "both",
 ) -> dict:
     """
     Analyze an existing JMeter JMX script to understand its structure,
@@ -409,6 +411,12 @@ async def analyze_jmeter_script(
     add_jmeter_component or edit_jmeter_component to obtain the node_ids
     needed for targeting specific elements.
 
+    When export_structure is True (default), the analysis is also persisted
+    to versioned files under artifacts/<test_run_id>/jmeter/analysis/ so
+    that AI agents can read the structure from disk instead of holding it
+    in context. The exported files always include the full node_index
+    regardless of detail_level.
+
     Args:
         test_run_id (str): Unique identifier for the test run.
         ctx (Context): FastMCP context for state/error details.
@@ -418,6 +426,12 @@ async def analyze_jmeter_script(
             - "summary" (default): Hierarchy outline + element counts.
             - "detailed": Adds full node index with node_ids + variable scan.
             - "full": Adds element properties to the node index.
+        export_structure (bool): If True (default), persist analysis to
+            versioned JSON and/or Markdown files in the artifacts directory.
+        output_format (str): File format for exported structure:
+            - "json": JSON file only.
+            - "markdown": Markdown file only.
+            - "both" (default): Both JSON and Markdown.
 
     Returns:
         dict: {
@@ -429,10 +443,15 @@ async def analyze_jmeter_script(
             "outline": str,
             "summary": {"total_elements": int, "by_type": dict},
             "node_index": dict (detailed/full only),
-            "variables": dict (detailed/full only)
+            "variables": dict (detailed/full only),
+            "exported_files": {"json": str, "markdown": str} (when export_structure=True)
         }
     """
-    return await _analyze_jmx(test_run_id, jmx_filename, detail_level, ctx)
+    return await _analyze_jmx(
+        test_run_id, jmx_filename, detail_level, ctx,
+        export_structure=export_structure,
+        output_format=output_format,
+    )
 
 
 @mcp.tool()
