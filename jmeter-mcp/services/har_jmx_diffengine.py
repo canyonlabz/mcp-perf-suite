@@ -606,3 +606,399 @@ def extract_jmx_samplers(
     )
 
     return samplers, metadata
+
+
+# ============================================================
+# Phase B — Multi-Pass Matching Algorithm
+# ============================================================
+
+
+def _pass1_exact_match(
+    har_entries: List[Dict[str, Any]],
+    jmx_samplers: List[Dict[str, Any]],
+    matched_har: set,
+    matched_jmx: set,
+) -> List[Dict[str, Any]]:
+    """
+    Pass 1 — Exact match on method + URL path.
+
+    Only considers JMX samplers whose url_pattern contains no ${...}
+    placeholders. Matching is case-insensitive on the normalized path.
+    """
+    matches: List[Dict[str, Any]] = []
+
+    static_samplers = [
+        s for s in jmx_samplers
+        if "${" not in s["url_pattern"] and s["node_id"] not in matched_jmx
+    ]
+
+    for h_idx, har in enumerate(har_entries):
+        if h_idx in matched_har:
+            continue
+        for sampler in static_samplers:
+            if sampler["node_id"] in matched_jmx:
+                continue
+            if (
+                har["method"] == sampler["method"]
+                and har["url_path"] == sampler["url_pattern_normalized"]
+            ):
+                matches.append(_build_match(
+                    har, sampler, h_idx, confidence="high", match_pass=1,
+                ))
+                matched_har.add(h_idx)
+                matched_jmx.add(sampler["node_id"])
+                break
+
+    return matches
+
+
+def _pass2_parameterized_match(
+    har_entries: List[Dict[str, Any]],
+    jmx_samplers: List[Dict[str, Any]],
+    matched_har: set,
+    matched_jmx: set,
+) -> List[Dict[str, Any]]:
+    """
+    Pass 2 — Parameterized regex match.
+
+    For JMX samplers with ${...} in the URL pattern (url_regex) or
+    {param}/{{param}} in the sampler name (name_regex), match against
+    HAR url_path + method.
+    """
+    matches: List[Dict[str, Any]] = []
+
+    param_samplers = [
+        s for s in jmx_samplers
+        if (s["url_regex"] or s["name_regex"]) and s["node_id"] not in matched_jmx
+    ]
+
+    for h_idx, har in enumerate(har_entries):
+        if h_idx in matched_har:
+            continue
+
+        candidates: List[Dict[str, Any]] = []
+        for sampler in param_samplers:
+            if sampler["node_id"] in matched_jmx:
+                continue
+            if har["method"] != sampler["method"]:
+                continue
+
+            matched_via = None
+            if sampler["url_regex"]:
+                try:
+                    if re.match(sampler["url_regex"], har["url_path"], re.IGNORECASE):
+                        matched_via = "url_regex"
+                except re.error:
+                    pass
+
+            if not matched_via and sampler["name_regex"]:
+                try:
+                    if re.match(sampler["name_regex"], har["url_path"], re.IGNORECASE):
+                        matched_via = "name_regex"
+                except re.error:
+                    pass
+
+            if matched_via:
+                candidates.append(sampler)
+
+        if len(candidates) == 1:
+            sampler = candidates[0]
+            matches.append(_build_match(
+                har, sampler, h_idx, confidence="high", match_pass=2,
+            ))
+            matched_har.add(h_idx)
+            matched_jmx.add(sampler["node_id"])
+        elif len(candidates) > 1:
+            best = _pick_best_parameterized_candidate(har, candidates)
+            matches.append(_build_match(
+                har, best, h_idx, confidence="medium", match_pass=2,
+            ))
+            matched_har.add(h_idx)
+            matched_jmx.add(best["node_id"])
+
+    return matches
+
+
+def _pick_best_parameterized_candidate(
+    har_entry: Dict[str, Any],
+    candidates: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    When multiple JMX samplers match a HAR entry in Pass 2, pick the best.
+
+    Scoring heuristic:
+    1. Prefer url_regex match over name_regex (direct URL pattern is stronger)
+    2. Prefer samplers with more static segments (more specific pattern)
+    3. Fall back to first candidate
+    """
+    scored = []
+    for s in candidates:
+        score = 0
+        pattern = s["url_pattern_normalized"]
+        static_segments = len([
+            seg for seg in pattern.split("/") if seg and "${" not in seg
+        ])
+        score += static_segments * 10
+        if s["url_regex"]:
+            score += 5
+        scored.append((score, s))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return scored[0][1]
+
+
+def _pass3_fuzzy_segment_match(
+    har_entries: List[Dict[str, Any]],
+    jmx_samplers: List[Dict[str, Any]],
+    matched_har: set,
+    matched_jmx: set,
+) -> List[Dict[str, Any]]:
+    """
+    Pass 3 — Path-segment fuzzy match.
+
+    Tokenizes URL paths into segments and scores overlap, allowing for
+    version number differences (v1 vs v2). Skipped when strict_matching=True.
+
+    Confidence: "medium" (overlap > 80%), "low" (overlap 50-80%).
+    """
+    matches: List[Dict[str, Any]] = []
+
+    unmatched_samplers = [
+        s for s in jmx_samplers if s["node_id"] not in matched_jmx
+    ]
+
+    for h_idx, har in enumerate(har_entries):
+        if h_idx in matched_har:
+            continue
+
+        har_segments = _tokenize_path(har["url_path"])
+        if not har_segments:
+            continue
+
+        best_sampler = None
+        best_score = 0.0
+
+        for sampler in unmatched_samplers:
+            if sampler["node_id"] in matched_jmx:
+                continue
+
+            jmx_path = sampler["url_pattern_normalized"]
+            if sampler["url_path_from_name"]:
+                jmx_path = sampler["url_path_from_name"]
+
+            jmx_segments = _tokenize_path(jmx_path)
+            if not jmx_segments:
+                continue
+
+            score = _segment_overlap_score(har_segments, jmx_segments)
+
+            if score > best_score and score >= 0.50:
+                best_score = score
+                best_sampler = sampler
+
+        if best_sampler is not None and best_score >= 0.50:
+            confidence = "medium" if best_score > 0.80 else "low"
+            matches.append(_build_match(
+                har, best_sampler, h_idx,
+                confidence=confidence, match_pass=3,
+            ))
+            matched_har.add(h_idx)
+            matched_jmx.add(best_sampler["node_id"])
+
+    return matches
+
+
+def _tokenize_path(url_path: str) -> List[str]:
+    """Split a URL path into non-empty, lowercase segments."""
+    return [s.lower() for s in url_path.split("/") if s]
+
+
+_VERSION_RE = re.compile(r'^v\d+$', re.IGNORECASE)
+
+
+def _segment_overlap_score(
+    har_segments: List[str],
+    jmx_segments: List[str],
+) -> float:
+    """
+    Compute overlap score between HAR and JMX path segments.
+
+    Rules:
+    - Exact segment match = 1.0 point
+    - Version number difference (v1 vs v2) = 0.5 point (still a match, just different version)
+    - JMX segment that is a ${...} or {param} placeholder = 0.8 point (expected to differ)
+    - No match = 0.0 points
+
+    Score = total points / max(len(har_segments), len(jmx_segments))
+    """
+    max_len = max(len(har_segments), len(jmx_segments))
+    if max_len == 0:
+        return 0.0
+
+    points = 0.0
+    for i in range(min(len(har_segments), len(jmx_segments))):
+        h_seg = har_segments[i]
+        j_seg = jmx_segments[i]
+
+        if h_seg == j_seg:
+            points += 1.0
+        elif _VERSION_RE.match(h_seg) and _VERSION_RE.match(j_seg):
+            points += 0.5
+        elif "${" in j_seg or ("{" in j_seg and "}" in j_seg):
+            points += 0.8
+        else:
+            points += 0.0
+
+    return points / max_len
+
+
+def _pass4_unmatched_classification(
+    har_entries: List[Dict[str, Any]],
+    jmx_samplers: List[Dict[str, Any]],
+    matched_har: set,
+    matched_jmx: set,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Pass 4 — Classify unmatched entries.
+
+    Returns:
+        (new_endpoints, removed_endpoints) where:
+        - new_endpoints: HAR entries with no JMX match
+        - removed_endpoints: JMX samplers with no HAR match (possibly removed)
+    """
+    new_endpoints: List[Dict[str, Any]] = []
+    for h_idx, har in enumerate(har_entries):
+        if h_idx not in matched_har:
+            new_endpoints.append({
+                "method": har["method"],
+                "url_path": har["url_path"],
+                "url": har["url"],
+                "har_entry_index": har["har_entry_index"],
+                "query_params": har.get("query_params", []),
+                "request_body_schema": har.get("request_body_schema"),
+                "response_status": har.get("response_status", 0),
+            })
+
+    removed_endpoints: List[Dict[str, Any]] = []
+    for sampler in jmx_samplers:
+        if sampler["node_id"] not in matched_jmx:
+            removed_endpoints.append({
+                "node_id": sampler["node_id"],
+                "testname": sampler["testname"],
+                "method": sampler["method"],
+                "url_pattern": sampler["url_pattern"],
+                "enabled": sampler["enabled"],
+                "parent_controller": sampler.get("parent_controller"),
+                "classification": "possibly_removed",
+                "note": (
+                    "Not present in HAR — may not have been exercised "
+                    "in this capture"
+                ),
+            })
+
+    return new_endpoints, removed_endpoints
+
+
+def _build_match(
+    har_entry: Dict[str, Any],
+    jmx_sampler: Dict[str, Any],
+    har_idx: int,
+    confidence: str,
+    match_pass: int,
+) -> Dict[str, Any]:
+    """Build a standardized match record."""
+    return {
+        "match_id": f"m_{har_idx:04d}",
+        "confidence": confidence,
+        "match_pass": match_pass,
+        "har_entry": {
+            "method": har_entry["method"],
+            "url_path": har_entry["url_path"],
+            "url": har_entry["url"],
+            "har_entry_index": har_entry["har_entry_index"],
+            "query_params": har_entry.get("query_params", []),
+            "request_headers": har_entry.get("request_headers", {}),
+            "request_body_schema": har_entry.get("request_body_schema"),
+            "response_status": har_entry.get("response_status", 0),
+            "response_body_schema": har_entry.get("response_body_schema"),
+        },
+        "jmx_sampler": {
+            "node_id": jmx_sampler["node_id"],
+            "testname": jmx_sampler["testname"],
+            "method": jmx_sampler["method"],
+            "url_pattern": jmx_sampler["url_pattern"],
+            "domain": jmx_sampler.get("domain", ""),
+            "enabled": jmx_sampler.get("enabled", True),
+            "parent_controller": jmx_sampler.get("parent_controller"),
+            "request_body": jmx_sampler.get("request_body"),
+            "child_extractors": jmx_sampler.get("child_extractors", []),
+            "child_assertions": jmx_sampler.get("child_assertions", []),
+        },
+        "differences": [],
+    }
+
+
+def run_matching(
+    har_entries: List[Dict[str, Any]],
+    jmx_samplers: List[Dict[str, Any]],
+    strict_matching: bool = False,
+) -> Dict[str, Any]:
+    """
+    Execute the multi-pass matching algorithm.
+
+    Args:
+        har_entries: Normalized HAR entries from extract_har_entries().
+        jmx_samplers: Extracted JMX samplers from extract_jmx_samplers().
+        strict_matching: When True, skip Pass 3 (fuzzy segment matching).
+
+    Returns:
+        Dict with keys:
+        - "matches": list of match records (from Passes 1-3)
+        - "new_endpoints": HAR entries with no JMX match
+        - "removed_endpoints": JMX samplers with no HAR match
+        - "match_stats": summary counts per pass and confidence level
+    """
+    matched_har: set = set()
+    matched_jmx: set = set()
+
+    pass1 = _pass1_exact_match(har_entries, jmx_samplers, matched_har, matched_jmx)
+    pass2 = _pass2_parameterized_match(har_entries, jmx_samplers, matched_har, matched_jmx)
+
+    pass3: List[Dict[str, Any]] = []
+    if not strict_matching:
+        pass3 = _pass3_fuzzy_segment_match(
+            har_entries, jmx_samplers, matched_har, matched_jmx,
+        )
+
+    new_endpoints, removed_endpoints = _pass4_unmatched_classification(
+        har_entries, jmx_samplers, matched_har, matched_jmx,
+    )
+
+    all_matches = pass1 + pass2 + pass3
+
+    match_stats = {
+        "pass_1_exact": len(pass1),
+        "pass_2_parameterized": len(pass2),
+        "pass_3_fuzzy": len(pass3),
+        "total_matched": len(all_matches),
+        "new_endpoints": len(new_endpoints),
+        "removed_endpoints": len(removed_endpoints),
+        "confidence_high": sum(1 for m in all_matches if m["confidence"] == "high"),
+        "confidence_medium": sum(1 for m in all_matches if m["confidence"] == "medium"),
+        "confidence_low": sum(1 for m in all_matches if m["confidence"] == "low"),
+        "strict_matching": strict_matching,
+    }
+
+    logger.info(
+        "Matching complete: %d matched (P1=%d, P2=%d, P3=%d), "
+        "%d new endpoints, %d possibly removed",
+        len(all_matches), len(pass1), len(pass2), len(pass3),
+        len(new_endpoints), len(removed_endpoints),
+    )
+
+    return {
+        "matches": all_matches,
+        "new_endpoints": new_endpoints,
+        "removed_endpoints": removed_endpoints,
+        "match_stats": match_stats,
+    }
