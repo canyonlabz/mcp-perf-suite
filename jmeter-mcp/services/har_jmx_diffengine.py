@@ -1002,3 +1002,618 @@ def run_matching(
         "removed_endpoints": removed_endpoints,
         "match_stats": match_stats,
     }
+
+
+# ============================================================
+# Phase C — Difference Analysis
+# ============================================================
+
+
+def _diff_url(match: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Detect URL path changes (relevant for fuzzy Pass-3 matches)."""
+    diffs: List[Dict[str, Any]] = []
+
+    har_path = match["har_entry"]["url_path"]
+    jmx_pattern = match["jmx_sampler"]["url_pattern"]
+    jmx_normalized = jmx_pattern.rstrip("/").lower() or "/"
+
+    if match["match_pass"] == 3:
+        diffs.append({
+            "category": "url_change",
+            "severity": "high",
+            "har_url_path": har_path,
+            "jmx_url_pattern": jmx_pattern,
+            "description": (
+                f"URL path differs (fuzzy match): "
+                f"HAR '{har_path}' vs JMX '{jmx_pattern}'"
+            ),
+        })
+    elif match["match_pass"] in (1, 2):
+        if "${" not in jmx_normalized and har_path != jmx_normalized:
+            diffs.append({
+                "category": "url_change",
+                "severity": "high",
+                "har_url_path": har_path,
+                "jmx_url_pattern": jmx_pattern,
+                "description": (
+                    f"URL path mismatch: "
+                    f"HAR '{har_path}' vs JMX '{jmx_pattern}'"
+                ),
+            })
+
+    return diffs
+
+
+def _diff_method(match: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Detect HTTP method changes between HAR and JMX."""
+    har_method = match["har_entry"]["method"]
+    jmx_method = match["jmx_sampler"]["method"]
+
+    if har_method != jmx_method:
+        return [{
+            "category": "method_change",
+            "severity": "high",
+            "har_method": har_method,
+            "jmx_method": jmx_method,
+            "description": (
+                f"HTTP method changed: JMX uses {jmx_method}, "
+                f"HAR shows {har_method}"
+            ),
+        }]
+    return []
+
+
+def _parse_jmx_body_keys(body: Optional[str]) -> Optional[Dict[str, Any]]:
+    """
+    Attempt to parse a JMX request body as JSON and extract its key schema.
+
+    JMX bodies may contain ${...} placeholders in values, which break
+    JSON parsing. We replace them with placeholder strings before parsing.
+    """
+    if not body or not body.strip():
+        return None
+
+    sanitised = _VAR_PLACEHOLDER_RE.sub('"__jmx_var__"', body)
+    try:
+        parsed = json.loads(sanitised)
+        schema_depth = _get_schema_depth()
+        return _extract_json_schema(parsed, schema_depth)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _collect_schema_keys(schema: Any, prefix: str = "") -> set:
+    """Flatten a schema dict into a set of dot-notation key paths."""
+    keys: set = set()
+    if isinstance(schema, dict):
+        for k, v in schema.items():
+            full_key = f"{prefix}.{k}" if prefix else k
+            keys.add(full_key)
+            keys.update(_collect_schema_keys(v, full_key))
+    elif isinstance(schema, list) and schema:
+        keys.update(_collect_schema_keys(schema[0], f"{prefix}[]"))
+    return keys
+
+
+def _diff_payload(match: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Detect request payload differences.
+
+    Categories: payload_field_added, payload_field_removed,
+    payload_field_type_changed.
+    """
+    diffs: List[Dict[str, Any]] = []
+
+    har_schema = match["har_entry"].get("request_body_schema")
+    jmx_body = match["jmx_sampler"].get("request_body")
+    jmx_schema = _parse_jmx_body_keys(jmx_body)
+
+    if har_schema is None and jmx_schema is None:
+        return diffs
+
+    if har_schema is not None and jmx_schema is None and jmx_body:
+        diffs.append({
+            "category": "payload_field_type_changed",
+            "severity": "medium",
+            "description": (
+                "HAR has structured JSON body but JMX body could not be "
+                "parsed as JSON — possible format change"
+            ),
+        })
+        return diffs
+
+    if har_schema is not None and jmx_schema is None:
+        if isinstance(har_schema, dict) and har_schema:
+            diffs.append({
+                "category": "payload_field_added",
+                "severity": "medium",
+                "description": (
+                    "HAR request contains a JSON body but JMX sampler has "
+                    "no request body"
+                ),
+                "added_keys": sorted(_collect_schema_keys(har_schema)),
+            })
+        return diffs
+
+    if har_schema is None and jmx_schema is not None:
+        if isinstance(jmx_schema, dict) and jmx_schema:
+            diffs.append({
+                "category": "payload_field_removed",
+                "severity": "medium",
+                "description": (
+                    "JMX sampler has a JSON body but HAR request has no body"
+                ),
+                "removed_keys": sorted(_collect_schema_keys(jmx_schema)),
+            })
+        return diffs
+
+    if not isinstance(har_schema, dict) or not isinstance(jmx_schema, dict):
+        return diffs
+
+    har_keys = _collect_schema_keys(har_schema)
+    jmx_keys = _collect_schema_keys(jmx_schema)
+
+    added = har_keys - jmx_keys
+    removed = jmx_keys - har_keys
+
+    for key in sorted(added):
+        diffs.append({
+            "category": "payload_field_added",
+            "severity": "medium",
+            "field": key,
+            "description": f"Field '{key}' present in HAR request body but not in JMX",
+        })
+
+    for key in sorted(removed):
+        diffs.append({
+            "category": "payload_field_removed",
+            "severity": "medium",
+            "field": key,
+            "description": f"Field '{key}' present in JMX body but not in HAR request",
+        })
+
+    common = har_keys & jmx_keys
+    for key in sorted(common):
+        har_type = _get_type_at_path(har_schema, key)
+        jmx_type = _get_type_at_path(jmx_schema, key)
+        if har_type and jmx_type and har_type != jmx_type:
+            if jmx_type == "__jmx_var__" or jmx_type == "string":
+                continue
+            diffs.append({
+                "category": "payload_field_type_changed",
+                "severity": "medium",
+                "field": key,
+                "har_type": har_type,
+                "jmx_type": jmx_type,
+                "description": (
+                    f"Type changed for '{key}': "
+                    f"JMX has {jmx_type}, HAR has {har_type}"
+                ),
+            })
+
+    return diffs
+
+
+def _get_type_at_path(schema: Any, dot_path: str) -> Optional[str]:
+    """Resolve a dot-notation path in a schema to its type/value."""
+    parts = dot_path.replace("[]", "").split(".")
+    current = schema
+    for part in parts:
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        elif isinstance(current, list) and current:
+            current = current[0]
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            else:
+                return None
+        else:
+            return None
+
+    if isinstance(current, str):
+        return current
+    if isinstance(current, dict):
+        return "object"
+    if isinstance(current, list):
+        return "array"
+    return None
+
+
+def _diff_response_schema(match: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Detect response body schema changes.
+
+    Compares the HAR response body schema against the JMX sampler's child
+    extractors to identify structural changes.
+    """
+    diffs: List[Dict[str, Any]] = []
+    har_resp_schema = match["har_entry"].get("response_body_schema")
+    if not isinstance(har_resp_schema, dict) or not har_resp_schema:
+        return diffs
+
+    har_keys = _collect_schema_keys(har_resp_schema)
+    if not har_keys:
+        return diffs
+
+    extractors = match["jmx_sampler"].get("child_extractors", [])
+    if not extractors:
+        return diffs
+
+    for ext in extractors:
+        json_path = ext.get("json_path", "")
+        if not json_path:
+            continue
+
+        normalized = _normalize_jsonpath_to_dot(json_path)
+        if normalized and normalized not in har_keys:
+            close_match = _find_closest_key(normalized, har_keys)
+            desc = (
+                f"Response schema change: extractor path '{json_path}' "
+                f"not found in HAR response structure"
+            )
+            diff_entry: Dict[str, Any] = {
+                "category": "response_schema_change",
+                "severity": "medium",
+                "extractor_node_id": ext.get("node_id", ""),
+                "extractor_name": ext.get("testname", ""),
+                "json_path": json_path,
+                "description": desc,
+            }
+            if close_match:
+                diff_entry["suggested_path"] = close_match
+                diff_entry["description"] += f" (closest: '{close_match}')"
+            diffs.append(diff_entry)
+
+    return diffs
+
+
+def _normalize_jsonpath_to_dot(json_path: str) -> Optional[str]:
+    """
+    Convert a JSONPath expression to dot notation for key lookup.
+
+    Examples:
+        $.auth_token       -> auth_token
+        $.data.user.name   -> data.user.name
+        $.items[0].id      -> items[].id
+    """
+    if not json_path:
+        return None
+    path = json_path.lstrip("$").lstrip(".")
+    path = re.sub(r'\[\d+\]', '[]', path)
+    return path if path else None
+
+
+def _find_closest_key(target: str, keys: set) -> Optional[str]:
+    """Find the key that ends with the same leaf as target."""
+    target_leaf = target.rsplit(".", 1)[-1] if "." in target else target
+    candidates = [k for k in keys if k.endswith(f".{target_leaf}") or k == target_leaf]
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
+def _diff_correlation_drift(
+    match: Dict[str, Any],
+    correlation_spec: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Detect correlation drift — extractors whose paths no longer match
+    the HAR response structure.
+
+    If correlation_spec is provided, also checks for variable source
+    field movement or renaming.
+    """
+    diffs: List[Dict[str, Any]] = []
+    har_resp_schema = match["har_entry"].get("response_body_schema")
+    extractors = match["jmx_sampler"].get("child_extractors", [])
+
+    if not extractors:
+        return diffs
+
+    har_keys = set()
+    if isinstance(har_resp_schema, dict):
+        har_keys = _collect_schema_keys(har_resp_schema)
+
+    har_resp_text = None
+    for ext in extractors:
+        ext_type = ext.get("type", "")
+        refname = ext.get("refname", "")
+
+        if ext_type == "JSONPostProcessor":
+            json_path = ext.get("json_path", "")
+            if not json_path or not har_keys:
+                continue
+            normalized = _normalize_jsonpath_to_dot(json_path)
+            if normalized and normalized not in har_keys:
+                suggested = _find_closest_key(normalized, har_keys)
+                diff_entry: Dict[str, Any] = {
+                    "category": "correlation_drift",
+                    "severity": "high",
+                    "extractor_node_id": ext.get("node_id", ""),
+                    "extractor_name": ext.get("testname", ""),
+                    "extractor_type": ext_type,
+                    "current_json_path": json_path,
+                    "refname": refname,
+                    "description": (
+                        f"Correlation drift: JSONPath '{json_path}' "
+                        f"not found in HAR response"
+                    ),
+                }
+                if suggested:
+                    diff_entry["suggested_json_path"] = suggested
+                    diff_entry["description"] += f" — suggested: '{suggested}'"
+                diffs.append(diff_entry)
+
+        elif ext_type == "RegexExtractor":
+            regex = ext.get("regex", "")
+            if not regex:
+                continue
+            if har_resp_text is None:
+                har_resp_text = _reconstruct_response_text(match)
+            if har_resp_text and not _regex_has_match(regex, har_resp_text):
+                diffs.append({
+                    "category": "correlation_drift",
+                    "severity": "high",
+                    "extractor_node_id": ext.get("node_id", ""),
+                    "extractor_name": ext.get("testname", ""),
+                    "extractor_type": ext_type,
+                    "current_regex": regex,
+                    "refname": refname,
+                    "description": (
+                        f"Correlation drift: regex '{regex}' does not match "
+                        f"HAR response content"
+                    ),
+                })
+
+        if correlation_spec and refname:
+            spec_entry = correlation_spec.get(refname)
+            if spec_entry:
+                spec_source = spec_entry.get("source_field", "")
+                if spec_source and isinstance(har_resp_schema, dict):
+                    normalized_source = spec_source.lstrip("$.").replace("[0]", "[]")
+                    if normalized_source and normalized_source not in har_keys:
+                        suggested = _find_closest_key(normalized_source, har_keys)
+                        diff_entry = {
+                            "category": "correlation_drift",
+                            "severity": "high",
+                            "extractor_node_id": ext.get("node_id", ""),
+                            "extractor_name": ext.get("testname", ""),
+                            "refname": refname,
+                            "spec_source_field": spec_source,
+                            "description": (
+                                f"Correlation spec source field '{spec_source}' "
+                                f"for variable '{refname}' not found in HAR response"
+                            ),
+                        }
+                        if suggested:
+                            diff_entry["suggested_source_field"] = suggested
+                            diff_entry["description"] += f" — suggested: '{suggested}'"
+                        diffs.append(diff_entry)
+
+    return diffs
+
+
+def _reconstruct_response_text(match: Dict[str, Any]) -> Optional[str]:
+    """
+    Build a text representation of the HAR response for regex matching.
+
+    Uses the response body schema keys since we don't carry the raw body.
+    For regex extractors, the key structure itself may be sufficient for
+    common patterns like header/boundary extraction.
+    """
+    schema = match["har_entry"].get("response_body_schema")
+    if isinstance(schema, dict):
+        try:
+            return json.dumps(schema)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _regex_has_match(pattern: str, text: str) -> bool:
+    """Safely test if a regex matches anywhere in text."""
+    try:
+        return re.search(pattern, text) is not None
+    except re.error:
+        return False
+
+
+def _diff_status_code(match: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Detect response status code mismatches via JMX assertions."""
+    diffs: List[Dict[str, Any]] = []
+    har_status = match["har_entry"].get("response_status", 0)
+    if not har_status:
+        return diffs
+
+    assertions = match["jmx_sampler"].get("child_assertions", [])
+    for assertion in assertions:
+        if assertion.get("type") != "ResponseAssertion":
+            continue
+        props = assertion.get("props", {})
+        test_strings = props.get("test_strings", [])
+        if not test_strings:
+            continue
+
+        expected_statuses = []
+        for ts in test_strings:
+            ts_stripped = str(ts).strip()
+            if ts_stripped.isdigit():
+                expected_statuses.append(int(ts_stripped))
+
+        if expected_statuses and har_status not in expected_statuses:
+            diffs.append({
+                "category": "status_code_change",
+                "severity": "low",
+                "assertion_node_id": assertion.get("node_id", ""),
+                "expected_statuses": expected_statuses,
+                "har_status": har_status,
+                "description": (
+                    f"Status code mismatch: JMX asserts "
+                    f"{expected_statuses}, HAR returned {har_status}"
+                ),
+            })
+
+    return diffs
+
+
+def _diff_query_params(match: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Detect query parameter key differences."""
+    diffs: List[Dict[str, Any]] = []
+    har_params = set(match["har_entry"].get("query_params", []))
+    jmx_pattern = match["jmx_sampler"].get("url_pattern", "")
+
+    jmx_params: set = set()
+    if "?" in jmx_pattern:
+        query_str = jmx_pattern.split("?", 1)[1]
+        for pair in query_str.split("&"):
+            key = pair.split("=", 1)[0].strip()
+            if key:
+                jmx_params.add(key)
+
+    if not har_params and not jmx_params:
+        return diffs
+
+    added = har_params - jmx_params
+    removed = jmx_params - har_params
+
+    if added:
+        diffs.append({
+            "category": "query_param_change",
+            "severity": "low",
+            "change_type": "added",
+            "params": sorted(added),
+            "description": (
+                f"Query params in HAR but not in JMX: {', '.join(sorted(added))}"
+            ),
+        })
+    if removed:
+        diffs.append({
+            "category": "query_param_change",
+            "severity": "low",
+            "change_type": "removed",
+            "params": sorted(removed),
+            "description": (
+                f"Query params in JMX but not in HAR: {', '.join(sorted(removed))}"
+            ),
+        })
+
+    return diffs
+
+
+def _diff_headers(match: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Detect significant header differences.
+
+    Only compares Content-Type and Authorization scheme (not values).
+    """
+    diffs: List[Dict[str, Any]] = []
+    har_headers = match["har_entry"].get("request_headers", {})
+    har_ct = har_headers.get("content-type", "").split(";")[0].strip().lower()
+
+    jmx_body = match["jmx_sampler"].get("request_body")
+    if har_ct and jmx_body:
+        if "application/json" in har_ct:
+            try:
+                json.loads(
+                    _VAR_PLACEHOLDER_RE.sub('"__jmx_var__"', jmx_body)
+                )
+            except (json.JSONDecodeError, TypeError):
+                diffs.append({
+                    "category": "header_change",
+                    "severity": "low",
+                    "header": "content-type",
+                    "har_value": har_ct,
+                    "description": (
+                        f"HAR Content-Type is '{har_ct}' but JMX body "
+                        f"does not parse as JSON — possible format mismatch"
+                    ),
+                })
+        elif "form" in har_ct and jmx_body.strip().startswith("{"):
+            diffs.append({
+                "category": "header_change",
+                "severity": "low",
+                "header": "content-type",
+                "har_value": har_ct,
+                "description": (
+                    f"HAR Content-Type is '{har_ct}' but JMX body "
+                    f"looks like JSON — Content-Type mismatch"
+                ),
+            })
+
+    return diffs
+
+
+# ============================================================
+# Phase C — Orchestrator
+# ============================================================
+
+
+def analyze_differences(
+    matching_result: Dict[str, Any],
+    correlation_spec: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Run all difference checks on every matched pair.
+
+    Mutates each match's "differences" list in-place and returns
+    an enriched copy of matching_result with a diff_summary added.
+
+    Args:
+        matching_result: Output from run_matching().
+        correlation_spec: Optional parsed correlation_spec.json indexed
+            by variable refname.
+
+    Returns:
+        The enriched matching_result dict with per-match differences
+        populated and a top-level "diff_summary" added.
+    """
+    diff_summary: Dict[str, int] = {
+        "url_change": 0,
+        "method_change": 0,
+        "payload_field_added": 0,
+        "payload_field_removed": 0,
+        "payload_field_type_changed": 0,
+        "response_schema_change": 0,
+        "correlation_drift": 0,
+        "status_code_change": 0,
+        "query_param_change": 0,
+        "header_change": 0,
+        "matched_no_changes": 0,
+    }
+
+    for match in matching_result["matches"]:
+        all_diffs: List[Dict[str, Any]] = []
+
+        all_diffs.extend(_diff_url(match))
+        all_diffs.extend(_diff_method(match))
+        all_diffs.extend(_diff_payload(match))
+        all_diffs.extend(_diff_response_schema(match))
+        all_diffs.extend(_diff_correlation_drift(match, correlation_spec))
+        all_diffs.extend(_diff_status_code(match))
+        all_diffs.extend(_diff_query_params(match))
+        all_diffs.extend(_diff_headers(match))
+
+        match["differences"] = all_diffs
+
+        if not all_diffs:
+            diff_summary["matched_no_changes"] += 1
+        else:
+            for d in all_diffs:
+                cat = d.get("category", "")
+                if cat in diff_summary:
+                    diff_summary[cat] += 1
+
+    matching_result["diff_summary"] = diff_summary
+
+    total_diffs = sum(
+        v for k, v in diff_summary.items() if k != "matched_no_changes"
+    )
+    logger.info(
+        "Difference analysis complete: %d differences across %d matches, "
+        "%d matches with no changes",
+        total_diffs,
+        len(matching_result["matches"]),
+        diff_summary["matched_no_changes"],
+    )
+
+    return matching_result
