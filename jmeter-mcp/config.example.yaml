@@ -29,6 +29,9 @@ jmx_editing:
   validate_after_edit: true     # Re-parse JMX after saving to verify well-formed XML
   max_analysis_files: 10        # Maximum number of versioned analysis files (jmx_structure_*.json/md) to retain per test run (oldest pruned first)
 
+har_jmx_comparison:
+  schema_comparison_depth: 3    # Max nesting depth for JSON request/response body schema comparison (increase for deeply nested APIs)
+
 jmeter:
   jmeter_home: "C:\\<path_to_jmeter>\\apache-jmeter"
   jmeter_bin_path: "C:\\<path_to_jmeter>\\apache-jmeter\\bin"           # Update with the actual path
