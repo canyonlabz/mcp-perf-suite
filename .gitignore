@@ -267,6 +267,7 @@ docs/*
 !docs/metrics_calculations_and_display.md
 !docs/sla_configuration_guide.md
 !docs/har_adapter_guide.md
+!docs/har_jmx_comparison_guide.md
 !docs/artifacts_guide.md
 !docs/jmeter_hitl_user_guide.md
 !docs/large_file_handling.md

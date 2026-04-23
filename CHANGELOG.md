@@ -12,6 +12,7 @@ This document summarizes the enhancements and new features added to the MCP Perf
 - [4. PerfMemory AI Skill & Debugging Integration](#4-perfmemory-ai-skill--debugging-integration)
 - [5. MS Teams MCP Server](#5-ms-teams-mcp-server)
 - [6. PerfMemory Apache AGE Knowledge Graph](#6-perfmemory-apache-age-knowledge-graph)
+- [7. JMeter MCP — Structure Export & HAR-JMX Comparison](#7-jmeter-mcp--structure-export--har-jmx-comparison)
 - [Previous Changelogs](#previous-changelogs)
 
 ---
@@ -483,6 +484,92 @@ Updated `.cursor/skills/perfmemory/SKILL.md` with:
 
 ---
 
+## 7. JMeter MCP — Structure Export & HAR-JMX Comparison
+
+### 7.1 Overview
+
+Two enhancements to the JMeter MCP server that improve AI agent efficiency when working with large JMX scripts and automate the detection of API changes between HAR captures and existing JMeter scripts.
+
+| # | Type | Name | Purpose |
+|---|------|------|---------|
+| 1 | Enhancement | `analyze_jmeter_script` structure export | Persist analysis output to versioned JSON + Markdown files so AI agents don't exhaust context on large scripts |
+| 2 | New Tool | `compare_har_to_jmx` | Cross-compare a HAR file against a JMX script to identify API changes requiring script updates |
+
+### 7.2 Enhancement 1 — Structure Export
+
+Added `export_structure` and `output_format` parameters to the existing `analyze_jmeter_script` tool. When enabled (default), the analysis is persisted to timestamped files under `artifacts/<test_run_id>/jmeter/analysis/`:
+
+- `jmx_structure_<timestamp>.json` — full structure with node_index for machine consumption
+- `jmx_structure_<timestamp>.md` — concise summary for human review
+
+File retention is configurable via `config.example.yaml` under `jmx_editing.max_analysis_files` (default: 10). Oldest files are pruned when the count is exceeded.
+
+The exported JSON includes `jmx_last_modified` timestamps, enabling downstream tools to detect staleness — the `compare_har_to_jmx` tool leverages this as a natural warm cache.
+
+### 7.3 Enhancement 2 — HAR-JMX Comparison Tool
+
+A new `compare_har_to_jmx` MCP tool that runs a four-phase diagnostic pipeline:
+
+**Phase A — Extraction:** Parses both HAR and JMX files, extracting comparison-relevant fields (URL patterns, methods, request bodies, response schemas, child extractors, assertions).
+
+**Phase B — Multi-Pass Matching:** Aligns HAR entries to JMX samplers via four sequential passes:
+
+| Pass | Strategy | Confidence |
+|------|----------|------------|
+| Pass 1 | Exact match (method + URL path) | High |
+| Pass 2 | Parameterized regex match (`${var}` and `{param}` patterns) | High/Medium |
+| Pass 3 | Fuzzy path-segment match (skipped when `strict_matching=True`) | Medium/Low |
+| Pass 4 | Unmatched classification (new endpoints, possibly removed endpoints) | — |
+
+**Phase C — Difference Analysis:** Per-match comparison across 10 categories:
+
+| Severity | Categories |
+|----------|------------|
+| High | URL change, method change, correlation drift |
+| Medium | Payload field added/removed/type changed, response schema change |
+| Low | Status code change, query param change, header change |
+
+**Phase D — Report Generation:** Produces versioned JSON and Markdown reports with actionable findings organized by severity.
+
+### 7.4 Key Design Decisions
+
+- Diagnostic only — the tool identifies changes but does not modify the JMX
+- `strict_matching` parameter allows PTEs to iterate: strict first (Passes 1-2), then broaden (Pass 3)
+- Schema comparison depth is configurable via `config.example.yaml` (`har_jmx_comparison.schema_comparison_depth`)
+- Report retention shares the `max_analysis_files` config with structure exports
+- Sampler name convention (`{param}` placeholders) is supported alongside URL pattern `${var}` placeholders
+
+### 7.5 Updated Skills & Agents
+
+Three existing skills/agents were updated to leverage the new structure export files:
+
+| File | Changes |
+|------|---------|
+| `.cursor/agents/jmeter-script-validator.md` | Updated to note exported files and include them in validation reports |
+| `.cursor/skills/jmeter-debugging/SKILL.md` | Updated to save `exported_files` and note that re-analysis refreshes persisted files |
+| `.cursor/skills/jmeter-hitl-editing/SKILL.md` | Updated tool reference, analysis steps, and re-analysis guidance for exported files |
+
+### 7.6 Files Created
+
+| File | Purpose |
+|------|---------|
+| `jmeter-mcp/services/har_jmx_diffengine.py` | Core diff engine — HAR/JMX extraction, multi-pass matching, difference analysis |
+| `jmeter-mcp/services/helpers/diffengine_report_helpers.py` | Report generation — JSON and Markdown builders, file persistence with rotation |
+| `jmeter-mcp/services/helpers/analysis_export_helpers.py` | Structure export helpers — JSON/Markdown builders for `analyze_jmeter_script` |
+| `docs/har_jmx_comparison_guide.md` | User guide for the HAR-JMX comparison tool |
+
+### 7.7 Files Modified
+
+| File | Changes |
+|------|---------|
+| `jmeter-mcp/jmeter.py` | Added `compare_har_to_jmx` tool registration, `export_structure`/`output_format` params on `analyze_jmeter_script` |
+| `jmeter-mcp/services/jmx_editor.py` | Integrated structure export via helper module, added `export_structure`/`output_format` to `analyze_jmx_file` |
+| `jmeter-mcp/utils/file_utils.py` | Added `get_jmeter_analysis_dir()` and `rotate_analysis_files()` utilities |
+| `jmeter-mcp/config.example.yaml` | Added `jmx_editing.max_analysis_files` and `har_jmx_comparison.schema_comparison_depth` settings |
+| `jmeter-mcp/README.md` | Added tool documentation, workflow step, project structure, and artifacts layout |
+
+---
+
 ## Previous Changelogs
 
 | Month | File | Highlights |
@@ -493,4 +580,4 @@ Updated `.cursor/skills/perfmemory/SKILL.md` with:
 
 ---
 
-*Last Updated: April 19, 2026*
+*Last Updated: April 21, 2026*
