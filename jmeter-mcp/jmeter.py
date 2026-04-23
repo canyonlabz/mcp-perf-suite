@@ -45,6 +45,22 @@ try:
 except Exception:
     _SWAGGER_ADAPTER_AVAILABLE = False
 
+# Lazy import: HAR-JMX diff engine is optional — same safeguard pattern
+try:
+    from services.har_jmx_diffengine import (
+        extract_har_entries as _extract_har,
+        extract_jmx_samplers as _extract_jmx,
+        run_matching as _run_matching,
+        analyze_differences as _analyze_diffs,
+    )
+    from services.helpers.diffengine_report_helpers import (
+        build_json_report as _build_json_report,
+        save_comparison_report as _save_comparison_report,
+    )
+    _DIFFENGINE_AVAILABLE = True
+except Exception:
+    _DIFFENGINE_AVAILABLE = False
+
 # ----------------------------------------------------------
 # Browser Automation Helper Tools
 # ----------------------------------------------------------
@@ -593,6 +609,170 @@ async def list_jmeter_component_types(
         "components": components,
         "count": len(components),
     }
+
+
+# ----------------------------------------------------------
+# JMeter HAR-JMX Comparison Tools
+# ----------------------------------------------------------
+
+@mcp.tool()
+async def compare_har_to_jmx(
+    test_run_id: str,
+    har_file_path: str,
+    ctx: Context,
+    jmx_file_path: str = "",
+    jmx_structure_file: str = "",
+    correlation_spec_file: str = "",
+    strict_matching: bool = False,
+    output_format: str = "both",
+) -> dict:
+    """
+    Cross-compare a HAR file against an existing JMeter JMX script to
+    identify API changes that require script updates.
+
+    This tool is diagnostic only — it produces a report of differences but
+    does NOT modify the JMX. Use edit_jmeter_component / add_jmeter_component
+    to apply fixes based on the report findings.
+
+    The tool runs a four-phase pipeline:
+      1. Extract comparison-relevant fields from both HAR and JMX
+      2. Multi-pass matching algorithm (exact, parameterized, fuzzy)
+      3. Per-match difference analysis across 10 categories
+      4. Report generation (JSON for AI consumption, Markdown for humans)
+
+    Args:
+        test_run_id (str): Unique identifier for the test run.
+        har_file_path (str): Absolute path to the HAR file.
+        ctx (Context): FastMCP context for state/error details.
+        jmx_file_path (str): Path to the JMX file. If empty, auto-discovers
+            via discover_jmx_file.
+        jmx_structure_file (str): Path to a jmx_structure_*.json file from
+            analyze_jmeter_script. If provided and fresh, speeds up JMX
+            parsing. If empty, parses the JMX from scratch.
+        correlation_spec_file (str): Path to correlation_spec.json for richer
+            correlation drift detection. Optional.
+        strict_matching (bool): When True, disables Pass 3 (fuzzy path-segment
+            matching) to reduce false positives. Default: False.
+        output_format (str): File format for the comparison report:
+            - "json": JSON file only.
+            - "markdown": Markdown file only.
+            - "both" (default): Both JSON and Markdown.
+
+    Returns:
+        dict: {
+            "status": "OK" | "ERROR",
+            "message": str,
+            "test_run_id": str,
+            "har_file": str,
+            "jmx_file": str,
+            "summary": dict (category counts),
+            "match_stats": dict (per-pass counts and confidence breakdown),
+            "exported_files": {"json": str, "markdown": str},
+            "error": str | None
+        }
+    """
+    _ = ctx
+    if not _DIFFENGINE_AVAILABLE:
+        return {
+            "status": "ERROR",
+            "message": (
+                "HAR-JMX diff engine is not available. "
+                "Check server logs for import errors."
+            ),
+            "test_run_id": test_run_id,
+            "error": "Diff engine failed to load",
+        }
+
+    try:
+        import json as _json
+        from services.jmx_editor import discover_jmx_file as _discover_jmx_file
+
+        # --- Phase A: Extraction ---
+        har_entries, har_metadata = _extract_har(har_file_path)
+
+        jmx_path = jmx_file_path
+        if not jmx_path:
+            jmx_path = _discover_jmx_file(test_run_id)
+
+        jmx_struct = jmx_structure_file if jmx_structure_file else None
+        jmx_samplers, jmx_metadata = _extract_jmx(jmx_path, jmx_struct)
+
+        # --- Phase B: Matching ---
+        matching_result = _run_matching(
+            har_entries, jmx_samplers, strict_matching=strict_matching,
+        )
+
+        # --- Phase C: Difference Analysis ---
+        correlation_spec = None
+        if correlation_spec_file:
+            try:
+                with open(correlation_spec_file, "r", encoding="utf-8") as f:
+                    raw_spec = _json.load(f)
+                if isinstance(raw_spec, list):
+                    correlation_spec = {
+                        entry.get("refname", entry.get("variable", "")): entry
+                        for entry in raw_spec if isinstance(entry, dict)
+                    }
+                elif isinstance(raw_spec, dict):
+                    correlation_spec = raw_spec
+            except (OSError, _json.JSONDecodeError) as exc:
+                return {
+                    "status": "ERROR",
+                    "message": f"Failed to load correlation_spec.json: {exc}",
+                    "test_run_id": test_run_id,
+                    "error": str(exc),
+                }
+
+        analysis_result = _analyze_diffs(matching_result, correlation_spec)
+
+        # --- Phase D: Report Generation ---
+        report = _build_json_report(
+            har_metadata, jmx_metadata, analysis_result,
+            jmx_structure_file=jmx_struct,
+            strict_matching=strict_matching,
+        )
+
+        exported = _save_comparison_report(
+            test_run_id, report, output_format=output_format,
+        )
+
+        return {
+            "status": "OK",
+            "message": (
+                f"Comparison complete: {analysis_result['match_stats']['total_matched']} "
+                f"matched, {analysis_result['match_stats']['new_endpoints']} new, "
+                f"{analysis_result['match_stats']['removed_endpoints']} possibly removed"
+            ),
+            "test_run_id": test_run_id,
+            "har_file": har_metadata.get("har_file", ""),
+            "jmx_file": jmx_metadata.get("jmx_file", ""),
+            "summary": report.get("summary", {}),
+            "match_stats": report.get("match_stats", {}),
+            "exported_files": exported,
+            "error": None,
+        }
+
+    except FileNotFoundError as e:
+        return {
+            "status": "ERROR",
+            "message": str(e),
+            "test_run_id": test_run_id,
+            "error": str(e),
+        }
+    except ValueError as e:
+        return {
+            "status": "ERROR",
+            "message": str(e),
+            "test_run_id": test_run_id,
+            "error": str(e),
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "message": f"Unexpected error during HAR-JMX comparison: {e}",
+            "test_run_id": test_run_id,
+            "error": str(e),
+        }
 
 
 # ----------------------------------------------------------
