@@ -155,16 +155,16 @@ analyze_jmeter_script(
 )
 ```
 
-**Expected response:**
+**Expected MCP response (summary only):**
 
 ```json
 {
   "status": "OK",
   "test_run_id": "{test_run_id}",
   "jmx_path": "artifacts/{test_run_id}/jmeter/...",
-  "hierarchy": "... tree outline ...",
-  "node_index": [ { "node_id": "...", "type": "...", "name": "..." }, ... ],
-  "variables": { "defined": {}, "used": [], "undefined": [] },
+  "jmx_filename": "...",
+  "summary": { "total_elements": 142, "by_type": { "..." } },
+  "outline": "- [ThreadGroup] TC01_Thread_Group  (id: a1b2c3d4e5)\n  ...",
   "exported_files": {
     "json": "artifacts/{test_run_id}/jmeter/analysis/jmx_structure_<timestamp>.json",
     "markdown": "artifacts/{test_run_id}/jmeter/analysis/jmx_structure_<timestamp>.md"
@@ -172,14 +172,19 @@ analyze_jmeter_script(
 }
 ```
 
-**Save:** `node_index` and `hierarchy` from the response. These contain the `node_id`
-values needed for add/edit operations. Also save `exported_files` — the persisted
-structure files. For large scripts with many components, read the JSON file at
-`exported_files.json` for node lookups instead of relying on the in-context response.
+**Important:** The MCP response does NOT include the full `hierarchy`, `node_index`,
+or `variables`. These are in the exported JSON file on disk.
+
+**Save from the MCP response:** `exported_files`, `outline`, `summary`.
+
+**Read the exported JSON file** at `exported_files.json` to obtain:
+- `node_index` — all components with their `node_id` values (needed for add/edit)
+- `hierarchy` — the nested script structure
+- `variables` — defined, used, and undefined variables
 
 **On error:** If `status` is `"ERROR"`, stop. Report the error to the user.
 
-**Present** the hierarchy outline and key findings to the user. Ask what they want to add or edit.
+**Present** the outline and key findings to the user. Ask what they want to add or edit.
 
 ---
 
@@ -245,20 +250,22 @@ edit_jmeter_component(
 
 **Input:** `test_run_id`
 
-**Action:** Call MCP tool `analyze_jmeter_script`. This also refreshes the persisted
-structure files so the latest node_ids are available on disk.
+**Action:** Call MCP tool `analyze_jmeter_script` to refresh the persisted structure
+files with the latest node_ids after edits.
 
 ```
 analyze_jmeter_script(
   test_run_id  = {test_run_id},
-  detail_level = "summary"
+  detail_level = "detailed"
 )
 ```
 
-**Verify** the script structure is correct after the edit.
+**Verify** the script structure is correct after the edit using the `outline` and
+`summary` from the response.
 
-**Save:** Updated `node_index` (node IDs may have changed after edits) and
-`exported_files` (refreshed structure files).
+**Save:** `exported_files` (refreshed structure files). Read the new exported JSON
+file at `exported_files.json` to get the updated `node_index` — node IDs may have
+changed after edits.
 
 **Ask the user:** "Do you want to make more changes?" — If yes, go back to Step 3.
 

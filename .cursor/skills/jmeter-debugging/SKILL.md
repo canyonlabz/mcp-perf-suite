@@ -182,9 +182,7 @@ PerfMemory steps.
 
 **Input:** `test_run_id`
 
-**Action:** Call `analyze_jmeter_script` to find the Thread Group node. The tool
-automatically exports the structure to versioned files under
-`artifacts/{test_run_id}/jmeter/analysis/`.
+**Action:** Call `analyze_jmeter_script` to generate the structure files on disk.
 
 ```
 analyze_jmeter_script(
@@ -193,9 +191,15 @@ analyze_jmeter_script(
 )
 ```
 
-**Save:** `exported_files` from the response — contains paths to the persisted
-`jmx_structure_*.json` and `.md` files. For large scripts, read the JSON file for
-node lookups instead of relying on the in-context response.
+**Save from the MCP response:** `exported_files` — contains paths to the persisted
+`jmx_structure_*.json` and `.md` files. Also save `outline` and `summary` for context.
+
+**Important:** The MCP response is a summary only — it does NOT include the full
+`node_index` or `hierarchy`. Read the exported JSON file at `exported_files.json` to
+obtain the `node_index`, `hierarchy`, and `variables`. Use the `node_index` to find:
+- `thread_group_node_id` — the Thread Group node (type: `ThreadGroup`)
+- `udv_node_id` — the User Defined Variables node (type: `Arguments`)
+- `sampler_list` — all HTTP Sampler node_ids (type: `HTTPSamplerProxy`)
 
 **Check** the Thread Group properties. If not set to 1/1/1, override:
 
@@ -403,15 +407,18 @@ in the Reference section.
 8a. Apply a **single** targeted fix using `add_jmeter_component` or `edit_jmeter_component`.
 Always use `dry_run=true` first, then `dry_run=false` to apply.
 
-8b. Re-analyze the script to verify structure. This also refreshes the persisted
-structure files so the latest node_ids are available on disk:
+8b. Re-analyze the script to refresh the persisted structure files with the latest
+node_ids after the fix. Read the updated exported JSON file for node lookups in
+subsequent iterations:
 
 ```
 analyze_jmeter_script(
   test_run_id  = {test_run_id},
-  detail_level = "summary"
+  detail_level = "detailed"
 )
 ```
+
+Read the new `exported_files.json` to get the refreshed `node_index`.
 
 8c. Increment `iteration_count` = `iteration_count` + 1
 

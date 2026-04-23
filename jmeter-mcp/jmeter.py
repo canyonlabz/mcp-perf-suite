@@ -422,25 +422,25 @@ async def analyze_jmeter_script(
     Analyze an existing JMeter JMX script to understand its structure,
     components, and configuration.
 
-    Returns a hierarchical view of the test plan along with summary
-    statistics about component types and counts. Use this before calling
-    add_jmeter_component or edit_jmeter_component to obtain the node_ids
-    needed for targeting specific elements.
+    Returns a summary-only response with element counts, a text outline,
+    and paths to exported structure files. The full hierarchy, node_index,
+    and variables are NOT included in the response — they are persisted to
+    versioned JSON/Markdown files under artifacts/<test_run_id>/jmeter/analysis/.
 
-    When export_structure is True (default), the analysis is also persisted
-    to versioned files under artifacts/<test_run_id>/jmeter/analysis/ so
-    that AI agents can read the structure from disk instead of holding it
-    in context. The exported files always include the full node_index
-    regardless of detail_level.
+    To obtain node_ids for add/edit operations, read the exported JSON file
+    at the path returned in exported_files.json. This avoids consuming the
+    AI agent's context window with large script structures.
 
     Args:
         test_run_id (str): Unique identifier for the test run.
         ctx (Context): FastMCP context for state/error details.
         jmx_filename (str): Optional JMX filename inside the artifacts folder.
             If empty, auto-discovers the most recent ai-generated script.
-        detail_level (str): Level of detail in the output:
-            - "summary" (default): Hierarchy outline + element counts.
-            - "detailed": Adds full node index with node_ids + variable scan.
+        detail_level (str): Controls what is included in the exported files:
+            - "summary" (default): Hierarchy outline + element counts. When
+              export_structure is True, internally upgrades to "detailed" for
+              the exported file so node_index is always available on disk.
+            - "detailed": Full node index with node_ids + variable scan.
             - "full": Adds element properties to the node index.
         export_structure (bool): If True (default), persist analysis to
             versioned JSON and/or Markdown files in the artifacts directory.
@@ -455,13 +455,17 @@ async def analyze_jmeter_script(
             "message": str,
             "test_run_id": str,
             "jmx_path": str,
-            "hierarchy": list,
-            "outline": str,
+            "jmx_filename": str,
+            "detail_level": str,
             "summary": {"total_elements": int, "by_type": dict},
-            "node_index": dict (detailed/full only),
-            "variables": dict (detailed/full only),
+            "outline": str,
             "exported_files": {"json": str, "markdown": str} (when export_structure=True)
         }
+
+    Note:
+        The exported JSON file contains the full hierarchy, node_index,
+        and variables. Read it from disk for node lookups:
+            exported_files.json -> jmx_structure_<timestamp>.json
     """
     return await _analyze_jmx(
         test_run_id, jmx_filename, detail_level, ctx,

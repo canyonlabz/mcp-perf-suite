@@ -62,7 +62,7 @@ Follow these steps exactly, in order. Do not skip or reorder steps.
 
 ### Step 1 — Analyze Script Structure
 
-Get the full script structure to understand the components, samplers, and thread groups.
+Analyze the script to generate versioned structure files on disk.
 
 ```
 analyze_jmeter_script(
@@ -72,17 +72,24 @@ analyze_jmeter_script(
 )
 ```
 
-**Save from response:**
-- `hierarchy` — the script structure outline
+**Save from the MCP response:**
+- `outline` — the human-readable script structure text
+- `summary` — element counts by type
+- `exported_files` — paths to the persisted structure files:
+  - `exported_files.json` — full structure with hierarchy, node_index, and variables
+  - `exported_files.markdown` — Markdown summary
+
+**Important:** The MCP response is a summary only — it does NOT include the full
+`hierarchy`, `node_index`, or `variables`. You MUST read the exported JSON file to
+obtain these. Read the file at `exported_files.json` and extract:
+
+- `hierarchy` — the nested script structure
 - `node_index` — all components with their `node_id` values
-- `thread_group_node_id` — the Thread Group's node_id
-- `sampler_list` — all HTTP Sampler names and node_ids (in execution order)
+- `thread_group_node_id` — the Thread Group's node_id (type: `ThreadGroup`)
+- `sampler_list` — all HTTP Sampler names and node_ids (type: `HTTPSamplerProxy`, in execution order)
 - `total_samplers` — count of HTTP Samplers in the script
-- `variables` — defined and undefined variables
-- `udv_node_id` — the User Defined Variables node_id (for VERBOSE_LOGGING)
-- `exported_files` — paths to the persisted structure files (JSON and Markdown) under
-  `artifacts/{test_run_id}/jmeter/analysis/`. For large scripts, read the JSON file
-  at `exported_files.json` for node lookups instead of relying on the in-context response.
+- `variables` — defined, used, and undefined variables
+- `udv_node_id` — the User Defined Variables node_id (type: `Arguments`, for VERBOSE_LOGGING)
 
 If the analysis returns an error, stop and report the failure in the return JSON.
 

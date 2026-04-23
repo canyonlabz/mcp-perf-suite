@@ -528,7 +528,9 @@ async def analyze_jmx_file(
     # Build human-readable outline
     outline = _build_outline_text(hierarchy)
 
-    # Assemble result dict
+    # Assemble result dict — summary-only response to minimise context usage.
+    # Full hierarchy, node_index, and variables are persisted to the exported
+    # JSON file; agents should read that file for detailed lookups.
     result: Dict[str, Any] = {
         "status": "OK",
         "message": f"Analysis complete for {os.path.basename(jmx_path)}",
@@ -536,15 +538,9 @@ async def analyze_jmx_file(
         "jmx_path": jmx_path,
         "jmx_filename": os.path.basename(jmx_path),
         "detail_level": detail_level,
-        "hierarchy": hierarchy,
         "summary": summary,
         "outline": outline,
     }
-
-    if detail_level in ("detailed", "full") and node_index_output is not None:
-        result["node_index"] = node_index_output
-    if detail_level in ("detailed", "full") and variables is not None:
-        result["variables"] = variables
 
     # Export structure files when requested
     if export_structure:
