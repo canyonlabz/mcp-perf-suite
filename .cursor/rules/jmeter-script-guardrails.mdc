@@ -39,6 +39,21 @@ real data, apply a targeted fix, re-test, and repeat.
 - After applying any edit, re-analyze the script to verify structure
 - Confirm the change took effect as expected
 
+## set_prop Property Naming by Component Type
+
+When using `set_prop` in `edit_jmeter_component`, the correct property name format
+depends on the component type:
+
+- **Standard components** (`HTTPSamplerProxy`, `ThreadGroup`, etc.) use the
+  `ClassName.propertyName` prefix format — e.g. `HTTPSampler.method`, `ThreadGroup.num_threads`
+- **TestBean components** (`KeystoreConfig`, `JDBCSampler`, `JSR223Sampler`, etc.) use
+  the **short name without any prefix** — e.g. `clientCertAliasVarName`, `startIndex`, `endIndex`
+
+To identify the correct names, inspect the scaffolded properties added by
+`add_jmeter_component` (via `analyze_jmeter_script` or reading the JMX directly) and
+match exactly. Using the wrong prefix on a TestBean will silently create a duplicate
+property that JMeter ignores, leaving the original value unchanged.
+
 ## One Fix at a Time
 
 - During debugging, fix only the first failing sampler
