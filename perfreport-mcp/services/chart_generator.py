@@ -216,6 +216,36 @@ chart_map = {
         "data_source": "kpi_timeseries",
         "metric_filter": ["host_mem_usable", "host_mem_total"],
     },
+    "HOST_IIS_REQUESTS_MULTILINE": {
+        "function": "generate_kpi_multi_metric_chart",
+        "module": "single_axis_charts",
+        "data_source": "kpi_timeseries",
+        "metric_filter": ["host_iis_method_get", "host_iis_method_post", "host_iis_method_head"],
+    },
+    "HOST_SQL_CONNECTIONS_LINE": {
+        "function": "generate_kpi_single_metric_chart",
+        "module": "single_axis_charts",
+        "data_source": "kpi_timeseries",
+        "metric_filter": "host_sql_user_connections",
+    },
+    "GC_HEAP_ALL_MULTILINE": {
+        "function": "generate_kpi_multi_metric_chart",
+        "module": "single_axis_charts",
+        "data_source": "kpi_timeseries",
+        "metric_filter": ["gc_size_gen0", "gc_size_gen1", "gc_size_gen2", "gc_size_loh"],
+    },
+    "HOST_NETWORK_IO_DUALAXIS": {
+        "function": "generate_kpi_dual_metric_chart",
+        "module": "dual_axis_charts",
+        "data_source": "kpi_timeseries",
+        "metric_filter": ["host_net_bytes_rcvd", "host_net_bytes_sent"],
+    },
+    "HOST_IIS_BYTES_IO_DUALAXIS": {
+        "function": "generate_kpi_dual_metric_chart",
+        "module": "dual_axis_charts",
+        "data_source": "kpi_timeseries",
+        "metric_filter": ["host_iis_bytes_rcvd", "host_iis_bytes_sent"],
+    },
     # KPI stacked area chart (host CPU breakdown)
     "HOST_CPU_BREAKDOWN_STACKED": {
         "function": "generate_host_cpu_breakdown_stacked_chart",
@@ -508,9 +538,11 @@ async def generate_chart(run_id: str, env_name: str, chart_id: str) -> dict:
                         errors.append({"resource": entity_name, "error": f"No data for metrics {metric_filter}"})
                         continue
 
-                    # Stacked area vs multi-metric line dispatch
+                    # Stacked area, dual-axis, or multi-metric line dispatch
                     if chart_spec.get("chart_type") == "stacked_area":
                         out = await chart_handler(metric_dfs, chart_spec, run_id, resource_name=entity_name)
+                    elif chart_spec.get("chart_type") == "dual_axis_line":
+                        out = await chart_handler(metric_dfs, chart_spec, chart_id, run_id, resource_name=entity_name)
                     else:
                         out = await chart_handler(metric_dfs, chart_spec, chart_id, run_id, resource_name=entity_name)
                     results.append(out)

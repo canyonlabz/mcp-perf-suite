@@ -654,15 +654,30 @@ async def generate_kpi_multi_metric_chart(
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
     plotted: List[str] = []
-    for i, (metric_name, mdf) in enumerate(sorted(metric_dataframes.items())):
+    fill_metrics = set(chart_spec.get("fill_metrics", []))
+    fill_alpha = float(chart_spec.get("fill_alpha", 0.3))
+    metric_filter = chart_spec.get("metric_filter", [])
+    metric_order = list(metric_filter) if isinstance(metric_filter, list) else list(metric_dataframes.keys())
+    metric_order += [name for name in metric_dataframes if name not in metric_order]
+    for i, metric_name in enumerate(metric_order):
+        mdf = metric_dataframes.get(metric_name)
         if mdf is None or mdf.empty:
             continue
         mdf = mdf.copy()
         mdf["timestamp_utc"] = pd.to_datetime(mdf["timestamp_utc"])
         mdf = mdf.sort_values(by="timestamp_utc")
         mdf["converted_value"] = mdf["value"] * conversion
+        line_color = colors[i % len(colors)]
         ax.plot(mdf["timestamp_utc"], mdf["converted_value"],
-                color=colors[i % len(colors)], linewidth=1.5, label=metric_name)
+                color=line_color, linewidth=1.5, label=metric_name)
+        if metric_name in fill_metrics:
+            ax.fill_between(
+                mdf["timestamp_utc"],
+                0,
+                mdf["converted_value"],
+                color=line_color,
+                alpha=fill_alpha,
+            )
         plotted.append(metric_name)
 
     if not plotted:

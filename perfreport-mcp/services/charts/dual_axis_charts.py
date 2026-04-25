@@ -604,3 +604,120 @@ async def generate_kpi_latency_vusers_chart(
     plt.close(fig)
 
     return {"chart_id": chart_id, "resource": resource_name, "path": str(kpi_chart_path), "unit": unit_type}
+
+
+async def generate_kpi_dual_metric_chart(
+    metric_dataframes: Dict[str, pd.DataFrame],
+    chart_spec: dict,
+    chart_id: str,
+    run_id: str,
+    resource_name: str = "",
+) -> dict:
+    """
+    Generate a dual-axis chart from two KPI metrics in kpi_metrics_*.csv.
+
+    This supports charts where the two related KPI series can have different
+    scales, such as bytes received vs bytes sent.
+    """
+    if not metric_dataframes:
+        return {"chart_id": chart_id, "error": "No KPI data available for these metrics."}
+
+    metric_filter = chart_spec.get("metric_filter", [])
+    if not isinstance(metric_filter, list) or len(metric_filter) != 2:
+        return {"chart_id": chart_id, "error": "KPI dual-metric charts require exactly two metric filters."}
+
+    left_metric, right_metric = metric_filter
+    left_df = metric_dataframes.get(left_metric)
+    right_df = metric_dataframes.get(right_metric)
+
+    if left_df is None or left_df.empty:
+        return {"chart_id": chart_id, "error": f"No data for left metric '{left_metric}'."}
+    if right_df is None or right_df.empty:
+        return {"chart_id": chart_id, "error": f"No data for right metric '{right_metric}'."}
+
+    unit_type = chart_spec.get("unit", {}).get("type", "")
+    conversion = _KPI_DUAL_AXIS_CONVERSIONS.get(unit_type, 1.0)
+
+    def _prepare_series(df: pd.DataFrame) -> pd.Series:
+        prepared = df.copy()
+        prepared["timestamp_utc"] = pd.to_datetime(prepared["timestamp_utc"])
+        prepared = prepared.sort_values(by="timestamp_utc")
+        prepared["minute"] = prepared["timestamp_utc"].dt.floor("min")
+        prepared["converted"] = prepared["value"] * conversion
+        return prepared.groupby("minute")["converted"].mean()
+
+    left_series = _prepare_series(left_df)
+    right_series = _prepare_series(right_df)
+
+    common_start = max(left_series.index.min(), right_series.index.min())
+    common_end = min(left_series.index.max(), right_series.index.max())
+    left_series = left_series[(left_series.index >= common_start) & (left_series.index <= common_end)]
+    right_series = right_series[(right_series.index >= common_start) & (right_series.index <= common_end)]
+
+    if left_series.empty or right_series.empty:
+        return {"chart_id": chart_id, "error": "No overlapping time range between KPI metrics."}
+
+    raw_title = chart_spec.get("title", chart_id)
+    title = interpolate_placeholders(raw_title, resource_name=resource_name)
+    x_label = chart_spec.get("x_axis", {}).get("label", "Time (hh:mm) UTC")
+    y_left_label = chart_spec.get("y_axis_left", {}).get("label", left_metric)
+    y_right_label = chart_spec.get("y_axis_right", {}).get("label", right_metric)
+
+    color_tokens = chart_spec.get("colors", ["primary", "secondary"])
+    left_color = resolve_color(color_tokens[0] if color_tokens else "primary")
+    right_color = resolve_color(color_tokens[1] if len(color_tokens) > 1 else "secondary")
+    fill_alpha = float(chart_spec.get("fill_alpha", 0.15))
+
+    dpi = int(chart_spec.get("dpi", 144))
+    width_px = int(chart_spec.get("width_px", 1280))
+    height_px = int(chart_spec.get("height_px", 720))
+    figsize = (width_px / dpi, height_px / dpi)
+
+    fig, ax_left = plt.subplots(figsize=figsize, dpi=dpi)
+
+    ax_left.plot(left_series.index, left_series.values, color=left_color, linewidth=1.8, label=y_left_label)
+    ax_left.fill_between(left_series.index, 0, left_series.values, alpha=fill_alpha, color=left_color)
+    ax_left.set_ylabel(y_left_label, color=left_color)
+    ax_left.tick_params(axis="y", labelcolor=left_color)
+    ax_left.set_xlabel(x_label)
+    ax_left.set_title(title)
+    ax_left.set_ylim(bottom=0)
+
+    ax_right = ax_left.twinx()
+    ax_right.plot(right_series.index, right_series.values, color=right_color, linewidth=1.8, label=y_right_label)
+    ax_right.fill_between(right_series.index, 0, right_series.values, alpha=fill_alpha, color=right_color)
+    ax_right.set_ylabel(y_right_label, color=right_color)
+    ax_right.tick_params(axis="y", labelcolor=right_color)
+    ax_right.set_ylim(bottom=0)
+
+    locator = mdates.AutoDateLocator(minticks=5, maxticks=10)
+    formatter = mdates.DateFormatter("%H:%M")
+    ax_left.xaxis.set_major_locator(locator)
+    ax_left.xaxis.set_major_formatter(formatter)
+    for lbl in ax_left.get_xticklabels():
+        lbl.set_rotation(45)
+        lbl.set_horizontalalignment("right")
+        lbl.set_rotation_mode("anchor")
+
+    if chart_spec.get("show_grid", True):
+        ax_left.grid(True, linewidth=0.5, alpha=0.6)
+
+    if chart_spec.get("include_legend", True):
+        l1, lab1 = ax_left.get_legend_handles_labels()
+        l2, lab2 = ax_right.get_legend_handles_labels()
+        loc_str = chart_spec.get("legend_location", "upper left")
+        fs = chart_spec.get("legend_fontsize", 8)
+        ax_left.legend(l1 + l2, lab1 + lab2, loc=loc_str, fontsize=fs)
+
+    suffix = f"-{resource_name}" if resource_name else ""
+    chart_path = get_chart_output_path(run_id, f"{chart_id}{suffix}")
+    fig.savefig(chart_path, dpi=dpi, bbox_inches=chart_spec.get("bbox_inches", "tight"), facecolor="white")
+    plt.close(fig)
+
+    return {
+        "chart_id": chart_id,
+        "resource": resource_name,
+        "path": str(chart_path),
+        "unit": unit_type,
+        "metrics": [left_metric, right_metric],
+    }

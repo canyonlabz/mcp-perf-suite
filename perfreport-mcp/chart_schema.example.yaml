@@ -94,11 +94,13 @@ charts:
       primary: "performance_analysis.json"
       json_path: "api_analysis"
     x_axis:
-      label: "P90 Response Time (ms)"
+      label: "P90 Response Time"
       column: "p90_response_time"
     y_axis:
       label: "API Name"
       column: "api_name"
+    unit:
+      type: "minutes"  # Display unit: "ms", "seconds", or "minutes"
     limit: 10  # Top N violators (configurable)
     sort: "descending"
     filter_condition: "sla_compliant == False"  # Only show violators
@@ -518,6 +520,8 @@ charts:
     unit:
       type: "gb"  # Raw unit: bytes → display: GB
     colors: ["kpi_host_mem_usable", "kpi_host_mem_total"]
+    fill_metrics: ["host_mem_usable"]
+    fill_alpha: 0.3
     show_grid: true
     include_legend: true
     legend_location: "upper right"
@@ -542,17 +546,119 @@ charts:
     include_legend: true
     legend_location: "upper left"
 
+  - id: "HOST_IIS_REQUESTS_MULTILINE"
+    placeholder: "{{CHART_PLACEHOLDER: HOST_IIS_REQUESTS_MULTILINE}}"
+    chart_type: "single_axis_line"
+    title: "IIS Request Methods - {resource_name}"
+    description: "IIS request method volume over time (GET, POST, HEAD)"
+    data_source: "kpi_timeseries"
+    metric_filter:
+      - "host_iis_method_get"
+      - "host_iis_method_post"
+      - "host_iis_method_head"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "Requests"
+    unit:
+      type: "requests"
+    colors: ["kpi_iis_get", "kpi_iis_post", "kpi_iis_head"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper right"
+
+  - id: "HOST_SQL_CONNECTIONS_LINE"
+    placeholder: "{{CHART_PLACEHOLDER: HOST_SQL_CONNECTIONS_LINE}}"
+    chart_type: "single_axis_line"
+    title: "SQL Server User Connections - {resource_name}"
+    description: "SQL Server user connection count over time"
+    data_source: "kpi_timeseries"
+    metric_filter: "host_sql_user_connections"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "Connections"
+    unit:
+      type: "connections"
+    colors: ["kpi_sql_connections"]
+    show_grid: true
+    include_legend: false
+
+  - id: "GC_HEAP_ALL_MULTILINE"
+    placeholder: "{{CHART_PLACEHOLDER: GC_HEAP_ALL_MULTILINE}}"
+    chart_type: "single_axis_line"
+    title: "GC Heap Generations - {resource_name}"
+    description: "All GC heap generations over time (Gen0, Gen1, Gen2, LOH)"
+    data_source: "kpi_timeseries"
+    metric_filter:
+      - "gc_size_gen0"
+      - "gc_size_gen1"
+      - "gc_size_gen2"
+      - "gc_size_loh"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis:
+      label: "Heap Size (MB)"
+    unit:
+      type: "mb"  # Raw unit: bytes -> display: MB or GB
+    colors: ["kpi_gc_gen0", "kpi_gc_gen1", "kpi_gc_gen2", "kpi_gc_loh"]
+    show_grid: true
+    include_legend: true
+    legend_location: "upper right"
+
+  - id: "HOST_NETWORK_IO_DUALAXIS"
+    placeholder: "{{CHART_PLACEHOLDER: HOST_NETWORK_IO_DUALAXIS}}"
+    chart_type: "dual_axis_line"
+    title: "Host Network I/O - {resource_name}"
+    description: "Host-level network bytes received vs sent over time"
+    data_source: "kpi_timeseries"
+    metric_filter:
+      - "host_net_bytes_rcvd"
+      - "host_net_bytes_sent"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis_left:
+      label: "Bytes Received (KB)"
+    y_axis_right:
+      label: "Bytes Sent (KB)"
+    unit:
+      type: "kb"  # Raw unit: bytes -> display: KB, MB, or GB
+    colors: ["kpi_network_received", "kpi_network_sent"]
+    fill_alpha: 0.15
+    show_grid: true
+    include_legend: true
+    legend_location: "upper left"
+
+  - id: "HOST_IIS_BYTES_IO_DUALAXIS"
+    placeholder: "{{CHART_PLACEHOLDER: HOST_IIS_BYTES_IO_DUALAXIS}}"
+    chart_type: "dual_axis_line"
+    title: "IIS Bytes I/O - {resource_name}"
+    description: "IIS bytes received vs sent over time"
+    data_source: "kpi_timeseries"
+    metric_filter:
+      - "host_iis_bytes_rcvd"
+      - "host_iis_bytes_sent"
+    x_axis:
+      label: "Time (hh:mm) UTC"
+    y_axis_left:
+      label: "IIS Bytes Received (KB)"
+    y_axis_right:
+      label: "IIS Bytes Sent (KB)"
+    unit:
+      type: "kb"  # Raw unit: bytes -> display: KB, MB, or GB
+    colors: ["kpi_iis_bytes_received", "kpi_iis_bytes_sent"]
+    fill_alpha: 0.15
+    show_grid: true
+    include_legend: true
+    legend_location: "upper left"
+
   # --- Deferred KPI Charts (TODO) ---
   # The following charts are planned enhancements that can be added using
   # the same kpi_timeseries data_source pattern established above.
   #
   # TODO: GC_LOH_HEAP_LINE - LOH heap size over time (single_axis_line, gc_size_loh, MB)
   # TODO: SERVER_THROUGHPUT_LINE - Server-side request throughput (single_axis_line, request_hits, hits)
-  # TODO: GC_HEAP_ALL_MULTILINE - All GC heap generations on one chart (multi_line, gc_size_gen0/gen1/gen2/loh, MB)
   # TODO: HOST_DISK_QUEUE_LINE - Disk queue length over time (single_axis_line, host_disk_queue_length, requests)
-  # TODO: HOST_NETWORK_IO_DUALAXIS - Network bytes in/out (dual_axis_line, host_net_bytes_rcvd/sent, KB)
-  # TODO: HOST_IIS_REQUESTS_MULTILINE - IIS request methods over time (multi_line, host_iis_method_*, requests)
-  # TODO: HOST_SQL_CONNECTIONS_LINE - SQL Server connections (single_axis_line, host_sql_user_connections, connections)
   # TODO: HOST_SQL_COMPILATIONS_LINE - SQL Server compilations (single_axis_line, host_sql_compilations, compilations)
   # TODO: HOST_PROC_QUEUE_LINE - Processor queue length (single_axis_line, host_proc_queue_length, threads)
 

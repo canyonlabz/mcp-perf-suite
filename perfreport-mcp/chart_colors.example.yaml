@@ -41,6 +41,26 @@ kpi_cpu_idle: "#B0BEC5"      # Blue-gray — idle (low visual weight)
 kpi_host_mem_usable: "#00897B"  # Teal — usable memory
 kpi_host_mem_total: "#B0BEC5"   # Blue-gray — total memory (reference line)
 
+# IIS request methods
+kpi_iis_get: "#1976D2"           # Blue — GET requests
+kpi_iis_post: "#388E3C"          # Green — POST requests
+kpi_iis_head: "#FBC02D"          # Yellow — HEAD requests
+
+# SQL Server metrics
+kpi_sql_connections: "#5E35B1"   # Deep purple — SQL user connections
+
+# Expanded GC heap generations
+kpi_gc_gen0: "#FFB300"           # Amber — Gen0 heap
+kpi_gc_gen1: "#FB8C00"           # Orange — Gen1 heap
+kpi_gc_gen2: "#E65100"           # Deep orange — Gen2 heap
+kpi_gc_loh: "#BF360C"            # Burnt red — LOH heap
+
+# Host and IIS bytes in/out
+kpi_network_received: "#0288D1"  # Blue — bytes received
+kpi_network_sent: "#C2185B"      # Pink — bytes sent
+kpi_iis_bytes_received: "#00796B" # Teal — IIS bytes received
+kpi_iis_bytes_sent: "#D84315"     # Deep orange — IIS bytes sent
+
 # -----------------------------------------------
 # Multi-Line Chart Colors
 # -----------------------------------------------

@@ -5,12 +5,19 @@ Shows API-level metrics ranked by severity or response time.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from utils.chart_utils import get_chart_output_path
 from utils.config import load_chart_colors
 
 # Load chart colors for color name resolution
 CHART_COLORS = load_chart_colors()
+
+_RESPONSE_TIME_UNITS: Dict[str, Tuple[float, str, str]] = {
+    "ms":      (1.0,       "ms",  "P90 Response Time (ms)"),
+    "seconds": (0.001,     "s",   "P90 Response Time (s)"),
+    "minutes": (1 / 60000, "min", "P90 Response Time (min)"),
+}
+"""Maps unit.type -> (conversion_factor, suffix, x-axis label)."""
 
 
 def resolve_color(color_name: str) -> str:
@@ -92,9 +99,20 @@ async def generate_top_slowest_apis_chart(
         p90_values.append(data.get("p90_response_time", 0))
         sla_thresholds.append(data.get("sla_threshold_ms", None))
 
+    # Unit conversion: raw data is always in ms; convert based on schema unit.type
+    unit_type = chart_spec.get("unit", {}).get("type", "ms")
+    factor, suffix, default_x_label = _RESPONSE_TIME_UNITS.get(
+        unit_type, (1.0, "ms", "P90 Response Time (ms)")
+    )
+    p90_values = [v * factor for v in p90_values]
+    sla_thresholds = [
+        (t * factor if t is not None else None) for t in sla_thresholds
+    ]
+
     # Chart configuration
     title = chart_spec.get("title", "Top API SLA Violators")
-    x_label = chart_spec.get("x_axis", {}).get("label", "P90 Response Time (ms)")
+    configured_x_label = chart_spec.get("x_axis", {}).get("label", "")
+    x_label = default_x_label if configured_x_label in ("", "P90 Response Time") else configured_x_label
     y_label = chart_spec.get("y_axis", {}).get("label", "API Name")
     color_names = chart_spec.get("colors", ["error", "warning"])
     colors = [resolve_color(c) for c in color_names]
@@ -135,12 +153,13 @@ async def generate_top_slowest_apis_chart(
                 )
 
     # Add value labels at the end of each bar
+    label_fmt = ".0f" if unit_type == "ms" else ".1f"
     for bar, value in zip(bars, p90_values):
         width = bar.get_width()
         ax.text(
             width + max(p90_values) * 0.01,
             bar.get_y() + bar.get_height() / 2,
-            f"{value:.0f} ms",
+            f"{value:{label_fmt}} {suffix}",
             ha='left',
             va='center',
             fontsize=8,
