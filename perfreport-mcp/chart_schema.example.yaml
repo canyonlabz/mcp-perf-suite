@@ -114,6 +114,7 @@ charts:
       line_color: "error"
     output_filename: "top_sla_violators_{run_id}.png"
     colors: ["error", "warning"]
+    fill_alpha: 0.85  # Bar opacity (0.0 transparent, 1.0 solid)
     show_grid: true
     include_legend: false
 
@@ -602,6 +603,9 @@ charts:
     unit:
       type: "mb"  # Raw unit: bytes -> display: MB or GB
     colors: ["kpi_gc_gen0", "kpi_gc_gen1", "kpi_gc_gen2", "kpi_gc_loh"]
+    line_alpha: 0.85
+    fill_metrics: ["gc_size_gen0", "gc_size_gen1", "gc_size_gen2", "gc_size_loh"]
+    fill_alpha: 0.12
     show_grid: true
     include_legend: true
     legend_location: "upper right"

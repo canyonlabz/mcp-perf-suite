@@ -654,6 +654,7 @@ async def generate_kpi_multi_metric_chart(
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
     plotted: List[str] = []
+    line_alpha = float(chart_spec.get("line_alpha", 1.0))
     fill_metrics = set(chart_spec.get("fill_metrics", []))
     fill_alpha = float(chart_spec.get("fill_alpha", 0.3))
     metric_filter = chart_spec.get("metric_filter", [])
@@ -669,7 +670,7 @@ async def generate_kpi_multi_metric_chart(
         mdf["converted_value"] = mdf["value"] * conversion
         line_color = colors[i % len(colors)]
         ax.plot(mdf["timestamp_utc"], mdf["converted_value"],
-                color=line_color, linewidth=1.5, label=metric_name)
+                color=line_color, linewidth=1.5, alpha=line_alpha, label=metric_name)
         if metric_name in fill_metrics:
             ax.fill_between(
                 mdf["timestamp_utc"],

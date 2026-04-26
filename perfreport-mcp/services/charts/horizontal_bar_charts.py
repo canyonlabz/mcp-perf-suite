@@ -117,6 +117,7 @@ async def generate_top_slowest_apis_chart(
     color_names = chart_spec.get("colors", ["error", "warning"])
     colors = [resolve_color(c) for c in color_names]
     bar_color = colors[0] if colors else "#d62728"
+    fill_alpha = float(chart_spec.get("fill_alpha", 0.85))
 
     # SLA threshold line configuration
     sla_config = chart_spec.get("sla_threshold", {})
@@ -137,7 +138,7 @@ async def generate_top_slowest_apis_chart(
 
     # Create horizontal bar chart
     y_pos = np.arange(len(api_names))
-    bars = ax.barh(y_pos, p90_values, color=bar_color, height=0.6, alpha=0.85)
+    bars = ax.barh(y_pos, p90_values, color=bar_color, height=0.6, alpha=fill_alpha)
 
     # Add SLA threshold lines per API (if configured and available)
     if show_sla_line:
