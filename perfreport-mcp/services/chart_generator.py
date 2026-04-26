@@ -209,6 +209,12 @@ chart_map = {
         "data_source": "kpi_timeseries",
         "metric_filter": "p90_latency",
     },
+    "SERVER_THROUGHPUT_LINE": {
+        "function": "generate_kpi_single_metric_chart",
+        "module": "single_axis_charts",
+        "data_source": "kpi_timeseries",
+        "metric_filter": "request_hits",
+    },
     # KPI multi-metric line chart (multiple metrics on same axis)
     "HOST_MEMORY_USAGE_LINE": {
         "function": "generate_kpi_multi_metric_chart",

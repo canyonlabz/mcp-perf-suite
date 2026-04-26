@@ -29,6 +29,7 @@ kpi_gc_pressure: "#BF360C"   # Burnt red — GC memory load %
 
 # Application latency (purple — distinct from client-side blue)
 kpi_latency: "#7B1FA2"       # Deep purple — server-side P90/P95/P99 latency
+kpi_throughput: "#00897B"    # Teal — server-side request hits/throughput
 
 # Host CPU breakdown (stacked area — ordered: user, system, iowait, stolen, idle)
 kpi_cpu_user: "#E53935"      # Red — user CPU (typically dominant)
