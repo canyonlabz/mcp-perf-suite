@@ -10,6 +10,49 @@ def _get_mcp_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+_taxonomy_cache: dict = {}
+
+
+def load_taxonomy(path: str = "") -> dict:
+    """Load taxonomy YAML with caching.
+
+    Resolution order (when path is empty):
+      1. taxonomy.yaml       (local, gitignored)
+      2. taxonomy.example.yaml  (shipped defaults)
+
+    Returns:
+        Parsed taxonomy dict, or empty dict if no taxonomy file found.
+    """
+    global _taxonomy_cache
+    if _taxonomy_cache:
+        return _taxonomy_cache
+
+    mcp_root = _get_mcp_root()
+
+    if path:
+        candidates = [Path(path)] if Path(path).is_absolute() else [mcp_root / path]
+    else:
+        candidates = [mcp_root / "taxonomy.yaml", mcp_root / "taxonomy.example.yaml"]
+
+    for candidate in candidates:
+        if candidate.exists():
+            with open(candidate, "r") as f:
+                try:
+                    _taxonomy_cache = yaml.safe_load(f) or {}
+                    return _taxonomy_cache
+                except yaml.YAMLError as e:
+                    raise Exception(f"Error parsing taxonomy file '{candidate.name}': {e}")
+
+    return {}
+
+
+def reload_taxonomy(path: str = "") -> dict:
+    """Force-reload taxonomy YAML (clears cache)."""
+    global _taxonomy_cache
+    _taxonomy_cache = {}
+    return load_taxonomy(path)
+
+
 def _load_yaml_config() -> dict:
     """Load YAML config with platform-specific override support.
 
@@ -68,6 +111,7 @@ def load_config() -> dict:
     search_cfg = yaml_cfg.get("search", {})
     graph_cfg = yaml_cfg.get("graph", {})
     general_cfg = yaml_cfg.get("general", {})
+    taxonomy_cfg = yaml_cfg.get("taxonomy", {})
 
     return {
         "embedding": {
@@ -104,4 +148,8 @@ def load_config() -> dict:
             "max_embedding_edges": graph_cfg.get("max_embedding_edges", 3),
         },
         "debug": general_cfg.get("enable_debug", False),
+        "taxonomy": {
+            "path": taxonomy_cfg.get("path", ""),
+            "strict": taxonomy_cfg.get("strict", False),
+        },
     }
