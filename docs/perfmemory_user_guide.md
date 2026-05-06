@@ -28,6 +28,10 @@ Before using PerfMemory with the debugging workflow, make sure:
 | JMeter MCP configured | JMeter 5.6+ installed, JMeter MCP server running |
 | Both MCP servers in `mcp.json` | Both `user-perfmemory` and `user-jmeter` registered in your IDE |
 
+**Optional — Taxonomy Setup:**
+
+If your team uses standardized application/service naming, copy `perfmemory-mcp/taxonomy.example.yaml` to `perfmemory-mcp/taxonomy.yaml` and customize with your applications, services, and environments. This enables alias resolution during search and ingestion (e.g., searching by "CART" finds results stored under "Shopping Cart").
+
 ---
 
 ## Skills Reference
@@ -145,7 +149,9 @@ store_debug_session(
   test_run_id       = "{your_test_run_id}",
   script_name       = "{your_script_name}.jmx",
   environment       = "{environment}",
-  created_by        = "{your_name}"
+  created_by        = "{your_name}",
+  system_alias      = "{optional_app_alias}",
+  service_name      = "{optional_service_name}"
 )
 ```
 
@@ -301,6 +307,15 @@ List all debug sessions for {your_system_name} in the {environment} environment.
 list_sessions(
   system_under_test = "{your_system_name}",
   environment       = "{environment}"
+)
+```
+
+You can also filter by alias or service:
+
+```
+list_sessions(
+  system_alias = "AUTH",
+  service_name = "auth-service"
 )
 ```
 
@@ -515,6 +530,12 @@ psql -h localhost -U perfadmin -d perfmemory -f perfmemory-mcp/sql/schema/schema
 ```
 
 **Warning:** This deletes all stored lessons. Consider using `pg_dump` to back up first.
+
+---
+
+**What if my team uses different names for the same application?**
+
+Set up a `taxonomy.yaml` file with your applications and their aliases. For example, if one PTE stores data under "Shopping Cart" and another under "CART", define both as the same application. The taxonomy resolver will map aliases to canonical names during both ingestion and search, ensuring consistency when consolidating databases.
 
 ---
 

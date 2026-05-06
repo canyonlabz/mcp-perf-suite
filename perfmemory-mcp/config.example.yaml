@@ -7,10 +7,10 @@
 # ----------------------------------------
 server:
   name: "perfmemory-mcp"
-  version: "0.2.0"
+  version: "0.2.1"
   description: "PerfMemory MCP Server — persistent memory and lessons-learned layer with pgvector + Apache AGE"
   build:
-    date: "2026-04-12"
+    date: "2026-05-05"
 
 # ----------------------------------------
 # Vector Similarity Search
@@ -58,3 +58,16 @@ graph:
 # ----------------------------------------
 general:
   enable_debug: false
+
+# ----------------------------------------
+# Taxonomy
+# ----------------------------------------
+taxonomy:
+  # Path to the taxonomy YAML (relative to perfmemory-mcp/).
+  # Falls back to taxonomy.example.yaml if taxonomy.yaml is not found.
+  path: taxonomy.yaml
+
+  # When true, store_debug_session and store_debug_attempt will REJECT inserts
+  # if a taxonomy value is not defined. When false (default), unrecognized values
+  # produce a warning in the response but the insert proceeds.
+  strict: false

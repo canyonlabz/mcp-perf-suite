@@ -57,10 +57,14 @@ One row per debug session. Holds session-level metadata and links to the resolvi
 |---|---|---|---|
 | `id` | `UUID` | `PRIMARY KEY DEFAULT gen_random_uuid()` | Unique session identifier. UUID avoids ID collisions when merging databases from multiple PTEs. |
 | `system_under_test` | `TEXT` | `NOT NULL` | What was being tested: a portal, API, workflow, microservice, etc. |
+| `system_alias` | `TEXT` | `NOT NULL DEFAULT ''` | Short name or alias for the application (e.g., "CART", "OSP"). Used for cross-team standardization. |
+| `service_name` | `TEXT` | `NOT NULL DEFAULT ''` | Microservice name within the application (e.g., "auth-service", "cart-api"). |
 | `test_run_id` | `TEXT` | `NOT NULL` | Links to the mcp-perf-suite artifact structure (`artifacts/{test_run_id}/`). |
 | `script_name` | `TEXT` | | The JMX filename that was being debugged. |
 | `auth_flow_type` | `TEXT` | | The authentication flow type of the script. See allowed values below. |
+| `auth_alias` | `TEXT` | `NOT NULL DEFAULT ''` | Human-readable auth label (e.g., "Corporate SSO Flow", "Partner OAuth"). |
 | `environment` | `TEXT` | | The test environment where the issue occurred. See allowed values below. |
+| `environment_alias` | `TEXT` | `NOT NULL DEFAULT ''` | Specific environment name (e.g., "QA1", "STG-East", "PROD-US"). |
 | `total_iterations` | `INT` | | How many debug attempts were made in this session. |
 | `final_outcome` | `TEXT` | `NOT NULL` | The final result of the debug session. See allowed values below. |
 | `resolution_attempt_id` | `UUID` | `REFERENCES debug_attempts(id)` | FK to the specific attempt that resolved the issue. NULL if unresolved. |
@@ -80,7 +84,8 @@ One row per debug session. Holds session-level metadata and links to the resolvi
 | `saml` | SAML-based authentication |
 | `token_chain` | Token exchange flows |
 | `custom_sso` | Custom Single Sign-On implementation |
-| `entra_id` | Microsoft Entra ID (future support) |
+| `entra_id` | Microsoft Entra ID |
+| `msal_pkce` | Microsoft Authentication Library with PKCE |
 | `other` | Authentication flow not listed above |
 | `NULL` | Not yet determined or unknown |
 
@@ -92,6 +97,7 @@ One row per debug session. Holds session-level metadata and links to the resolvi
 | `qa` | Quality Assurance environment |
 | `uat` | User Acceptance Testing environment |
 | `staging` | Staging / pre-production environment |
+| `perf` | Performance environment |
 | `prod` | Production environment |
 
 These are common values. The column is freeform `TEXT` so teams can use whatever environment names apply to their organization.
@@ -138,6 +144,10 @@ One row per debug iteration. Holds the symptom, diagnosis, fix, outcome, and the
 | `fix_description` | `TEXT` | | What fix was attempted (plain language). |
 | `fix_type` | `TEXT` | | Categorized fix type. See allowed values below. |
 | `component_type` | `TEXT` | | JMeter component type involved in the fix. See allowed values below. |
+| `test_case_id` | `TEXT` | `NOT NULL DEFAULT ''` | Business test case identifier (e.g., "TC01"). Maps to JMeter controller structure. |
+| `test_case_name` | `TEXT` | `NOT NULL DEFAULT ''` | Human-readable test case name (e.g., "User Login Flow"). |
+| `test_step_id` | `TEXT` | `NOT NULL DEFAULT ''` | Test step identifier within the test case (e.g., "S03"). |
+| `test_step_name` | `TEXT` | `NOT NULL DEFAULT ''` | Human-readable test step name (e.g., "Submit Credentials"). |
 | `manifest_excerpt` | `TEXT` | | Raw text from the debug manifest iteration section. Provides rich context for the agent beyond the structured fields. |
 
 ### System Columns
@@ -233,9 +243,13 @@ CREATE INDEX idx_attempts_error_category ON debug_attempts (error_category);
 CREATE INDEX idx_attempts_outcome ON debug_attempts (outcome);
 CREATE INDEX idx_attempts_session_id ON debug_attempts (session_id);
 CREATE INDEX idx_attempts_hostname ON debug_attempts (hostname);
+CREATE INDEX idx_attempts_test_case ON debug_attempts (test_case_id);
 CREATE INDEX idx_sessions_system ON debug_sessions (system_under_test);
 CREATE INDEX idx_sessions_environment ON debug_sessions (environment);
 CREATE INDEX idx_sessions_outcome ON debug_sessions (final_outcome);
+CREATE INDEX idx_sessions_system_alias ON debug_sessions (system_alias);
+CREATE INDEX idx_sessions_service ON debug_sessions (service_name);
+CREATE INDEX idx_sessions_env_alias ON debug_sessions (environment_alias);
 ```
 
 ---

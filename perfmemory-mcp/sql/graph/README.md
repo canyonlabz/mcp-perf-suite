@@ -14,8 +14,14 @@ pgvector semantic search with structural relationship traversal.
 
 | File | Purpose | When to Run |
 |------|---------|-------------|
-| `001_create_graph.sql` | Creates the `perf_knowledge` graph and 4 vertex labels | Once, after AGE extension is installed |
+| `001_create_graph.sql` | Creates the `perf_knowledge` graph and vertex labels (Attempt, Project, Service, ErrorPattern, FixPattern) | Once, after AGE extension is installed |
 | `002_seed_graph_from_existing_data.sql` | Migrates existing debug_attempts into graph nodes/edges | Once, only if you have existing data before enabling the graph layer |
+
+### Migration Scripts (in `sql/migrations/`)
+
+| File | Purpose | When to Run |
+|------|---------|-------------|
+| `002_update_graph_schema.sql` | Adds Service vertex label and alias property to Project nodes | Once, for existing databases upgrading to taxonomy support |
 
 ## Graph Structure
 
@@ -24,7 +30,8 @@ pgvector semantic search with structural relationship traversal.
 | Label | Description | Key Properties |
 |-------|-------------|----------------|
 | `Attempt` | 1:1 with a `debug_attempts` row | `attempt_id`, `project`, `error_category`, `fix_type`, `outcome`, `response_code`, `component_type` |
-| `Project` | One per distinct `system_under_test` | `name` |
+| `Project` | One per distinct `system_under_test` | `name`, `alias` |
+| `Service` | One per distinct microservice within a project | `name`, `application` |
 | `ErrorPattern` | One per distinct `(error_category, response_code)` pair | `error_category`, `response_code` |
 | `FixPattern` | One per distinct `(fix_type, component_type)` pair | `fix_type`, `component_type` |
 
@@ -33,6 +40,8 @@ pgvector semantic search with structural relationship traversal.
 | Edge | Direction | Description |
 |------|-----------|-------------|
 | `BELONGS_TO` | Attempt -> Project | Every attempt belongs to a project |
+| `HAS_SERVICE` | Project -> Service | A project contains one or more services |
+| `TARGETS_SERVICE` | Attempt -> Service | An attempt targets a specific service |
 | `HAS_ERROR` | Attempt -> ErrorPattern | When `error_category` is not null |
 | `FIXED_BY` | Attempt -> FixPattern | When `outcome = 'resolved'` and `fix_type` is not null |
 | `SIMILAR_TO` | Attempt -> Attempt | Cross-project structural or embedding-based similarity |

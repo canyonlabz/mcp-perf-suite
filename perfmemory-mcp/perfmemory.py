@@ -322,6 +322,8 @@ async def find_similar_attempts(
     symptom_text: str,
     ctx: Context,
     system_under_test: Optional[str] = None,
+    system_alias: Optional[str] = None,
+    service_name: Optional[str] = None,
     error_category: Optional[str] = None,
     top_k: Optional[int] = None,
     threshold: Optional[float] = None,
@@ -336,6 +338,9 @@ async def find_similar_attempts(
         symptom_text: The current error symptom to search for
         ctx: MCP context
         system_under_test: Filter by system (optional, narrows search)
+        system_alias: Filter by app alias/short name (optional). If provided
+            and taxonomy is loaded, resolves to the canonical system_under_test.
+        service_name: Filter by microservice name (optional, narrows search)
         error_category: Filter by error category (optional, narrows search)
         top_k: Max number of results to return (defaults to config VECTOR_TOP_K)
         threshold: Minimum similarity score (defaults to config SIMILARITY_THRESHOLD)
@@ -343,7 +348,8 @@ async def find_similar_attempts(
     Returns:
         dict with keys: status, matches_found, matches, recommendation.
         Each match includes: attempt_id, session_id, symptom_text, diagnosis,
-        fix_description, fix_type, outcome, similarity, confirmed_count, is_verified.
+        fix_description, fix_type, outcome, similarity, confirmed_count, is_verified,
+        system_alias, service_name, test_case_id, test_case_name, test_step_id, test_step_name.
         recommendation is one of: apply_known_fix, review_suggestions, no_match.
     """
     _ = ctx
@@ -352,13 +358,22 @@ async def find_similar_attempts(
         effective_top_k = top_k if top_k is not None else search_config["top_k"]
         effective_threshold = threshold if threshold is not None else search_config["threshold"]
 
+        effective_system = system_under_test
+        if not effective_system and system_alias:
+            app = _taxonomy.resolve_application(system_alias)
+            if app:
+                effective_system = app.get("name", system_alias)
+
+        resolved_error_cat = _taxonomy.resolve_alias("error_categories", error_category or "") if error_category else None
+
         embedding = await _embedder.embed(symptom_text)
 
         vector_matches = sm.find_similar(
             _config["database"],
             embedding=embedding,
-            system_under_test=system_under_test,
-            error_category=error_category,
+            system_under_test=effective_system,
+            error_category=resolved_error_cat or error_category,
+            service_name=service_name,
             threshold=effective_threshold,
             top_k=effective_top_k,
         )
@@ -366,13 +381,13 @@ async def find_similar_attempts(
             m["source"] = "vector"
 
         graph_matches = []
-        if _graph_enabled() and (error_category or system_under_test):
+        if _graph_enabled() and (resolved_error_cat or error_category or effective_system):
             graph_cfg = _config["graph"]
             graph_results = gm.find_graph_related(
                 _config["database"],
                 graph_name=graph_cfg["graph_name"],
-                error_category=error_category,
-                current_project=system_under_test,
+                error_category=resolved_error_cat or error_category,
+                current_project=effective_system,
                 limit=effective_top_k,
             )
             for gr in graph_results:
@@ -482,7 +497,10 @@ async def close_debug_session(
 async def list_sessions(
     ctx: Context,
     system_under_test: Optional[str] = None,
+    system_alias: Optional[str] = None,
+    service_name: Optional[str] = None,
     environment: Optional[str] = None,
+    environment_alias: Optional[str] = None,
     final_outcome: Optional[str] = None,
     limit: Optional[int] = 20,
 ) -> Dict[str, Any]:
@@ -494,7 +512,10 @@ async def list_sessions(
     Args:
         ctx: MCP context
         system_under_test: Filter by system name
+        system_alias: Filter by app alias/short name (e.g., "CART", "OSP")
+        service_name: Filter by microservice name
         environment: Filter by environment (dev, qa, uat, staging, prod)
+        environment_alias: Filter by specific environment name (e.g., "QA1", "STG-East")
         final_outcome: Filter by outcome (resolved, unresolved, etc.)
         limit: Maximum number of sessions to return (default 20)
 
@@ -508,6 +529,9 @@ async def list_sessions(
             system_under_test=system_under_test,
             environment=environment,
             final_outcome=final_outcome,
+            system_alias=system_alias,
+            service_name=service_name,
+            environment_alias=environment_alias,
             limit=limit or 20,
         )
         return {
@@ -708,7 +732,8 @@ async def find_cross_project_patterns(
         Each match includes: attempt_id, project, fix_type, error_category,
         response_code, component_type, outcome, graph_path.
         If enrich=true, also includes: symptom_text, diagnosis, fix_description,
-        sampler_name, api_endpoint, confirmed_count, is_verified.
+        sampler_name, api_endpoint, confirmed_count, is_verified,
+        system_alias, service_name, test_case_id, test_case_name.
     """
     _ = ctx
     if not _graph_enabled():
@@ -742,6 +767,10 @@ async def find_cross_project_patterns(
                     r["api_endpoint"] = detail.get("api_endpoint")
                     r["confirmed_count"] = detail.get("confirmed_count")
                     r["is_verified"] = detail.get("is_verified")
+                    r["system_alias"] = detail.get("system_alias", "")
+                    r["service_name"] = detail.get("service_name", "")
+                    r["test_case_id"] = detail.get("test_case_id", "")
+                    r["test_case_name"] = detail.get("test_case_name", "")
 
         return {
             "status": "OK",
@@ -786,7 +815,8 @@ async def get_related_issues(
         fix_patterns: list of {fix_type, component_type}
         neighbors: list of {attempt_id, project, outcome, fix_type, error_category}
         If enrich=true, neighbors also include: symptom_text, diagnosis,
-        fix_description, sampler_name, api_endpoint, confirmed_count, is_verified.
+        fix_description, sampler_name, api_endpoint, confirmed_count, is_verified,
+        system_alias, service_name, test_case_id, test_case_name.
     """
     _ = ctx
     if not _graph_enabled():
@@ -818,6 +848,10 @@ async def get_related_issues(
                     n["api_endpoint"] = detail.get("api_endpoint")
                     n["confirmed_count"] = detail.get("confirmed_count")
                     n["is_verified"] = detail.get("is_verified")
+                    n["system_alias"] = detail.get("system_alias", "")
+                    n["service_name"] = detail.get("service_name", "")
+                    n["test_case_id"] = detail.get("test_case_id", "")
+                    n["test_case_name"] = detail.get("test_case_name", "")
 
         return {"status": "OK", **result}
     except Exception as e:

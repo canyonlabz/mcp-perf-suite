@@ -109,6 +109,8 @@ REQUIRED:
 
 OPTIONAL:
   system_under_test = [filter to a specific system, e.g. "Shopping Cart"]
+  system_alias      = [filter by app alias/short name, e.g. "OSP", "CART"]
+  service_name      = [filter by microservice name, e.g. "cart-service"]
   error_category    = [filter to a specific category, e.g. "Missing Correlations"]
 ```
 
@@ -118,7 +120,9 @@ OPTIONAL:
 find_similar_attempts(
   symptom_text      = {symptom_text},
   system_under_test = {system_under_test},      # optional
-  error_category    = {error_category}          # optional
+  system_alias      = {system_alias},           # optional — resolves to system_under_test
+  service_name      = {service_name},           # optional
+  error_category    = {error_category}          # optional — aliases resolved automatically
 )
 ```
 
@@ -158,7 +162,8 @@ If matches are returned:
 - Review the `graph_path` field to understand how the match was found
   (e.g., `ErrorPattern(Missing Correlations/*)` or `SIMILAR_TO(hops<=2)`)
 - When `enrich = true` (default), each match includes `symptom_text`, `diagnosis`,
-  `fix_description`, `sampler_name`, `api_endpoint`, `confirmed_count`, and `is_verified`
+  `fix_description`, `sampler_name`, `api_endpoint`, `confirmed_count`, `is_verified`,
+  `system_alias`, `service_name`, `test_case_id`, and `test_case_name`
   from the relational store — enough context to decide whether to apply the fix
 - If a match looks promising, use `get_related_issues` (Step 4) to explore its
   neighborhood for additional related fixes
@@ -204,27 +209,38 @@ REQUIRED:
   test_run_id       = [the artifact test run ID]
 
 OPTIONAL:
-  script_name    = [the JMX filename]
-  auth_flow_type = [none, oauth_pkce, oauth_auth_code, saml, token_chain,
-                    custom_sso, entra_id, other]
-  environment    = [dev, qa, uat, staging, prod]
-  created_by     = [PTE name or "cursor"]
-  notes          = [freeform session notes]
+  system_alias      = [short name/alias, e.g. "OSP"]
+  service_name      = [microservice name, e.g. "cart-service"]
+  script_name       = [the JMX filename]
+  auth_flow_type    = [none, oauth_pkce, oauth_auth_code, saml, token_chain,
+                       custom_sso, entra_id, msal_pkce, other]
+  auth_alias        = [human-readable auth label, e.g. "Corporate SSO"]
+  environment       = [dev, qa, uat, staging, prod]
+  environment_alias = [specific env name, e.g. "QA1", "STG-East"]
+  created_by        = [PTE name or "cursor"]
+  notes             = [freeform session notes]
+  strict_taxonomy   = [true/false — override config-level strictness]
 ```
 
 ```
 store_debug_session(
   system_under_test = {system_under_test},
   test_run_id       = {test_run_id},
+  system_alias      = {system_alias},
+  service_name      = {service_name},
   script_name       = {script_name},
   auth_flow_type    = {auth_flow_type},
+  auth_alias        = {auth_alias},
   environment       = {environment},
+  environment_alias = {environment_alias},
   created_by        = {created_by},
-  notes             = {notes}
+  notes             = {notes},
+  strict_taxonomy   = {strict_taxonomy}
 )
 ```
 
 **Save:** `session_id` from the response.
+**Check:** `taxonomy_warnings` in the response — if present, review and note for future taxonomy updates.
 
 ### Step 2 — Store Each Debug Attempt
 
@@ -249,12 +265,17 @@ store_debug_attempt(
                        edit_header | edit_correlation | other},
   component_type    = {json_extractor | regex_extractor | jsr223_postprocessor |
                        jsr223_preprocessor | http_sampler | test_plan | other},
+  test_case_id      = {optional — e.g. "TC01"},
+  test_case_name    = {optional — e.g. "User Login Flow"},
+  test_step_id      = {optional — e.g. "S03"},
+  test_step_name    = {optional — e.g. "Submit Credentials"},
   manifest_excerpt  = {optional — raw manifest iteration text},
   matched_attempt_id = {optional — UUID of a memory match that was applied}
 )
 ```
 
 **Save:** `attempt_id` from the response.
+**Check:** `taxonomy_warnings` in the response for unrecognized error categories.
 
 If `matched_attempt_id` was provided, the response will also include
 `confirmed_match_id` and `new_confirmed_count` showing the updated confidence.
@@ -407,7 +428,10 @@ get_session_detail(session_id = {session_id})
 ```
 list_sessions(
   system_under_test = {optional},
+  system_alias      = {optional — filter by app alias},
+  service_name      = {optional — filter by microservice},
   environment       = {optional},
+  environment_alias = {optional — filter by specific env name},
   final_outcome     = {optional},
   limit             = 20
 )
@@ -434,7 +458,8 @@ Returns:
 - **neighbors**: other attempts connected via SIMILAR_TO edges
 
 When `enrich = true`, each neighbor includes `symptom_text`, `diagnosis`,
-`fix_description`, `sampler_name`, `api_endpoint`, `confirmed_count`, and `is_verified`.
+`fix_description`, `sampler_name`, `api_endpoint`, `confirmed_count`, `is_verified`,
+`system_alias`, `service_name`, `test_case_id`, and `test_case_name`.
 
 ### Cross-Project Pattern Search
 
@@ -455,7 +480,8 @@ find_cross_project_patterns(
 ```
 
 When `enrich = true`, each match includes `symptom_text`, `diagnosis`,
-`fix_description`, `sampler_name`, `api_endpoint`, `confirmed_count`, and `is_verified`.
+`fix_description`, `sampler_name`, `api_endpoint`, `confirmed_count`, `is_verified`,
+`system_alias`, `service_name`, `test_case_id`, and `test_case_name`.
 
 ---
 

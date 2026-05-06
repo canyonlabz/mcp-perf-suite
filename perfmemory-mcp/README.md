@@ -111,6 +111,61 @@ pip install -e .
 
 ---
 
+## 🏷️ Taxonomy & Alias Resolution
+
+PerfMemory includes a taxonomy system that standardizes naming conventions across teams. This ensures consistent semantic search when multiple team members use different names for the same applications, services, or environments.
+
+### How It Works
+
+1. Copy `taxonomy.example.yaml` to `taxonomy.yaml` and customize for your team
+2. Define your applications, services, environments, and their aliases
+3. When storing sessions/attempts, aliases are automatically resolved to canonical names
+4. When searching, you can filter by alias — the system resolves it before querying
+
+### Configuration
+
+In `config.yaml`:
+
+```yaml
+taxonomy:
+  path: taxonomy.yaml    # relative to perfmemory-mcp/
+  strict: false          # true = reject inserts for undefined values
+```
+
+### Strictness Modes
+
+- **`strict: false`** (default) — Unrecognized taxonomy values produce a `taxonomy_warnings` field in the response, but the insert proceeds. Recommended for teams that are incrementally standardizing.
+- **`strict: true`** — Inserts are rejected if a taxonomy value is not defined. Use when the team has agreed on a complete taxonomy and wants enforcement.
+
+The `strict_taxonomy` parameter on `store_debug_session` overrides the config-level setting per call.
+
+### Taxonomy Categories
+
+The taxonomy YAML defines both **core categories** (shipped with the project) and **user-defined sections**:
+
+**Core categories** (extensible by adding entries to the YAML):
+- `environment_types` — dev, qa, uat, staging, prod, performance, dr
+- `auth_flow_types` — none, oauth_pkce, saml, entra_id, msal_pkce, custom_sso, etc.
+- `error_categories` — HTTP 4xx/5xx, Authentication Error, Correlation Error, etc.
+- `protocol_types` — http, https, grpc, websocket, etc.
+
+**User-defined sections:**
+- `applications` — Your apps with names, aliases, services, and auth type
+- `environments` — Your specific environments (QA1, STG-East, PROD-US, etc.)
+
+### Migration for Existing Users
+
+If you already have data in PerfMemory, run the migration scripts to add the new columns:
+
+```bash
+psql -h localhost -U perfadmin -d perfmemory -f sql/migrations/001_add_taxonomy_columns.sql
+psql -h localhost -U perfadmin -d perfmemory -f sql/migrations/002_update_graph_schema.sql
+```
+
+Existing data is preserved — new columns default to empty strings (`''`). No re-import needed.
+
+---
+
 ## ⚙️ MCP Server Configuration (`mcp.json`)
 
 Example setup for Cursor or compatible MCP hosts:
@@ -141,16 +196,16 @@ The PerfMemory MCP server exposes 11 tools organized into four groups:
 
 | Tool | Description |
 | :--- | :---------- |
-| `store_debug_session` | Create a new debug session to track a debugging workflow. Returns a `session_id` for linking attempts. |
-| `store_debug_attempt` | Embed a symptom and store a debug attempt linked to a session. Records the symptom, diagnosis, fix, and outcome. If `matched_attempt_id` is provided, increments the matched attempt's `confirmed_count`. |
-| `find_similar_attempts` | Search the memory store for past attempts that match a symptom. Returns matches ranked by cosine similarity with a recommendation (`apply_known_fix`, `review_suggestions`, or `no_match`). |
+| `store_debug_session` | Create a new debug session to track a debugging workflow. Accepts optional taxonomy fields (`system_alias`, `service_name`, `environment_alias`, `auth_alias`) for standardized naming. Returns a `session_id` for linking attempts. |
+| `store_debug_attempt` | Embed a symptom and store a debug attempt linked to a session. Records the symptom, diagnosis, fix, and outcome. Accepts optional test context (`test_case_id`, `test_case_name`, `test_step_id`, `test_step_name`). If `matched_attempt_id` is provided, increments the matched attempt's `confirmed_count`. |
+| `find_similar_attempts` | Search the memory store for past attempts that match a symptom. Accepts `system_alias` and `service_name` as additional filters with alias resolution. Returns matches ranked by cosine similarity with a recommendation (`apply_known_fix`, `review_suggestions`, or `no_match`). |
 
 ### Session Management Tools
 
 | Tool | Description |
 | :--- | :---------- |
 | `close_debug_session` | Finalize a session with its outcome (`resolved`, `unresolved`, etc.) and optionally link the resolving attempt. |
-| `list_sessions` | Browse stored debug sessions with optional filters (system, environment, outcome). |
+| `list_sessions` | Browse stored debug sessions with optional filters (system, alias, service, environment, environment_alias, outcome). |
 | `get_session_detail` | Retrieve a full session with all its attempts ordered by iteration number. |
 
 ### Maintenance Tools
@@ -228,19 +283,24 @@ perfmemory-mcp/
 ├── services/
 │   ├── embeddings.py          # Embedding provider abstraction (OpenAI, Azure, Ollama)
 │   ├── graph_manager.py       # Apache AGE/Cypher graph operations
-│   └── session_manager.py     # Connection pool, CRUD operations, vector search
+│   ├── session_manager.py     # Connection pool, CRUD operations, vector search
+│   └── taxonomy.py            # Taxonomy resolver and alias validation
 ├── utils/
 │   └── config.py              # Config loader (YAML + environment variables)
 ├── sql/
 │   ├── schema/
 │   │   ├── schema_openai.sql  # Tables + indexes for 1536-dim embeddings
 │   │   └── schema_ollama.sql  # Tables + indexes for 768-dim embeddings
-│   └── graph/
-│       ├── 001_create_graph.sql               # Graph schema (vertex/edge labels)
-│       ├── 002_seed_graph_from_existing_data.sql  # Backfill graph from relational data
-│       └── README.md                          # Graph schema documentation
+│   ├── graph/
+│   │   ├── 001_create_graph.sql               # Graph schema (vertex/edge labels)
+│   │   ├── 002_seed_graph_from_existing_data.sql  # Backfill graph from relational data
+│   │   └── README.md                          # Graph schema documentation
+│   └── migrations/
+│       ├── 001_add_taxonomy_columns.sql       # Add taxonomy columns to existing tables
+│       └── 002_update_graph_schema.sql        # Add Service nodes and alias property
 ├── .env.example               # Example environment configuration
-├── config.example.yaml        # Example YAML config (search, graph, embedding)
+├── config.example.yaml        # Example YAML config (search, graph, embedding, taxonomy)
+├── taxonomy.example.yaml      # Example taxonomy definitions (copy to taxonomy.yaml)
 ├── pyproject.toml             # Project metadata and dependencies
 └── README.md                  # This file
 ```
@@ -258,10 +318,14 @@ Tracks the overall debugging workflow for a JMeter script issue.
 | Column | Purpose |
 | :----- | :------ |
 | `system_under_test` | What is being tested (portal, API, workflow) |
+| `system_alias` | Short name / alias for the application (e.g., "CART", "OSP") |
+| `service_name` | Microservice name within the application |
 | `test_run_id` | Links to the artifact structure |
 | `script_name` | The JMX file being debugged |
-| `auth_flow_type` | Authentication flow (none, oauth_pkce, saml, etc.) |
-| `environment` | Test environment (dev, qa, uat, staging, prod) |
+| `auth_flow_type` | Authentication flow (none, oauth_pkce, saml, entra_id, etc.) |
+| `auth_alias` | Human-readable auth label (e.g., "Corporate SSO Flow") |
+| `environment` | Environment type (dev, qa, uat, staging, prod) |
+| `environment_alias` | Specific environment name (e.g., "QA1", "STG-East") |
 | `final_outcome` | How the session ended (resolved, unresolved, etc.) |
 | `resolution_attempt_id` | FK to the attempt that fixed the issue |
 
@@ -277,6 +341,10 @@ Each row is one debug iteration within a session.
 | `fix_type` | Categorized fix (add_extractor, edit_header, etc.) |
 | `outcome` | Result of this attempt (resolved, failed, etc.) |
 | `embedding` | Vector embedding for similarity search |
+| `test_case_id` | Business test case identifier (e.g., "TC01") |
+| `test_case_name` | Human-readable test case name |
+| `test_step_id` | Test step identifier within the test case (e.g., "S03") |
+| `test_step_name` | Human-readable test step name |
 | `is_verified` | Human-reviewed and confirmed |
 | `is_active` | Included in search results (FALSE = archived) |
 | `confirmed_count` | Number of times this fix was successfully reused |
@@ -290,9 +358,13 @@ Each row is one debug iteration within a session.
 | `idx_attempts_outcome` | B-tree | Filter by attempt outcome |
 | `idx_attempts_session_id` | B-tree | Join attempts to sessions |
 | `idx_attempts_hostname` | B-tree | Filter by hostname |
+| `idx_attempts_test_case` | B-tree | Filter by test case ID |
 | `idx_sessions_system` | B-tree | Filter by system under test |
 | `idx_sessions_environment` | B-tree | Filter by environment |
 | `idx_sessions_outcome` | B-tree | Filter by session outcome |
+| `idx_sessions_system_alias` | B-tree | Filter by system alias |
+| `idx_sessions_service` | B-tree | Filter by service name |
+| `idx_sessions_env_alias` | B-tree | Filter by environment alias |
 
 ---
 
@@ -353,6 +425,15 @@ These settings are configured in `config.yaml` (not environment variables). See 
 | :------- | :------ | :---------- |
 | `DEBUG` | `false` | Enable debug logging |
 
+### Taxonomy (config.yaml)
+
+These settings are configured in `config.yaml` under the `taxonomy` section.
+
+| Setting | Default | Description |
+| :------ | :------ | :---------- |
+| `taxonomy.path` | `taxonomy.yaml` | Path to taxonomy YAML (relative to perfmemory-mcp/) |
+| `taxonomy.strict` | `false` | Reject inserts for undefined taxonomy values when true |
+
 ---
 
 ## 🚧 Future Enhancements
@@ -363,6 +444,7 @@ These settings are configured in `config.yaml` (not environment variables). See 
 * **Data Retention Policies** — Auto-archive old attempts and configurable TTL.
 * **Backup & Migration** — Database dump/restore tooling for moving data between environments.
 * **Multi-Tenancy** — Team-level data isolation for shared deployments.
+* **A2A Protocol Integration** — Agent-to-Agent handoff for Playwright test cases to JMeter script generation.
 
 ---
 
