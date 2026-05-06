@@ -164,6 +164,10 @@ def create_session(
     environment: Optional[str] = None,
     created_by: Optional[str] = None,
     notes: Optional[str] = None,
+    system_alias: str = "",
+    service_name: str = "",
+    environment_alias: str = "",
+    auth_alias: str = "",
 ) -> str:
     """Insert a new debug session. Returns the session UUID as a string."""
     conn = _get_conn(db_config)
@@ -174,13 +178,15 @@ def create_session(
                 """
                 INSERT INTO debug_sessions
                     (system_under_test, test_run_id, script_name, auth_flow_type,
-                     environment, created_by, notes, final_outcome, started_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     environment, created_by, notes, final_outcome, started_at,
+                     system_alias, service_name, environment_alias, auth_alias)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (system_under_test, test_run_id, script_name, auth_flow_type,
                  environment, created_by, notes, "in_progress",
-                 datetime.now(timezone.utc)),
+                 datetime.now(timezone.utc),
+                 system_alias, service_name, environment_alias, auth_alias),
             )
             session_id = str(cur.fetchone()[0])
         conn.commit()
@@ -250,7 +256,8 @@ def get_session(db_config: dict, session_id: str) -> Optional[Dict[str, Any]]:
                 SELECT id, system_under_test, test_run_id, script_name,
                        auth_flow_type, environment, total_iterations,
                        final_outcome, resolution_attempt_id, created_by,
-                       notes, started_at, completed_at, created_at
+                       notes, started_at, completed_at, created_at,
+                       system_alias, service_name, environment_alias, auth_alias
                 FROM debug_sessions WHERE id = %s
                 """,
                 (session_id,),
@@ -268,7 +275,8 @@ def get_session(db_config: dict, session_id: str) -> Optional[Dict[str, Any]]:
                        sampler_name, api_endpoint, symptom_text, diagnosis,
                        fix_description, fix_type, component_type,
                        manifest_excerpt, embedding_model, is_verified,
-                       is_active, confirmed_count, created_at
+                       is_active, confirmed_count, created_at,
+                       test_case_id, test_case_name, test_step_id, test_step_name
                 FROM debug_attempts
                 WHERE session_id = %s
                 ORDER BY iteration_number
@@ -290,6 +298,9 @@ def list_sessions_filtered(
     system_under_test: Optional[str] = None,
     environment: Optional[str] = None,
     final_outcome: Optional[str] = None,
+    system_alias: Optional[str] = None,
+    service_name: Optional[str] = None,
+    environment_alias: Optional[str] = None,
     limit: int = 20,
 ) -> List[Dict[str, Any]]:
     """List sessions with optional filters. Returns session metadata only."""
@@ -308,6 +319,15 @@ def list_sessions_filtered(
         if final_outcome:
             conditions.append("final_outcome = %s")
             params.append(final_outcome)
+        if system_alias:
+            conditions.append("system_alias = %s")
+            params.append(system_alias)
+        if service_name:
+            conditions.append("service_name = %s")
+            params.append(service_name)
+        if environment_alias:
+            conditions.append("environment_alias = %s")
+            params.append(environment_alias)
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(limit)
@@ -318,7 +338,8 @@ def list_sessions_filtered(
                 SELECT id, system_under_test, test_run_id, script_name,
                        auth_flow_type, environment, total_iterations,
                        final_outcome, resolution_attempt_id, created_by,
-                       notes, started_at, completed_at, created_at
+                       notes, started_at, completed_at, created_at,
+                       system_alias, service_name, environment_alias, auth_alias
                 FROM debug_sessions
                 {where}
                 ORDER BY created_at DESC
@@ -357,6 +378,10 @@ def create_attempt(
     fix_type: Optional[str] = None,
     component_type: Optional[str] = None,
     manifest_excerpt: Optional[str] = None,
+    test_case_id: str = "",
+    test_case_name: str = "",
+    test_step_id: str = "",
+    test_step_name: str = "",
 ) -> str:
     """Insert a new debug attempt with its embedding. Returns the attempt UUID."""
     conn = _get_conn(db_config)
@@ -370,14 +395,16 @@ def create_attempt(
                      error_category, severity, response_code, hostname,
                      sampler_name, api_endpoint, diagnosis, fix_description,
                      fix_type, component_type, manifest_excerpt,
+                     test_case_id, test_case_name, test_step_id, test_step_name,
                      embedding_model, embedding)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (session_id, iteration_number, symptom_text, outcome,
                  error_category, severity, response_code, hostname,
                  sampler_name, api_endpoint, diagnosis, fix_description,
                  fix_type, component_type, manifest_excerpt,
+                 test_case_id, test_case_name, test_step_id, test_step_name,
                  embedding_model, embedding),
             )
             attempt_id = str(cur.fetchone()[0])
@@ -467,6 +494,7 @@ def find_similar(
     embedding: List[float],
     system_under_test: Optional[str] = None,
     error_category: Optional[str] = None,
+    service_name: Optional[str] = None,
     threshold: float = 0.75,
     top_k: int = 5,
 ) -> List[Dict[str, Any]]:
@@ -487,6 +515,9 @@ def find_similar(
         if error_category:
             conditions.append("a.error_category = %s")
             params.append(error_category)
+        if service_name:
+            conditions.append("s.service_name = %s")
+            params.append(service_name)
 
         where = " AND ".join(conditions)
         params.append(top_k)
@@ -501,7 +532,10 @@ def find_similar(
                     a.hostname, a.sampler_name, a.api_endpoint,
                     a.component_type, a.confirmed_count, a.is_verified,
                     s.system_under_test, s.environment, s.auth_flow_type,
-                    1 - (a.embedding <=> %s::vector) AS similarity
+                    1 - (a.embedding <=> %s::vector) AS similarity,
+                    s.system_alias, s.service_name,
+                    a.test_case_id, a.test_case_name,
+                    a.test_step_id, a.test_step_name
                 FROM debug_attempts a
                 JOIN debug_sessions s ON a.session_id = s.id
                 WHERE 1 - (a.embedding <=> %s::vector) >= %s
@@ -634,7 +668,9 @@ def get_attempt_by_id(db_config: dict, attempt_id: str) -> Optional[Dict[str, An
                        a.fix_description, a.fix_type, a.component_type,
                        a.manifest_excerpt, a.embedding_model, a.is_verified,
                        a.is_active, a.confirmed_count, a.created_at,
-                       s.system_under_test, s.environment, s.test_run_id
+                       a.test_case_id, a.test_case_name, a.test_step_id, a.test_step_name,
+                       s.system_under_test, s.environment, s.test_run_id,
+                       s.system_alias, s.service_name
                 FROM debug_attempts a
                 JOIN debug_sessions s ON s.id = a.session_id
                 WHERE a.id = %s
@@ -644,10 +680,12 @@ def get_attempt_by_id(db_config: dict, attempt_id: str) -> Optional[Dict[str, An
             row = cur.fetchone()
             if not row:
                 return None
-            attempt = _row_to_attempt(row[:21])
-            attempt["system_under_test"] = row[21]
-            attempt["environment"] = row[22]
-            attempt["test_run_id"] = row[23]
+            attempt = _row_to_attempt(row[:25])
+            attempt["system_under_test"] = row[25]
+            attempt["environment"] = row[26]
+            attempt["test_run_id"] = row[27]
+            attempt["system_alias"] = row[28]
+            attempt["service_name"] = row[29]
             return attempt
     except Exception:
         _healthy = _safe_rollback(conn)
@@ -672,6 +710,10 @@ def _row_to_session(row) -> Dict[str, Any]:
         "started_at": row[11].isoformat() if row[11] else None,
         "completed_at": row[12].isoformat() if row[12] else None,
         "created_at": row[13].isoformat() if row[13] else None,
+        "system_alias": row[14] if len(row) > 14 else "",
+        "service_name": row[15] if len(row) > 15 else "",
+        "environment_alias": row[16] if len(row) > 16 else "",
+        "auth_alias": row[17] if len(row) > 17 else "",
     }
 
 
@@ -698,6 +740,10 @@ def _row_to_attempt(row) -> Dict[str, Any]:
         "is_active": row[18],
         "confirmed_count": row[19],
         "created_at": row[20].isoformat() if row[20] else None,
+        "test_case_id": row[21] if len(row) > 21 else "",
+        "test_case_name": row[22] if len(row) > 22 else "",
+        "test_step_id": row[23] if len(row) > 23 else "",
+        "test_step_name": row[24] if len(row) > 24 else "",
     }
 
 
@@ -723,4 +769,10 @@ def _row_to_match(row) -> Dict[str, Any]:
         "environment": row[17],
         "auth_flow_type": row[18],
         "similarity": round(float(row[19]), 4),
+        "system_alias": row[20] if len(row) > 20 else "",
+        "service_name": row[21] if len(row) > 21 else "",
+        "test_case_id": row[22] if len(row) > 22 else "",
+        "test_case_name": row[23] if len(row) > 23 else "",
+        "test_step_id": row[24] if len(row) > 24 else "",
+        "test_step_name": row[25] if len(row) > 25 else "",
     }

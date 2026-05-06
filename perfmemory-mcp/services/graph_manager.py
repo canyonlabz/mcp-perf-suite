@@ -195,6 +195,8 @@ def create_attempt_node(
     graph_name: str,
     attempt_id: str,
     project: str,
+    project_alias: str = "",
+    service_name: str = "",
     error_category: Optional[str] = None,
     fix_type: Optional[str] = None,
     outcome: str = "",
@@ -208,6 +210,7 @@ def create_attempt_node(
       - Project node (MERGE) + BELONGS_TO edge
       - ErrorPattern node (MERGE) + HAS_ERROR edge (if error_category provided)
       - FixPattern node (MERGE) + FIXED_BY edge (if resolved with fix_type)
+      - Service node (MERGE) + HAS_SERVICE + TARGETS_SERVICE edges (if service_name provided)
     """
     conn = _get_conn(db_config)
     _healthy = True
@@ -228,10 +231,12 @@ def create_attempt_node(
                 $$) AS (v agtype)"""
             )
 
-            # MERGE Project + BELONGS_TO
+            # MERGE Project + BELONGS_TO (include alias property)
             cur.execute(
                 f"""SELECT * FROM cypher('{graph_name}', $$
                     MERGE (p:Project {{name: '{_esc(project)}'}})
+                    ON CREATE SET p.alias = '{_esc(project_alias)}'
+                    ON MATCH SET p.alias = CASE WHEN p.alias = '' THEN '{_esc(project_alias)}' ELSE p.alias END
                 $$) AS (v agtype)"""
             )
             cur.execute(
@@ -283,6 +288,28 @@ def create_attempt_node(
                                   component_type: '{_esc(ct)}'
                               }})
                         CREATE (a)-[:FIXED_BY]->(fp)
+                    $$) AS (e agtype)"""
+                )
+
+            # MERGE Service + HAS_SERVICE + TARGETS_SERVICE
+            if service_name:
+                cur.execute(
+                    f"""SELECT * FROM cypher('{graph_name}', $$
+                        MERGE (svc:Service {{name: '{_esc(service_name)}', application: '{_esc(project)}'}})
+                    $$) AS (v agtype)"""
+                )
+                cur.execute(
+                    f"""SELECT * FROM cypher('{graph_name}', $$
+                        MATCH (p:Project {{name: '{_esc(project)}'}}),
+                              (svc:Service {{name: '{_esc(service_name)}', application: '{_esc(project)}'}})
+                        MERGE (p)-[:HAS_SERVICE]->(svc)
+                    $$) AS (e agtype)"""
+                )
+                cur.execute(
+                    f"""SELECT * FROM cypher('{graph_name}', $$
+                        MATCH (a:Attempt {{attempt_id: '{attempt_id}'}}),
+                              (svc:Service {{name: '{_esc(service_name)}', application: '{_esc(project)}'}})
+                        CREATE (a)-[:TARGETS_SERVICE]->(svc)
                     $$) AS (e agtype)"""
                 )
 

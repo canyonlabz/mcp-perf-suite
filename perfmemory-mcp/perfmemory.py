@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any
 from services.embeddings import EmbeddingProvider
 from services import session_manager as sm
 from services import graph_manager as gm
+from services.taxonomy import TaxonomyResolver
 from utils.config import load_config
 
 log = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ mcp = FastMCP(
 
 _config = load_config()
 _embedder = EmbeddingProvider(_config["embedding"])
+_taxonomy = TaxonomyResolver(_config.get("taxonomy", {}).get("path", ""))
 
 
 def _graph_enabled() -> bool:
@@ -58,6 +60,11 @@ async def store_debug_session(
     environment: Optional[str] = None,
     created_by: Optional[str] = None,
     notes: Optional[str] = None,
+    system_alias: Optional[str] = "",
+    service_name: Optional[str] = "",
+    environment_alias: Optional[str] = "",
+    auth_alias: Optional[str] = "",
+    strict_taxonomy: Optional[bool] = False,
 ) -> Dict[str, Any]:
     """Create a new debug session record in the memory store.
 
@@ -74,27 +81,59 @@ async def store_debug_session(
         environment: Test environment (dev, qa, uat, staging, prod)
         created_by: PTE name or username
         notes: Freeform session notes
+        system_alias: Short name or acronym for the application (e.g., "CART", "OSP")
+        service_name: Specific microservice being tested (e.g., "cart-service")
+        environment_alias: Specific environment name (e.g., "QA1", "STG-East")
+        auth_alias: Human-friendly auth flow description (e.g., "Corporate EntraID SSO")
+        strict_taxonomy: If true, reject unknown taxonomy values. If false (default),
+            warn but proceed with the insert.
 
     Returns:
-        dict with keys: status, session_id, message
+        dict with keys: status, session_id, message, taxonomy_warnings (if any)
     """
     _ = ctx
     try:
+        resolved_env = _taxonomy.resolve_alias("environment_types", environment or "")
+        resolved_auth = _taxonomy.resolve_alias("auth_flow_types", auth_flow_type or "")
+
+        taxonomy_warnings = _taxonomy.validate_session_fields(
+            system_under_test=system_under_test,
+            environment=resolved_env,
+            auth_flow_type=resolved_auth,
+            system_alias=system_alias or "",
+            environment_alias=environment_alias or "",
+        )
+
+        if strict_taxonomy and taxonomy_warnings:
+            return {
+                "status": "ERROR",
+                "message": "Taxonomy validation failed (strict_taxonomy=true)",
+                "taxonomy_warnings": taxonomy_warnings,
+            }
+
         session_id = sm.create_session(
             _config["database"],
             system_under_test=system_under_test,
             test_run_id=test_run_id,
             script_name=script_name,
-            auth_flow_type=auth_flow_type,
-            environment=environment,
+            auth_flow_type=resolved_auth or auth_flow_type,
+            environment=resolved_env or environment,
             created_by=created_by,
             notes=notes,
+            system_alias=system_alias or "",
+            service_name=service_name or "",
+            environment_alias=environment_alias or "",
+            auth_alias=auth_alias or "",
         )
-        return {
+
+        result: Dict[str, Any] = {
             "status": "OK",
             "session_id": session_id,
             "message": f"Debug session created (id={session_id})",
         }
+        if taxonomy_warnings:
+            result["taxonomy_warnings"] = taxonomy_warnings
+        return result
     except Exception as e:
         return {"status": "ERROR", "message": str(e)}
 
@@ -118,6 +157,10 @@ async def store_debug_attempt(
     component_type: Optional[str] = None,
     manifest_excerpt: Optional[str] = None,
     matched_attempt_id: Optional[str] = None,
+    test_case_id: Optional[str] = "",
+    test_case_name: Optional[str] = "",
+    test_step_id: Optional[str] = "",
+    test_step_name: Optional[str] = "",
 ) -> Dict[str, Any]:
     """Embed a symptom and store a debug attempt linked to a session.
 
@@ -149,13 +192,23 @@ async def store_debug_attempt(
         manifest_excerpt: Raw debug manifest iteration text for reference
         matched_attempt_id: UUID of a previously matched attempt whose fix was applied.
             If provided, that attempt's confirmed_count is incremented.
+        test_case_id: Test case identifier (e.g., "TC04")
+        test_case_name: Human-readable test case name (e.g., "Submit Price Check Request")
+        test_step_id: Test step identifier (e.g., "S03")
+        test_step_name: Human-readable test step name (e.g., "POST to Pricing API")
 
     Returns:
         dict with keys: status, attempt_id, embedding_model, message.
         If matched_attempt_id provided: also confirmed_match_id, new_confirmed_count.
+        If taxonomy warnings: also taxonomy_warnings.
     """
     _ = ctx
     try:
+        resolved_error_cat = _taxonomy.resolve_alias("error_categories", error_category or "")
+        taxonomy_warnings = _taxonomy.validate_attempt_fields(
+            error_category=resolved_error_cat,
+        )
+
         embedding = await _embedder.embed(symptom_text)
         model_name = _embedder.get_model_name()
 
@@ -167,7 +220,7 @@ async def store_debug_attempt(
             outcome=outcome,
             embedding=embedding,
             embedding_model=model_name,
-            error_category=error_category,
+            error_category=resolved_error_cat or error_category,
             severity=severity,
             response_code=response_code,
             hostname=hostname,
@@ -178,6 +231,10 @@ async def store_debug_attempt(
             fix_type=fix_type,
             component_type=component_type,
             manifest_excerpt=manifest_excerpt,
+            test_case_id=test_case_id or "",
+            test_case_name=test_case_name or "",
+            test_step_id=test_step_id or "",
+            test_step_name=test_step_name or "",
         )
 
         result: Dict[str, Any] = {
@@ -199,13 +256,17 @@ async def store_debug_attempt(
 
             session_data = sm.get_session(_config["database"], session_id)
             project = session_data["session"]["system_under_test"] if session_data else "unknown"
+            project_alias = session_data["session"].get("system_alias", "") if session_data else ""
+            session_service = session_data["session"].get("service_name", "") if session_data else ""
 
             graph_ok = gm.create_attempt_node(
                 _config["database"],
                 graph_name=graph_name,
                 attempt_id=attempt_id,
                 project=project,
-                error_category=error_category,
+                project_alias=project_alias,
+                service_name=session_service,
+                error_category=resolved_error_cat or error_category,
                 fix_type=fix_type,
                 outcome=outcome,
                 response_code=response_code,
@@ -218,7 +279,7 @@ async def store_debug_attempt(
                     _config["database"],
                     graph_name=graph_name,
                     attempt_id=attempt_id,
-                    error_category=error_category,
+                    error_category=resolved_error_cat or error_category,
                     response_code=response_code,
                     project=project,
                 )
@@ -249,6 +310,8 @@ async def store_debug_attempt(
                     )
                     result["graph_embedding_edges"] = emb_edges
 
+        if taxonomy_warnings:
+            result["taxonomy_warnings"] = taxonomy_warnings
         return result
     except Exception as e:
         return {"status": "ERROR", "message": str(e)}
