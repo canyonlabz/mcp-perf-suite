@@ -34,7 +34,13 @@ CREATE TABLE IF NOT EXISTS debug_sessions (
     notes                   TEXT,
     started_at              TIMESTAMPTZ NOT NULL,
     completed_at            TIMESTAMPTZ,
-    created_at              TIMESTAMPTZ DEFAULT NOW()
+    created_at              TIMESTAMPTZ DEFAULT NOW(),
+
+    -- Taxonomy fields (added in migration 001)
+    system_alias            TEXT NOT NULL DEFAULT '',
+    service_name            TEXT NOT NULL DEFAULT '',
+    environment_alias       TEXT NOT NULL DEFAULT '',
+    auth_alias              TEXT NOT NULL DEFAULT ''
 );
 
 -- =============================================================================
@@ -62,6 +68,12 @@ CREATE TABLE IF NOT EXISTS debug_attempts (
     fix_type            TEXT,
     component_type      TEXT,
     manifest_excerpt    TEXT,
+
+    -- Test case / step context (added in migration 001)
+    test_case_id        TEXT NOT NULL DEFAULT '',
+    test_case_name      TEXT NOT NULL DEFAULT '',
+    test_step_id        TEXT NOT NULL DEFAULT '',
+    test_step_name      TEXT NOT NULL DEFAULT '',
 
     -- System
     embedding_model     TEXT NOT NULL,
@@ -113,3 +125,16 @@ CREATE INDEX IF NOT EXISTS idx_sessions_environment
 
 CREATE INDEX IF NOT EXISTS idx_sessions_outcome
     ON debug_sessions (final_outcome);
+
+-- B-tree indexes on taxonomy columns
+CREATE INDEX IF NOT EXISTS idx_sessions_system_alias
+    ON debug_sessions (system_alias);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_service
+    ON debug_sessions (service_name);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_env_alias
+    ON debug_sessions (environment_alias);
+
+CREATE INDEX IF NOT EXISTS idx_attempts_test_case
+    ON debug_attempts (test_case_id);

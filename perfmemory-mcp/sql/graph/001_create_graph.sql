@@ -56,6 +56,7 @@ $$;
 --   One node per distinct system_under_test.
 --   Properties:
 --     name           TEXT  -- the system_under_test value
+--     alias          TEXT  -- short name / acronym (e.g., "CART", "OSP")
 --
 -- Label: ErrorPattern
 --   One node per distinct (error_category, response_code) pair.
@@ -68,6 +69,12 @@ $$;
 --   Properties:
 --     fix_type       TEXT
 --     component_type TEXT
+--
+-- Label: Service
+--   One node per distinct service within an application.
+--   Properties:
+--     name           TEXT  -- canonical service name (e.g., "cart-service")
+--     application    TEXT  -- parent application's system_under_test value
 -- =============================================================================
 
 -- Create Attempt label
@@ -118,28 +125,48 @@ SELECT * FROM cypher('perf_knowledge', $$
     RETURN count(n)
 $$) AS (v agtype);
 
+-- Create Service label
+SELECT * FROM cypher('perf_knowledge', $$
+    CREATE (n:Service {name: '__placeholder__', application: '__placeholder__'})
+    RETURN n
+$$) AS (v agtype);
+
+SELECT * FROM cypher('perf_knowledge', $$
+    MATCH (n:Service {name: '__placeholder__', application: '__placeholder__'})
+    DELETE n
+    RETURN count(n)
+$$) AS (v agtype);
+
 -- =============================================================================
 -- Edge Labels (reference only)
 -- =============================================================================
 -- Edges are created by the MCP tools at ingestion time. They are documented
 -- here for reference but not pre-created.
 --
--- BELONGS_TO:   (Attempt)-[:BELONGS_TO]->(Project)
---               Created for every attempt. Links attempt to its project.
+-- BELONGS_TO:       (Attempt)-[:BELONGS_TO]->(Project)
+--                   Created for every attempt. Links attempt to its project.
 --
--- HAS_ERROR:    (Attempt)-[:HAS_ERROR]->(ErrorPattern)
---               Created when error_category is not null.
+-- HAS_ERROR:        (Attempt)-[:HAS_ERROR]->(ErrorPattern)
+--                   Created when error_category is not null.
 --
--- FIXED_BY:     (Attempt)-[:FIXED_BY]->(FixPattern)
---               Created when outcome = 'resolved' and fix_type is not null.
+-- FIXED_BY:         (Attempt)-[:FIXED_BY]->(FixPattern)
+--                   Created when outcome = 'resolved' and fix_type is not null.
 --
--- SIMILAR_TO:   (Attempt)-[:SIMILAR_TO]->(Attempt)
---               Properties:
---                 similarity    FLOAT  -- cosine similarity (if embedding-based)
---                 match_type    TEXT   -- 'embedding', 'error_pattern',
---                                        'fix_pattern', or 'composite'
---                 cross_project BOOL   -- true if attempts are from different projects
---               Created from two sources:
---                 1. Deterministic: shared ErrorPattern across different projects
---                 2. Embedding: pgvector cosine similarity > 0.82 (top-3 per attempt)
+-- HAS_SERVICE:      (Project)-[:HAS_SERVICE]->(Service)
+--                   Created when a session has a non-empty service_name.
+--                   Links the application to its service.
+--
+-- TARGETS_SERVICE:  (Attempt)-[:TARGETS_SERVICE]->(Service)
+--                   Created when an attempt's parent session has a non-empty
+--                   service_name. Links the debug attempt to its service.
+--
+-- SIMILAR_TO:       (Attempt)-[:SIMILAR_TO]->(Attempt)
+--                   Properties:
+--                     similarity    FLOAT  -- cosine similarity (if embedding-based)
+--                     match_type    TEXT   -- 'embedding', 'error_pattern',
+--                                            'fix_pattern', or 'composite'
+--                     cross_project BOOL   -- true if attempts are from different projects
+--                   Created from two sources:
+--                     1. Deterministic: shared ErrorPattern across different projects
+--                     2. Embedding: pgvector cosine similarity > 0.82 (top-3 per attempt)
 -- =============================================================================
