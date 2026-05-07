@@ -72,7 +72,9 @@ async def store_debug_session(
     Returns a session_id used to link subsequent debug attempts.
 
     Args:
-        system_under_test: What is being tested (portal, API, workflow, etc.)
+        system_under_test: The application being tested (e.g., "Online Shopping Portal").
+            Maps to Project.name in the knowledge graph. Use system_alias for the
+            short name.
         test_run_id: Links to the artifact structure (artifacts/{test_run_id}/)
         ctx: MCP context
         script_name: The JMX filename being debugged
@@ -337,7 +339,8 @@ async def find_similar_attempts(
     Args:
         symptom_text: The current error symptom to search for
         ctx: MCP context
-        system_under_test: Filter by system (optional, narrows search)
+        system_under_test: Filter by application name (optional, narrows search).
+            Maps to Project.name in the knowledge graph.
         system_alias: Filter by app alias/short name (optional). If provided
             and taxonomy is loaded, resolves to the canonical system_under_test.
         service_name: Filter by microservice name (optional, narrows search)
@@ -512,7 +515,8 @@ async def list_sessions(
 
     Args:
         ctx: MCP context
-        system_under_test: Filter by system name
+        system_under_test: Filter by application name.
+            Maps to Project.name in the knowledge graph.
         system_alias: Filter by app alias/short name (e.g., "CART", "OSP")
         service_name: Filter by microservice name
         environment: Filter by environment (dev, qa, uat, staging, prod)
@@ -663,7 +667,7 @@ async def get_memory_stats(
 
     Args:
         ctx: MCP context
-        system_under_test: Filter stats to a specific system (optional)
+        system_under_test: Filter stats to a specific application (optional)
 
     Returns:
         dict with keys: status, total_sessions, total_attempts,

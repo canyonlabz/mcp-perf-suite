@@ -153,6 +153,18 @@ The taxonomy YAML defines both **core categories** (shipped with the project) an
 - `applications` — Your apps with names, aliases, services, and auth type
 - `environments` — Your specific environments (QA1, STG-East, PROD-US, etc.)
 
+### Terminology Mapping
+
+The same entity is referred to by different names across layers:
+
+| Layer | Term | Example |
+| :---- | :--- | :------ |
+| Taxonomy YAML | `applications[].name` | "Online Shopping Portal" |
+| Relational DB | `debug_sessions.system_under_test` | "Online Shopping Portal" |
+| Knowledge Graph | `(:Project {name: ...})` | `(:Project {name: "Online Shopping Portal", alias: "OSP"})` |
+
+These are a **one-to-one mapping**: application = project = system_under_test.
+
 ### Migration for Existing Users
 
 If you already have data in PerfMemory, run the migration scripts to add the new columns:
@@ -317,7 +329,7 @@ Tracks the overall debugging workflow for a JMeter script issue.
 
 | Column | Purpose |
 | :----- | :------ |
-| `system_under_test` | What is being tested (portal, API, workflow) |
+| `system_under_test` | The application being tested — maps to Project.name in the knowledge graph |
 | `system_alias` | Short name / alias for the application (e.g., "CART", "OSP") |
 | `service_name` | Microservice name within the application |
 | `test_run_id` | Links to the artifact structure |

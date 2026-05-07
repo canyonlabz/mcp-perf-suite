@@ -10,6 +10,10 @@ class TaxonomyResolver:
     """Resolves aliases and validates values against the taxonomy YAML.
 
     The taxonomy is loaded once and cached. All lookups are case-insensitive.
+
+    Terminology mapping:
+        - "application" (taxonomy YAML) = "system_under_test" (relational DB)
+          = "Project" node (Apache AGE graph). These are a one-to-one mapping.
     """
 
     def __init__(self, taxonomy_path: str = ""):
@@ -70,6 +74,10 @@ class TaxonomyResolver:
 
     def resolve_application(self, system_under_test: str) -> Optional[Dict[str, Any]]:
         """Look up an application by name or alias.
+
+        Accepts the application name (e.g., "Online Shopping Portal") or alias
+        (e.g., "OSP"). The resolved name maps to system_under_test in the
+        relational DB and Project.name in the knowledge graph.
 
         Returns:
             The application dict from taxonomy if found, None otherwise.

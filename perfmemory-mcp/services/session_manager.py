@@ -154,6 +154,9 @@ def _safe_rollback(conn) -> bool:
 # =============================================================================
 # Session CRUD
 # =============================================================================
+# Terminology: system_under_test = "application" (taxonomy YAML) = "Project"
+# node (Apache AGE graph). These are a one-to-one mapping across layers.
+# =============================================================================
 
 def create_session(
     db_config: dict,
@@ -512,9 +515,10 @@ def find_similar(
     Joins with debug_sessions for metadata filtering. Only returns
     active attempts (is_active = TRUE).
 
-    When system_under_test is provided, checks both s.system_under_test
-    and s.system_alias for matches (OR logic). When system_alias is also
-    provided, it is included in the OR clause as an additional alias check.
+    When system_under_test (application name) is provided, checks both
+    s.system_under_test and s.system_alias for matches (OR logic). When
+    system_alias is also provided, it is included in the OR clause as an
+    additional alias check.
     """
     conn = _get_conn(db_config)
     _healthy = True

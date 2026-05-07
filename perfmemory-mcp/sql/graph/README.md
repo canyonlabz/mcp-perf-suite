@@ -25,12 +25,17 @@ pgvector semantic search with structural relationship traversal.
 
 ## Graph Structure
 
+> **Terminology:** In the graph layer, a "Project" node maps one-to-one to an
+> "application" in the taxonomy YAML and the `system_under_test` column in the
+> relational database. When documentation or code refers to "project," it means
+> the application being performance tested.
+
 ### Vertex Labels
 
 | Label | Description | Key Properties |
 |-------|-------------|----------------|
 | `Attempt` | 1:1 with a `debug_attempts` row | `attempt_id`, `project`, `error_category`, `fix_type`, `outcome`, `response_code`, `component_type` |
-| `Project` | One per distinct `system_under_test` | `name`, `alias` |
+| `Project` | One per application (system_under_test) | `name`, `alias` |
 | `Service` | One per distinct microservice within a project | `name`, `application` |
 | `ErrorPattern` | One per distinct `(error_category, response_code)` pair | `error_category`, `response_code` |
 | `FixPattern` | One per distinct `(fix_type, component_type)` pair | `fix_type`, `component_type` |

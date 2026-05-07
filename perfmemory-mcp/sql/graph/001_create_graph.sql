@@ -78,6 +78,8 @@ $$;
 -- =============================================================================
 
 -- Create Attempt label
+-- Properties: attempt_id, project (= application name / system_under_test),
+--   error_category, fix_type, outcome, response_code, component_type
 SELECT * FROM cypher('perf_knowledge', $$
     CREATE (n:Attempt {attempt_id: '__placeholder__'})
     RETURN n
@@ -90,6 +92,8 @@ SELECT * FROM cypher('perf_knowledge', $$
 $$) AS (v agtype);
 
 -- Create Project label
+-- Terminology: Project = application (taxonomy YAML) = system_under_test (relational DB)
+-- Properties: name (application name), alias (short name from taxonomy)
 SELECT * FROM cypher('perf_knowledge', $$
     CREATE (n:Project {name: '__placeholder__'})
     RETURN n

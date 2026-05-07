@@ -56,7 +56,7 @@ One row per debug session. Holds session-level metadata and links to the resolvi
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | `id` | `UUID` | `PRIMARY KEY DEFAULT gen_random_uuid()` | Unique session identifier. UUID avoids ID collisions when merging databases from multiple PTEs. |
-| `system_under_test` | `TEXT` | `NOT NULL` | What was being tested: a portal, API, workflow, microservice, etc. |
+| `system_under_test` | `TEXT` | `NOT NULL` | The application being tested. Maps to Project.name in the knowledge graph and applications[].name in the taxonomy YAML. |
 | `system_alias` | `TEXT` | `NOT NULL DEFAULT ''` | Short name or alias for the application (e.g., "CART", "OSP"). Used for cross-team standardization. |
 | `service_name` | `TEXT` | `NOT NULL DEFAULT ''` | Microservice name within the application (e.g., "auth-service", "cart-api"). |
 | `test_run_id` | `TEXT` | `NOT NULL` | Links to the mcp-perf-suite artifact structure (`artifacts/{test_run_id}/`). |

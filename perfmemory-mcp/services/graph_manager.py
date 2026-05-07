@@ -189,6 +189,10 @@ def _cypher(conn, graph_name: str, query: str, params: Optional[dict] = None) ->
 # =============================================================================
 # Graph Write Operations (called at ingestion time)
 # =============================================================================
+# Terminology: "Project" nodes in the graph = "applications" in the taxonomy YAML
+# = system_under_test in the relational DB. The `project` parameter throughout
+# this module refers to the application name.
+# =============================================================================
 
 def create_attempt_node(
     db_config: dict,
@@ -204,6 +208,9 @@ def create_attempt_node(
     component_type: Optional[str] = None,
 ) -> bool:
     """Create an Attempt node and its deterministic edges.
+
+    The `project` param is the application name (= system_under_test).
+    MERGE ensures one Project node per application in the graph.
 
     Creates:
       - Attempt node
@@ -542,7 +549,9 @@ def find_cross_project_patterns(
 ) -> List[Dict[str, Any]]:
     """Dedicated cross-project pattern discovery via graph traversal.
 
-    Answers: "has this class of issue been seen and resolved in any other project?"
+    Answers: "has this class of issue been seen and resolved in any other
+    project (application)?" The current_project param accepts the application
+    name (= system_under_test) to exclude from results.
     """
     conn = _get_conn(db_config)
     _healthy = True

@@ -97,6 +97,9 @@ error_categories:
 # ----------------------------------------
 # Core Taxonomy: Protocol Types
 # ----------------------------------------
+# NOTE: This category is not yet consumed by any MCP tool or query path.
+# Defined for future use — will be wired in when there's a concrete use case
+# where protocol filtering helps Cursor make better debugging decisions.
 protocol_types:
   - name: http
     aliases: [http/1.1, http1]
@@ -114,10 +117,18 @@ protocol_types:
 # =============================================================================
 # User-Defined: Applications
 # =============================================================================
+# Terminology: "application" (here) = "system_under_test" (relational DB column)
+# = "Project" node (Apache AGE knowledge graph). These are a one-to-one mapping.
+#
 # Define your applications (systems under test) here. Each application has:
 #   - name:       Full/proper name (what business stakeholders call it)
 #   - alias:      Short name or acronym (what the team uses daily)
 #   - services:   List of microservices/APIs within this application
+#                 NOTE: This list is informational only — not yet consumed by any
+#                 MCP tool, search query, or validation path. The service_name
+#                 column in the database IS used for filtering, but it is stored
+#                 as freeform text and not validated against this list.
+#                 Future enhancement when there is a concrete need (see E-004).
 #   - auth_type:  Default auth flow type (maps to auth_flow_types above)
 #   - auth_alias: Human-friendly description of the auth implementation
 #
