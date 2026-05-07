@@ -372,6 +372,7 @@ async def find_similar_attempts(
             _config["database"],
             embedding=embedding,
             system_under_test=effective_system,
+            system_alias=system_alias,
             error_category=resolved_error_cat or error_category,
             service_name=service_name,
             threshold=effective_threshold,

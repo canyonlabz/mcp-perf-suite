@@ -310,18 +310,26 @@ def list_sessions_filtered(
         conditions = []
         params: list = []
 
-        if system_under_test:
-            conditions.append("system_under_test = %s")
-            params.append(system_under_test)
+        if system_under_test or system_alias:
+            sys_parts = []
+            if system_under_test:
+                sys_parts.append("system_under_test = %s")
+                params.append(system_under_test)
+                sys_parts.append("system_alias = %s")
+                params.append(system_under_test)
+            if system_alias:
+                sys_parts.append("system_alias = %s")
+                params.append(system_alias)
+                if not system_under_test:
+                    sys_parts.append("system_under_test = %s")
+                    params.append(system_alias)
+            conditions.append(f"({' OR '.join(sys_parts)})")
         if environment:
             conditions.append("environment = %s")
             params.append(environment)
         if final_outcome:
             conditions.append("final_outcome = %s")
             params.append(final_outcome)
-        if system_alias:
-            conditions.append("system_alias = %s")
-            params.append(system_alias)
         if service_name:
             conditions.append("service_name = %s")
             params.append(service_name)
@@ -493,6 +501,7 @@ def find_similar(
     db_config: dict,
     embedding: List[float],
     system_under_test: Optional[str] = None,
+    system_alias: Optional[str] = None,
     error_category: Optional[str] = None,
     service_name: Optional[str] = None,
     threshold: float = 0.75,
@@ -502,6 +511,10 @@ def find_similar(
 
     Joins with debug_sessions for metadata filtering. Only returns
     active attempts (is_active = TRUE).
+
+    When system_under_test is provided, checks both s.system_under_test
+    and s.system_alias for matches (OR logic). When system_alias is also
+    provided, it is included in the OR clause as an additional alias check.
     """
     conn = _get_conn(db_config)
     _healthy = True
@@ -509,9 +522,20 @@ def find_similar(
         conditions = ["a.is_active = TRUE"]
         params: list = [embedding, embedding, threshold]
 
-        if system_under_test:
-            conditions.append("s.system_under_test = %s")
-            params.append(system_under_test)
+        if system_under_test or system_alias:
+            sys_parts = []
+            if system_under_test:
+                sys_parts.append("s.system_under_test = %s")
+                params.append(system_under_test)
+                sys_parts.append("s.system_alias = %s")
+                params.append(system_under_test)
+            if system_alias:
+                sys_parts.append("s.system_alias = %s")
+                params.append(system_alias)
+                if not system_under_test:
+                    sys_parts.append("s.system_under_test = %s")
+                    params.append(system_alias)
+            conditions.append(f"({' OR '.join(sys_parts)})")
         if error_category:
             conditions.append("a.error_category = %s")
             params.append(error_category)
