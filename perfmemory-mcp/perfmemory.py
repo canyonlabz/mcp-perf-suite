@@ -717,10 +717,12 @@ async def find_cross_project_patterns(
 
     Args:
         error_category: Error category to search for (e.g. "HTTP 4xx Error",
-            "Authentication Error", "Correlation Error")
+            "Authentication Error", "Correlation Error"). Aliases are resolved
+            automatically (e.g., "auth error" → "Authentication Error").
         ctx: MCP context
         current_project: Exclude results from this project (optional, for
-            cross-project discovery)
+            cross-project discovery). Accepts application name or alias —
+            resolved via taxonomy before querying the graph.
         response_code: Filter by HTTP response code (optional)
         fix_type: Filter by fix type (optional)
         max_hops: Maximum SIMILAR_TO edge hops for multi-hop discovery (default 2)
@@ -745,12 +747,20 @@ async def find_cross_project_patterns(
             "matches": [],
         }
     try:
+        resolved_error_cat = _taxonomy.resolve_alias("error_categories", error_category) or error_category
+
+        effective_project = current_project
+        if current_project:
+            app = _taxonomy.resolve_application(current_project)
+            if app:
+                effective_project = app.get("name", current_project)
+
         graph_cfg = _config["graph"]
         results = gm.find_cross_project_patterns(
             _config["database"],
             graph_name=graph_cfg["graph_name"],
-            error_category=error_category,
-            current_project=current_project,
+            error_category=resolved_error_cat,
+            current_project=effective_project,
             response_code=response_code,
             fix_type=fix_type,
             max_hops=max_hops or 2,
