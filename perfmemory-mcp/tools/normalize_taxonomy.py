@@ -429,6 +429,35 @@ def apply_system_updates(
     return total_updated
 
 
+def apply_alias_backfill(
+    conn, records: List[Dict[str, str]], log: logging.Logger
+) -> int:
+    """Backfill system_alias for sessions where name is already canonical but alias is empty."""
+    if not check_column_exists(conn, "debug_sessions", "system_alias"):
+        log.warning("  system_alias column not found - skipping alias backfill")
+        return 0
+
+    total_updated = 0
+    with conn.cursor() as cur:
+        for record in records:
+            canonical_name = record["canonical_name"]
+            alias = record["alias"]
+
+            cur.execute("""
+                UPDATE debug_sessions
+                SET system_alias = %s
+                WHERE system_under_test = %s
+                  AND (system_alias = '' OR system_alias IS NULL)
+            """, (alias, canonical_name))
+
+            count = cur.rowcount
+            total_updated += count
+            log.debug(f"  Backfilled {count} sessions: '{canonical_name}' alias set to '{alias}'")
+
+    conn.commit()
+    return total_updated
+
+
 def apply_error_category_updates(
     conn, updates: List[Dict[str, str]], log: logging.Logger
 ) -> int:
@@ -586,6 +615,7 @@ def print_header(log: logging.Logger, args: argparse.Namespace, db_config: Dict)
 def print_system_report(
     log: logging.Logger,
     matched: List[Dict],
+    alias_backfill: List[Dict],
     already_canonical: List[Dict],
     unmatched: List[Dict],
 ):
@@ -594,13 +624,23 @@ def print_system_report(
     log.info("")
 
     if matched:
-        log.info("MATCHED (will normalize):")
+        log.info("MATCHED (will rename + backfill alias):")
         for m in matched:
             sessions = m["session_count"]
             s_word = "session" if sessions == 1 else "sessions"
             log.info(
                 f'  "{m["old_system"]}" -> "{m["canonical_name"]}" '
                 f'(alias: {m["alias"]}) [{sessions} {s_word}]'
+            )
+        log.info("")
+
+    if alias_backfill:
+        log.info("ALIAS BACKFILL (name is canonical, alias is empty):")
+        for m in alias_backfill:
+            sessions = m["session_count"]
+            s_word = "session" if sessions == 1 else "sessions"
+            log.info(
+                f'  "{m["system_under_test"]}" -> set alias: "{m["alias"]}" [{sessions} {s_word}]'
             )
         log.info("")
 
@@ -705,6 +745,7 @@ def main():
     log.info("")
 
     matched = []
+    alias_backfill = []
     already_canonical = []
     unmatched = []
 
@@ -718,8 +759,17 @@ def main():
         if match is None:
             unmatched.append(system)
         elif match["canonical_name"].lower() == sut.lower().strip():
-            # Already canonical
-            already_canonical.append(system)
+            current_alias = system.get("system_alias", "")
+            expected_alias = match["alias"]
+            if (not current_alias) and expected_alias:
+                alias_backfill.append({
+                    "system_under_test": sut,
+                    "canonical_name": match["canonical_name"],
+                    "alias": expected_alias,
+                    "session_count": system["session_count"],
+                })
+            else:
+                already_canonical.append(system)
         else:
             matched.append({
                 "old_system": sut,
@@ -728,10 +778,13 @@ def main():
                 "session_count": system["session_count"],
             })
 
-    print_system_report(log, matched, already_canonical, unmatched)
+    print_system_report(log, matched, alias_backfill, already_canonical, unmatched)
 
     sessions_to_update = sum(m["session_count"] for m in matched)
-    log.info(f"Summary: {sessions_to_update} session(s) to update out of {total_sessions} total")
+    alias_to_backfill = sum(m["session_count"] for m in alias_backfill)
+    log.info(f"Summary: {sessions_to_update} session(s) to rename, "
+             f"{alias_to_backfill} session(s) need alias backfill, "
+             f"out of {total_sessions} total")
     log.info("")
 
     # --- Phase 2: Error Category (optional) ---
@@ -806,10 +859,17 @@ def main():
     log.info("=" * 65)
     log.info("")
 
-    # Apply system_under_test updates
+    # Apply system_under_test updates (rename + alias)
     if matched:
         log.info("Normalizing system_under_test...")
         count = apply_system_updates(conn, matched, log)
+        log.info(f"  -> {count} session(s) updated")
+        log.info("")
+
+    # Apply alias-only backfill (name already canonical, alias empty)
+    if alias_backfill:
+        log.info("Backfilling system_alias for already-canonical sessions...")
+        count = apply_alias_backfill(conn, alias_backfill, log)
         log.info(f"  -> {count} session(s) updated")
         log.info("")
 
