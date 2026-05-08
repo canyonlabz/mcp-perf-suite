@@ -238,6 +238,7 @@ perfanalysis-mcp/.env
 perfanalysis-mcp/uv.lock
 perfmemory-mcp/.env
 perfmemory-mcp/taxonomy.yaml
+perfmemory-mcp/tools/logs/*.log
 confluence-mcp/.env
 msgraph-mcp/.env
 docker/.env

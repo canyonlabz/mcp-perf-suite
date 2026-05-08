@@ -20,6 +20,41 @@ description: >-
 
 ---
 
+## Taxonomy Compliance
+
+Before storing any debug session or attempt, agents MUST check `taxonomy.yaml` for
+canonical values. Do NOT invent new freeform values for taxonomy-controlled fields.
+
+### Rules
+
+1. **`error_category`** — Check `taxonomy.yaml` → `error_categories` for an existing
+   canonical name or alias that matches the error. Use the canonical name. If the error
+   fits an existing category (even approximately), use it. Do NOT create a new category
+   name without confirming with the user first.
+
+2. **`environment`** — Use canonical environment types from `taxonomy.yaml` →
+   `environment_types` (e.g., `dev`, `qa`, `staging`, `perf`, `prod`). If the
+   environment name is informal (e.g., "pre-prod", "STG"), use it as-is — the MCP will
+   resolve aliases automatically.
+
+3. **`auth_flow_type`** — Use values from `taxonomy.yaml` → `auth_flow_types`. Common
+   values: `none`, `oauth_pkce`, `entra_id`, `saml`, `token_chain`, `custom_sso`. If
+   unsure, check the taxonomy aliases list before guessing.
+
+4. **`system_under_test`** — Use the canonical application name from `taxonomy.yaml` →
+   `applications[].name`. If the application is registered, use its exact canonical name.
+
+### What to Do When a Value Doesn't Match
+
+- If the error/value clearly fits an existing category but uses different wording,
+  use the existing canonical name (the alias system handles resolution).
+- If the value is genuinely new and doesn't fit any existing category, inform the user:
+  "This value is not in the taxonomy. Should I use [closest existing category] or would
+  you like to add a new entry to taxonomy.yaml first?"
+- NEVER silently insert a non-canonical value without checking.
+
+---
+
 ## Reference
 
 ### What PerfMemory Does
@@ -203,6 +238,11 @@ worked. This is integrated into the `jmeter-debugging` skill at specific steps.
 
 Called once at the start of debugging.
 
+**Before calling:** Check `taxonomy.yaml` for the correct canonical values:
+- `system_under_test` → use `applications[].name` if the app is registered
+- `environment` → use a canonical type from `environment_types` (dev, qa, uat, staging, perf, prod)
+- `auth_flow_type` → use a value from `auth_flow_types` (none, oauth_pkce, entra_id, saml, etc.)
+
 ```
 REQUIRED:
   system_under_test = [what is being tested, e.g. "Shopping Cart"]
@@ -246,6 +286,11 @@ store_debug_session(
 
 Called after each debug iteration (after applying a fix and observing the result).
 
+**Before calling:** Check `taxonomy.yaml` → `error_categories` for an existing canonical
+name or alias that matches the error. Use the canonical name. Do NOT invent new error
+category names — if the error fits an existing category (even approximately), use it.
+If genuinely new, ask the user before proceeding.
+
 ```
 store_debug_attempt(
   session_id        = {session_id},
@@ -253,7 +298,7 @@ store_debug_attempt(
   symptom_text      = {structured symptom — use the template},
   outcome           = {resolved | failed | environment_issue | test_data_issue |
                        authentication_issue | needs_investigation},
-  error_category    = {from log analysis},
+  error_category    = {from taxonomy.yaml error_categories — use canonical name},
   severity          = {Critical | High | Medium},
   response_code     = {HTTP status code or exception name},
   hostname          = {host where the error occurred},

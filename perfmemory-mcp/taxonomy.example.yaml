@@ -78,11 +78,13 @@ error_categories:
   - name: "HTTP 5xx Error"
     aliases: ["server error", "5xx", "5xx error", "internal server error"]
   - name: "Authentication Error"
-    aliases: ["auth error", "login failure", "401", "401 unauthorized"]
+    aliases: ["auth error", "login failure", "401", "401 unauthorized",
+              "wrong token", "missing oidc params", "missing sso cookie"]
   - name: "Authorization Error"
     aliases: ["forbidden", "403", "403 forbidden", "access denied"]
   - name: "Correlation Error"
-    aliases: ["missing correlation", "dynamic value", "unresolved variable", "literal variable"]
+    aliases: ["missing correlation", "dynamic value", "unresolved variable",
+              "literal variable", "variable overwrite", "extractor conflict"]
   - name: "Connection Error"
     aliases: ["connection refused", "connection timeout", "socket error", "connection reset"]
   - name: "Timeout Error"
@@ -92,7 +94,11 @@ error_categories:
   - name: "SSL/TLS Error"
     aliases: ["ssl error", "certificate error", "tls handshake", "ssl handshake"]
   - name: "Redirect Error"
-    aliases: ["redirect loop", "too many redirects", "302 loop"]
+    aliases: ["redirect loop", "too many redirects", "302 loop",
+              "cookie redirect", "lost cookie on redirect"]
+  - name: "Script Error"
+    aliases: ["xml corruption", "jmx corruption", "malformed xml",
+              "invalid jmx", "script corruption"]
 
 # ----------------------------------------
 # Core Taxonomy: Protocol Types
