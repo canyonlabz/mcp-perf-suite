@@ -33,6 +33,7 @@ from .constants import (
     SAML_PARAMS,
     SAML_PARAM_VALUE_TYPES,
     SKIP_HEADERS_SOURCE,
+    WSFED_FORM_FIELDS,
 )
 from .utils import walk_json
 
@@ -254,7 +255,7 @@ def extract_from_html_form_post(
     entry: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
     """
-    Extract OAuth tokens from HTML form_post response mode.
+    Extract OAuth tokens and WS-Federation values from HTML form_post responses.
     
     OAuth 2.0 form_post response mode returns tokens in an HTML page with
     hidden form fields that auto-submit:
@@ -265,10 +266,15 @@ def extract_from_html_form_post(
         <input type="hidden" name="state" value="..."/>
     </form>
     
+    Also handles WS-Federation form posts with fields like wresult, wctx,
+    and parses form action URLs for federation tenant GUIDs (e.g.,
+    action="https://login.microsoftonline.com/GUID/wsfed").
+    
     Returns:
-        List of candidate values for correlation (id_token, code, state).
+        List of candidate values for correlation.
     """
     import re
+    from html import unescape
     candidates = []
     
     # Check content-type is HTML
@@ -292,25 +298,42 @@ def extract_from_html_form_post(
         re.IGNORECASE
     )
     
-    # Fields we care about in form_post responses
+    # Combined fields: OAuth + WS-Fed
     oauth_form_fields = {"id_token", "code", "state", "access_token", "token_type"}
+    wsfed_form_fields_lower = {f.lower() for f in WSFED_FORM_FIELDS}
+    all_form_fields = oauth_form_fields | wsfed_form_fields_lower
     
     for pattern in [hidden_input_pattern, hidden_input_pattern_alt]:
         for match in pattern.finditer(response):
             field_name = match.group(1)
             field_value = match.group(2)
             
-            if field_name.lower() in oauth_form_fields and field_value:
-                # Determine variable name suggestion
+            if field_name.lower() in all_form_fields and field_value:
+                is_wsfed = field_name.lower() in wsfed_form_fields_lower
+                is_token = field_name.lower() in {"id_token", "access_token"}
+
                 var_name_map = {
                     "id_token": "bearer_token",
                     "code": "oauth_code",
                     "state": "oauth_state",
                     "access_token": "access_token",
                     "token_type": "token_type",
+                    "wresult": "wresult",
+                    "wctx": "wctx",
+                    "wa": "wa",
+                    "wtrealm": "wtrealm",
                 }
                 suggested_var = var_name_map.get(field_name.lower(), field_name.lower())
-                
+
+                source_loc = "response_wsfed_form" if is_wsfed else "response_html_form"
+
+                if is_wsfed:
+                    value_type = "wsfed_param"
+                elif is_token:
+                    value_type = "oauth_token"
+                else:
+                    value_type = "oauth_param"
+
                 candidates.append({
                     "entry_index": entry_index,
                     "step_number": step_number,
@@ -319,15 +342,51 @@ def extract_from_html_form_post(
                     "request_method": entry.get("method", "GET"),
                     "request_url": entry.get("url", ""),
                     "response_status": entry.get("status"),
-                    "source_location": "response_html_form",
+                    "source_location": source_loc,
                     "source_key": field_name,
                     "source_json_path": None,
                     "value": field_value,
-                    "value_type": "oauth_token" if field_name.lower() in {"id_token", "access_token"} else "oauth_param",
-                    "candidate_type": "oauth_param",
+                    "value_type": value_type,
+                    "candidate_type": "wsfed_param" if is_wsfed else "oauth_param",
                     "suggested_var_name": suggested_var,
                 })
-    
+
+    # Parse form action URLs for WS-Fed federation tenant GUID.
+    # Pattern: action="https://login.microsoftonline.com/TENANT_GUID/wsfed"
+    # The URL may be HTML-entity-encoded (e.g., &#x2f; instead of /)
+    form_action_pattern = re.compile(
+        r'<form[^>]*action=["\']([^"\']+)["\']',
+        re.IGNORECASE
+    )
+    for match in form_action_pattern.finditer(response):
+        raw_action = match.group(1)
+        decoded_action = unescape(raw_action)
+
+        wsfed_guid_pattern = re.compile(
+            r'/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+            r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/wsfed',
+            re.IGNORECASE
+        )
+        guid_match = wsfed_guid_pattern.search(decoded_action)
+        if guid_match:
+            tenant_guid = guid_match.group(1)
+            candidates.append({
+                "entry_index": entry_index,
+                "step_number": step_number,
+                "step_label": step_label,
+                "request_id": entry.get("request_id"),
+                "request_method": entry.get("method", "GET"),
+                "request_url": entry.get("url", ""),
+                "response_status": entry.get("status"),
+                "source_location": "response_wsfed_form",
+                "source_key": "wsfed_tenant_guid",
+                "source_json_path": None,
+                "value": tenant_guid,
+                "value_type": "wsfed_tenant_guid",
+                "candidate_type": "wsfed_param",
+                "suggested_var_name": "wsfed_tenant_guid",
+            })
+
     return candidates
 
 
