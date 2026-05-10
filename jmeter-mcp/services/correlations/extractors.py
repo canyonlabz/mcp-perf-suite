@@ -1117,7 +1117,7 @@ def detect_pkce_flow(
         {
             "detected": True,
             "code_challenge_method": "S256" | "plain" | None,
-            "code_challenge_value": str,      # recorded value for substitution
+            "code_challenge_value": str,       # recorded value for substitution
             "code_verifier_value": str | None, # recorded value (from POST body)
             "authorize_entry_index": int,      # first entry with code_challenge
             "authorize_request_url": str,
@@ -1181,6 +1181,99 @@ def detect_pkce_flow(
         ),
         "token_request_url": (
             verifier_info["request_url"] if verifier_info else None
+        ),
+    }
+
+
+def detect_entra_flow(
+    entries: List[Tuple[int, int, str, Dict[str, Any]]]
+) -> Optional[Dict[str, Any]]:
+    """
+    Detect whether the captured traffic contains a Microsoft Entra ID flow.
+
+    Scans entries for EntraID indicators:
+    - Host login.microsoftonline.com
+    - $Config JavaScript objects in HTML responses
+    - WS-Federation form posts (hidden input wresult)
+    - OAuth authorize URLs on login.microsoftonline.com
+
+    Returns None if no EntraID indicators are found, otherwise a dict:
+        {
+            "detected": True,
+            "microsoft_host": str,
+            "authorize_entry_index": int,
+            "authorize_request_url": str,
+            "wsfed_entry_index": int | None,
+            "wsfed_request_url": str | None,
+        }
+    """
+    from urllib.parse import urlparse
+
+    authorize_info: Optional[Dict[str, Any]] = None
+    wsfed_info: Optional[Dict[str, Any]] = None
+    microsoft_host: Optional[str] = None
+
+    for entry_index, step_number, step_label, entry in entries:
+        url = entry.get("url", "")
+        response = entry.get("response", "")
+
+        try:
+            parsed = urlparse(url)
+            host = parsed.netloc.lower()
+        except Exception:
+            host = ""
+
+        # Detect Microsoft host
+        if not microsoft_host and "login.microsoftonline.com" in host:
+            microsoft_host = host
+
+        # Detect authorize request (first occurrence)
+        if authorize_info is None and microsoft_host:
+            if "/oauth2/v2.0/authorize" in url or "/oauth2/authorize" in url:
+                authorize_info = {
+                    "entry_index": entry_index,
+                    "request_url": url,
+                }
+
+        # Detect WS-Fed form post step (response containing wresult hidden input)
+        if wsfed_info is None and response:
+            if 'name="wresult"' in response or "name='wresult'" in response:
+                wsfed_info = {
+                    "entry_index": entry_index,
+                    "request_url": url,
+                }
+
+        # Detect $Config in response (alternative authorize detection)
+        if authorize_info is None and response:
+            if "$Config=" in response or "$Config =" in response:
+                if "login.microsoftonline" in url:
+                    authorize_info = {
+                        "entry_index": entry_index,
+                        "request_url": url,
+                    }
+                    if not microsoft_host:
+                        microsoft_host = host
+
+        if authorize_info and wsfed_info:
+            break
+
+    if not authorize_info and not microsoft_host:
+        return None
+
+    return {
+        "detected": True,
+        "microsoft_host": microsoft_host or "login.microsoftonline.com",
+        "authorize_entry_index": (
+            authorize_info["entry_index"] if authorize_info else None
+        ),
+        "authorize_request_url": (
+            authorize_info["request_url"] if authorize_info else None
+        ),
+        "wsfed_entry_index": (
+            wsfed_info["entry_index"] if wsfed_info else None
+        ),
+        "wsfed_request_url": (
+            wsfed_info["request_url"] if wsfed_info else None
         ),
     }
 

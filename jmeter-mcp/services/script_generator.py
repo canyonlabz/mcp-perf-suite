@@ -93,10 +93,84 @@ from services.jmx.post_processor import (
 )
 from services.jmx.pre_processor import (
     create_pkce_preprocessor,
+    create_entra_state_preprocessor,
+    create_entra_wsfed_cookie_preprocessor,
+    create_uuid_preprocessor,
     append_preprocessor
 )
-from services.correlations.extractors import detect_pkce_flow
+from services.correlations.extractors import detect_entra_flow, detect_pkce_flow
 from utils.file_utils import save_jmx_file
+
+
+# ============================================================
+# Helper Functions - EntraID PreProcessor Insertion
+# ============================================================
+
+def _entra_is_authorize_url(url: str, entra_flow: Dict[str, Any]) -> bool:
+    """Check if URL matches the EntraID authorize request for state/nonce attachment."""
+    authorize_url = entra_flow.get("authorize_request_url", "")
+    if not authorize_url or not url:
+        return False
+    if "/oauth2/v2.0/authorize" in url or "/oauth2/authorize" in url:
+        ms_host = entra_flow.get("microsoft_host", "login.microsoftonline.com")
+        if ms_host in url:
+            return True
+    return False
+
+
+def _entra_is_wsfed_url(url: str, entra_flow: Dict[str, Any]) -> bool:
+    """Check if URL matches the WS-Fed form submission step for cookie attachment."""
+    wsfed_url = entra_flow.get("wsfed_request_url", "")
+    if not wsfed_url:
+        return False
+    if "/wsfed" in url or "/kmsi" in url:
+        ms_host = entra_flow.get("microsoft_host", "login.microsoftonline.com")
+        if ms_host in url:
+            return True
+    return False
+
+
+def _insert_entra_preprocessors(
+    entra_flow: Dict[str, Any],
+    original_url: str,
+    sampler_hash_tree,
+    state_inserted: bool,
+    nonce_inserted: bool,
+    client_request_id_inserted: bool,
+    cookies_inserted: bool,
+) -> None:
+    """
+    Insert EntraID pre-processors on the appropriate samplers.
+
+    Attaches to the authorize request:
+    - MSAL oauth_state generator
+    - oauth_nonce UUID generator
+    - client_request_id UUID generator
+
+    Attaches to the WS-Fed form submission:
+    - ESTSWCTXFLOWTOKEN + AADSSO cookie injector
+    """
+    if not state_inserted and _entra_is_authorize_url(original_url, entra_flow):
+        state_pp = create_entra_state_preprocessor()
+        append_preprocessor(sampler_hash_tree, state_pp)
+
+        nonce_pp = create_uuid_preprocessor(
+            variable_name="oauth_nonce",
+            testname="Generate oauth_nonce"
+        )
+        append_preprocessor(sampler_hash_tree, nonce_pp)
+
+        crid_pp = create_uuid_preprocessor(
+            variable_name="client_request_id",
+            testname="Generate client_request_id"
+        )
+        append_preprocessor(sampler_hash_tree, crid_pp)
+
+    if not cookies_inserted and _entra_is_wsfed_url(original_url, entra_flow):
+        ms_host = entra_flow.get("microsoft_host", "login.microsoftonline.com")
+        cookie_pp = create_entra_wsfed_cookie_preprocessor(domain=ms_host)
+        append_preprocessor(sampler_hash_tree, cookie_pp)
+
 
 # ============================================================
 # Helper Functions - Step/Test Case Naming
@@ -274,7 +348,25 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             ctx.info(f"   code_verifier found at: {pkce_result.get('token_request_url', 'N/A')[:80]}...")
     else:
         ctx.info("ℹ️ No PKCE flow detected in network capture")
-    
+
+    # === EntraID Flow Detection ===
+    entra_flow = None
+    entra_state_inserted = False
+    entra_nonce_inserted = False
+    entra_client_request_id_inserted = False
+    entra_cookies_inserted = False
+    entra_result = detect_entra_flow(flat_entries)
+    if entra_result and entra_result.get("detected"):
+        entra_flow = entra_result
+        ms_host = entra_result.get("microsoft_host", "N/A")
+        ctx.info(f"🔐 EntraID flow detected (host: {ms_host})")
+        if entra_result.get("authorize_request_url"):
+            ctx.info(f"   authorize URL: {entra_result['authorize_request_url'][:80]}...")
+        if entra_result.get("wsfed_request_url"):
+            ctx.info(f"   WS-Fed form at: {entra_result['wsfed_request_url'][:80]}...")
+    else:
+        ctx.info("ℹ️ No EntraID flow detected in network capture")
+
     # === Load Correlation Data (if available) ===
     # correlation_naming.json: JMeter variable names and extractor configurations
     # correlation_spec.json: Actual values and usage locations for substitution
@@ -557,7 +649,22 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                         pkce_element = create_pkce_preprocessor()
                         append_preprocessor(sampler_hash_tree, pkce_element)
                         pkce_preprocessor_inserted = True
-            
+
+                # Insert EntraID PreProcessors
+                if entra_flow:
+                    _insert_entra_preprocessors(
+                        entra_flow, original_url, sampler_hash_tree,
+                        entra_state_inserted, entra_nonce_inserted,
+                        entra_client_request_id_inserted, entra_cookies_inserted
+                    )
+                    # Update flags from mutable container
+                    if not entra_state_inserted and _entra_is_authorize_url(original_url, entra_flow):
+                        entra_state_inserted = True
+                        entra_nonce_inserted = True
+                        entra_client_request_id_inserted = True
+                    if not entra_cookies_inserted and _entra_is_wsfed_url(original_url, entra_flow):
+                        entra_cookies_inserted = True
+
             # === Add Think Time (Test Action) at end of each step (except last) ===
             # This simulates realistic user think time between steps, matching browser automation behavior
             is_last_step = (step_index == total_steps - 1)
@@ -657,7 +764,21 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                     pkce_element = create_pkce_preprocessor()
                     append_preprocessor(sampler_hash_tree, pkce_element)
                     pkce_preprocessor_inserted = True
-    
+
+            # Insert EntraID PreProcessors
+            if entra_flow:
+                _insert_entra_preprocessors(
+                    entra_flow, original_url, sampler_hash_tree,
+                    entra_state_inserted, entra_nonce_inserted,
+                    entra_client_request_id_inserted, entra_cookies_inserted
+                )
+                if not entra_state_inserted and _entra_is_authorize_url(original_url, entra_flow):
+                    entra_state_inserted = True
+                    entra_nonce_inserted = True
+                    entra_client_request_id_inserted = True
+                if not entra_cookies_inserted and _entra_is_wsfed_url(original_url, entra_flow):
+                    entra_cookies_inserted = True
+
     # Log correlation summary
     if excluded_entries > 0:
         ctx.info(f"🚫 Excluded {excluded_entries} request(s) from non-essential domains (APM, analytics, etc.)")
@@ -679,6 +800,10 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     if pkce_preprocessor_inserted:
         ctx.info(f"🔐 Inserted PKCE PreProcessor (code_verifier + code_challenge generation)")
         ctx.info(f"🔐 Applied PKCE substitutions to {pkce_subs_applied} request(s)")
+    if entra_state_inserted:
+        ctx.info("🔐 Inserted EntraID PreProcessors (MSAL state, oauth_nonce, client_request_id)")
+    if entra_cookies_inserted:
+        ctx.info("🔐 Inserted EntraID WS-Fed cookie PreProcessor (ESTSWCTXFLOWTOKEN, AADSSO)")
 
     # === Add Listeners (outside the Thread Group) ===
     results_cfg = JMETER_CONFIG.get("results_collector_config", {})
