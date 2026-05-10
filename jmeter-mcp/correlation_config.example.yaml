@@ -101,6 +101,9 @@ naming:
     response_redirect_url: "regex_extractor"
     response_set_cookie: "regex_extractor"
     response_html_form: "regex_extractor"
+    response_entra_config: "regex_extractor"
+    response_wsfed_form: "boundary_extractor"
+    response_body_url: "regex_extractor"
 
   # ---------------------------------------------------------------------------
   # Regex expression templates for non-JSON extractors
@@ -113,3 +116,5 @@ naming:
     response_redirect_url: "[?&]{key}=([^&]+)"
     response_set_cookie: "{key}=([^;]+)"
     response_html_form: "name=\"{key}\".*?value=\"([^\"]*)\""
+    response_entra_config: "\"{key}\":\"(.*?)\""
+    response_body_url: "[?&]{key}=([^&\"<\\s]+)"

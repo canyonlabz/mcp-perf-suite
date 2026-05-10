@@ -266,20 +266,24 @@ def generate_extractor_config(
     source_key: Optional[str],
     source_json_path: Optional[str],
     variable_name: str,
-) -> Dict[str, str]:
+    candidate_metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     Generate JMeter extractor configuration for a correlation.
 
     Returns a dict with:
-      - extractor_type: "json_extractor" or "regex_extractor"
-      - expression: The JSONPath or regex expression
+      - extractor_type: "json_extractor", "regex_extractor", or "boundary_extractor"
+      - expression: The JSONPath or regex expression (empty for boundary)
       - extractor_name: A human-readable extractor label
+      - left_boundary / right_boundary: (boundary_extractor only)
 
     Args:
         source_location: Where the value was found (e.g. "response_json")
         source_key: The field/parameter name
         source_json_path: The JSONPath from walk_json (e.g. "$[0].entityGuid")
         variable_name: The generated variable name for labeling
+        candidate_metadata: Optional dict with extra candidate info (e.g.
+                            value_type for determining boundary templates)
     """
     cfg = _naming_section()
     extractor_types = cfg.get("extractor_types", {}) or {}
@@ -290,7 +294,13 @@ def generate_extractor_config(
     expression = ""
     ext_name = f"Extract {variable_name}"
 
-    if ext_type == "json_extractor" and source_json_path:
+    result: Dict[str, Any] = {}
+
+    if ext_type == "boundary_extractor":
+        left, right = _resolve_boundary_templates(source_key, loc)
+        result["left_boundary"] = left
+        result["right_boundary"] = right
+    elif ext_type == "json_extractor" and source_json_path:
         expression = source_json_path
     elif loc in regex_templates and source_key:
         template = regex_templates[loc]
@@ -298,11 +308,52 @@ def generate_extractor_config(
     elif source_key:
         expression = re.escape(source_key) + r"=([^&;\s]+)"
 
-    return {
-        "extractor_type": ext_type,
-        "expression": expression,
-        "extractor_name": ext_name,
-    }
+    result["extractor_type"] = ext_type
+    result["expression"] = expression
+    result["extractor_name"] = ext_name
+    return result
+
+
+# Default left/right boundary templates for WS-Fed hidden form fields
+_WSFED_BOUNDARY_TEMPLATES: Dict[str, Tuple[str, str]] = {
+    "wresult": (
+        '<input type="hidden" name="wresult" value="',
+        '">'
+    ),
+    "wctx": (
+        '<input type="hidden" name="wctx" value="',
+        '">'
+    ),
+    "wa": (
+        '<input type="hidden" name="wa" value="',
+        '">'
+    ),
+    "wtrealm": (
+        '<input type="hidden" name="wtrealm" value="',
+        '">'
+    ),
+}
+
+
+def _resolve_boundary_templates(
+    source_key: Optional[str],
+    source_location: str,
+) -> Tuple[str, str]:
+    """
+    Determine left/right boundary strings for a boundary extractor.
+
+    For WS-Fed form fields, uses known HTML hidden input templates.
+    Falls back to generic key-based boundaries.
+    """
+    key_lower = (source_key or "").lower()
+
+    if source_location == "response_wsfed_form" and key_lower in _WSFED_BOUNDARY_TEMPLATES:
+        return _WSFED_BOUNDARY_TEMPLATES[key_lower]
+
+    if source_key:
+        return (f'name="{source_key}" value="', '">')
+
+    return ("", "")
 
 
 # === Full Naming Pipeline (convenience) ===
@@ -343,7 +394,7 @@ def generate_correlation_naming_entry(
         variable_name=var_name,
     )
 
-    return {
+    entry = {
         "correlation_id": correlation.get("correlation_id"),
         "variable_name": var_name,
         "jmeter_extractor_type": ext_cfg["extractor_type"],
@@ -352,3 +403,10 @@ def generate_correlation_naming_entry(
         "source_request_id": source.get("request_id"),
         "source_request_url": request_url,
     }
+
+    if ext_cfg.get("left_boundary"):
+        entry["left_boundary"] = ext_cfg["left_boundary"]
+    if ext_cfg.get("right_boundary"):
+        entry["right_boundary"] = ext_cfg["right_boundary"]
+
+    return entry
