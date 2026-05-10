@@ -118,6 +118,36 @@ OAUTH_TOKEN_URL_PARAMS: Set[str] = {
 }
 
 
+# === EntraID / Microsoft Entra ID Configuration ===
+
+# Fields found inside $Config JavaScript objects on login.microsoftonline.com pages.
+# These are embedded in HTML responses as inline JS (e.g. $Config={...}).
+ENTRA_CONFIG_FIELDS: Set[str] = {
+    "sFT", "sCtx", "canary", "sessionId",
+    "correlationId", "hpgact", "hpgid",
+    "sFTName", "sErrTxt", "sessionIdentifier",
+}
+
+# Fields from the EntraID GetCredentialType API response.
+# FederationRedirectUrl may contain embedded URL params (e.g. estsrequest).
+ENTRA_CREDENTIAL_TYPE_FIELDS: Set[str] = {
+    "FederationRedirectUrl", "ThrottleStatus",
+    "IfExistsResult", "IsSignupDisallowed",
+}
+
+# WS-Federation hidden form field names in HTML responses.
+# These appear in form_post responses during federated authentication.
+WSFED_FORM_FIELDS: Set[str] = {
+    "wresult", "wctx", "wa", "wtrealm",
+}
+
+# OpenAM / ForgeRock token fields in JSON responses.
+# These are returned by OpenAM authentication endpoints (e.g. /json/authenticate).
+OPENAM_TOKEN_FIELDS: Set[str] = {
+    "authId", "nonce", "cdssoToken",
+}
+
+
 # === Request-Side OAuth Detection (Sprint A) ===
 
 # OAuth parameter names to detect in request URLs.

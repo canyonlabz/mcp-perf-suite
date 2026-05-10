@@ -16,6 +16,8 @@ from .classifiers import classify_value_type, is_id_like_value
 from .constants import (
     API_KEY_HEADER_RE,
     CORRELATION_HEADER_SUFFIXES,
+    ENTRA_CONFIG_FIELDS,
+    ENTRA_CREDENTIAL_TYPE_FIELDS,
     NONCE_COOKIE_KEYWORDS,
     OAUTH_BODY_PARAM_VALUE_TYPES,
     OAUTH_BODY_PARAMS,
@@ -326,6 +328,330 @@ def extract_from_html_form_post(
                     "suggested_var_name": suggested_var,
                 })
     
+    return candidates
+
+
+def extract_from_entra_config(
+    response: str,
+    response_headers: Dict[str, Any],
+    entry_index: int,
+    step_number: int,
+    step_label: str,
+    entry: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """
+    Extract dynamic values from EntraID $Config JavaScript objects.
+
+    Microsoft Entra ID (login.microsoftonline.com) embeds a $Config object
+    in HTML responses containing tokens needed for subsequent requests:
+
+        <script>$Config={sFT:"flowToken...",sCtx:"context...",canary:"...",...};</script>
+
+    Also handles GetCredentialType JSON responses which contain fields like
+    FederationRedirectUrl that may embed URL-encoded params (e.g. estsrequest).
+
+    Returns candidates with source_location="response_entra_config".
+    """
+    import re
+    candidates = []
+
+    if not response or not response.strip():
+        return candidates
+
+    request_url = entry.get("url", "")
+    content_type = (response_headers or {}).get("content-type", "")
+
+    # Determine which fields to look for based on content type
+    all_fields = ENTRA_CONFIG_FIELDS | ENTRA_CREDENTIAL_TYPE_FIELDS
+
+    is_html = "html" in content_type.lower()
+    is_json = "json" in content_type.lower()
+
+    # For HTML responses: look for $Config JS object fields via regex
+    # For JSON responses: try JSON parsing first (GetCredentialType API)
+    if is_json:
+        try:
+            json_data = json.loads(response)
+            if isinstance(json_data, dict):
+                candidates.extend(
+                    _extract_entra_fields_from_dict(
+                        json_data, all_fields, entry_index,
+                        step_number, step_label, entry
+                    )
+                )
+        except (json.JSONDecodeError, TypeError):
+            pass
+    elif is_html:
+        # Check for $Config object in HTML
+        if "$Config=" not in response and "$Config =" not in response:
+            return candidates
+
+        # Extract field values using regex (JS object may not be valid JSON)
+        for field_name in all_fields:
+            pattern = re.compile(
+                r'["\']?' + re.escape(field_name) + r'["\']?\s*[:=]\s*["\']([^"\']*?)["\']',
+                re.DOTALL
+            )
+            match = pattern.search(response)
+            if match:
+                value = match.group(1).strip()
+                if not value:
+                    continue
+
+                candidates.append({
+                    "entry_index": entry_index,
+                    "step_number": step_number,
+                    "step_label": step_label,
+                    "request_id": entry.get("request_id"),
+                    "request_method": entry.get("method", "GET"),
+                    "request_url": request_url,
+                    "response_status": entry.get("status"),
+                    "source_location": "response_entra_config",
+                    "source_key": field_name,
+                    "source_json_path": None,
+                    "value": value,
+                    "value_type": "entra_config",
+                    "candidate_type": "oauth_param",
+                })
+
+                # If FederationRedirectUrl, parse the URL for embedded params
+                if field_name == "FederationRedirectUrl":
+                    candidates.extend(
+                        _extract_params_from_federation_url(
+                            value, entry_index, step_number,
+                            step_label, entry
+                        )
+                    )
+    else:
+        # Non-HTML, non-JSON: still check for $Config in case content-type
+        # is missing or generic (some responses lack proper content-type)
+        if "$Config=" in response or "$Config =" in response:
+            for field_name in all_fields:
+                pattern = re.compile(
+                    r'["\']?' + re.escape(field_name) + r'["\']?\s*[:=]\s*["\']([^"\']*?)["\']',
+                    re.DOTALL
+                )
+                match = pattern.search(response)
+                if match:
+                    value = match.group(1).strip()
+                    if not value:
+                        continue
+
+                    candidates.append({
+                        "entry_index": entry_index,
+                        "step_number": step_number,
+                        "step_label": step_label,
+                        "request_id": entry.get("request_id"),
+                        "request_method": entry.get("method", "GET"),
+                        "request_url": request_url,
+                        "response_status": entry.get("status"),
+                        "source_location": "response_entra_config",
+                        "source_key": field_name,
+                        "source_json_path": None,
+                        "value": value,
+                        "value_type": "entra_config",
+                        "candidate_type": "oauth_param",
+                    })
+
+                    if field_name == "FederationRedirectUrl":
+                        candidates.extend(
+                            _extract_params_from_federation_url(
+                                value, entry_index, step_number,
+                                step_label, entry
+                            )
+                        )
+
+    return candidates
+
+
+def _extract_entra_fields_from_dict(
+    data: Dict[str, Any],
+    fields: set,
+    entry_index: int,
+    step_number: int,
+    step_label: str,
+    entry: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """Extract known EntraID fields from a parsed JSON dict (GetCredentialType response)."""
+    candidates = []
+
+    for key, value in data.items():
+        if key not in fields:
+            continue
+
+        value_str = str(value) if value is not None else ""
+        if not value_str:
+            continue
+
+        candidates.append({
+            "entry_index": entry_index,
+            "step_number": step_number,
+            "step_label": step_label,
+            "request_id": entry.get("request_id"),
+            "request_method": entry.get("method", "GET"),
+            "request_url": entry.get("url", ""),
+            "response_status": entry.get("status"),
+            "source_location": "response_entra_config",
+            "source_key": key,
+            "source_json_path": f"$.{key}",
+            "value": value_str,
+            "value_type": "entra_config",
+            "candidate_type": "oauth_param",
+        })
+
+        if key == "FederationRedirectUrl":
+            candidates.extend(
+                _extract_params_from_federation_url(
+                    value_str, entry_index, step_number,
+                    step_label, entry
+                )
+            )
+
+    return candidates
+
+
+def _extract_params_from_federation_url(
+    url_value: str,
+    entry_index: int,
+    step_number: int,
+    step_label: str,
+    entry: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """
+    Parse a FederationRedirectUrl for embedded URL-encoded parameters.
+
+    The URL may be URL-encoded itself and can contain params like:
+        estsrequest=<base64blob>&...
+    These need separate correlation entries.
+    """
+    candidates = []
+
+    try:
+        decoded_url = unquote(url_value)
+        parsed = urlparse(decoded_url)
+        query_params = parse_qs(parsed.query, keep_blank_values=False)
+
+        for param_name, values in query_params.items():
+            for val in values:
+                if not val or not val.strip():
+                    continue
+
+                candidates.append({
+                    "entry_index": entry_index,
+                    "step_number": step_number,
+                    "step_label": step_label,
+                    "request_id": entry.get("request_id"),
+                    "request_method": entry.get("method", "GET"),
+                    "request_url": entry.get("url", ""),
+                    "response_status": entry.get("status"),
+                    "source_location": "response_entra_config",
+                    "source_key": param_name,
+                    "source_json_path": None,
+                    "value": val,
+                    "value_type": "entra_federation_param",
+                    "candidate_type": "oauth_param",
+                })
+    except Exception:
+        pass
+
+    return candidates
+
+
+def extract_from_body_redirect_urls(
+    response: str,
+    response_headers: Dict[str, Any],
+    entry_index: int,
+    step_number: int,
+    step_label: str,
+    entry: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """
+    Extract OAuth parameters from redirect URLs embedded in response bodies.
+
+    The standard extract_from_redirect_url() only checks the Location header.
+    However, some flows embed redirect URLs in the body:
+    - <a href="https://...?code=ABC123&state=XYZ">
+    - <meta http-equiv="refresh" content="0;url=https://...?code=ABC123">
+    - window.location = "https://...?code=ABC123"
+    - Kerberos SSO interrupt pages with href links containing auth codes
+
+    Returns candidates with source_location="response_body_url".
+    """
+    import re
+    candidates = []
+
+    if not response or not response.strip():
+        return candidates
+
+    # Patterns that capture URLs from common body redirect mechanisms
+    url_patterns = [
+        re.compile(r'href=["\']([^"\']*\?[^"\']*)["\']', re.IGNORECASE),
+        re.compile(r'content=["\'][^"\']*url=([^"\';\s]+)', re.IGNORECASE),
+        re.compile(r'(?:window\.location|location\.href)\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE),
+    ]
+
+    seen_values: Dict[str, bool] = {}
+
+    for pattern in url_patterns:
+        for match in pattern.finditer(response):
+            url = match.group(1)
+            if not url:
+                continue
+
+            try:
+                decoded_url = unquote(url)
+                parsed = urlparse(decoded_url)
+
+                # Also check fragment for response_mode=fragment flows
+                for qs in [parsed.query, parsed.fragment]:
+                    if not qs:
+                        continue
+
+                    query_params = parse_qs(qs, keep_blank_values=False)
+                    for param_name, values in query_params.items():
+                        param_lower = param_name.lower()
+
+                        if param_lower not in OAUTH_PARAMS and param_lower not in SAML_PARAMS:
+                            continue
+
+                        for val in values:
+                            if not val or not val.strip():
+                                continue
+
+                            dedup_key = f"{param_lower}={val}"
+                            if dedup_key in seen_values:
+                                continue
+                            seen_values[dedup_key] = True
+
+                            if param_lower in SAML_PARAMS:
+                                value_type = SAML_PARAM_VALUE_TYPES.get(
+                                    param_lower, "saml_param"
+                                )
+                                candidate_type = "saml_param"
+                            else:
+                                value_type = OAUTH_PARAM_VALUE_TYPES.get(
+                                    param_lower, "oauth_param"
+                                )
+                                candidate_type = "oauth_param"
+
+                            candidates.append({
+                                "entry_index": entry_index,
+                                "step_number": step_number,
+                                "step_label": step_label,
+                                "request_id": entry.get("request_id"),
+                                "request_method": entry.get("method", "GET"),
+                                "request_url": entry.get("url", ""),
+                                "response_status": entry.get("status"),
+                                "source_location": "response_body_url",
+                                "source_key": param_name,
+                                "source_json_path": None,
+                                "value": val,
+                                "value_type": value_type,
+                                "candidate_type": candidate_type,
+                            })
+            except Exception:
+                continue
+
     return candidates
 
 
@@ -988,6 +1314,14 @@ def _collect_all_candidates(
         ))
 
         all_candidates.extend(extract_from_html_form_post(
+            response, response_headers, entry_index, step_number, step_label, entry
+        ))
+
+        all_candidates.extend(extract_from_entra_config(
+            response, response_headers, entry_index, step_number, step_label, entry
+        ))
+
+        all_candidates.extend(extract_from_body_redirect_urls(
             response, response_headers, entry_index, step_number, step_label, entry
         ))
 
