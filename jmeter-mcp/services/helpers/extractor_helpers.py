@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET  # Needed for creating empty hashTree element
 
 # Import necessary modules for JMeter JMX generation
 from services.jmx.post_processor import (
+    create_boundary_extractor,
     create_json_extractor,
     create_regex_extractor
 )
@@ -220,6 +221,18 @@ def _create_extractor_element(var_config: Dict) -> Optional[ET.Element]:
     expression = var_config.get("jmeter_extractor_expression", "")
     testname = var_config.get("jmeter_extractor_name", f"Extract {variable_name}")
     
+    if extractor_type == "boundary_extractor":
+        left_boundary = var_config.get("left_boundary", "")
+        right_boundary = var_config.get("right_boundary", "")
+        if not variable_name or (not left_boundary and not right_boundary):
+            return None
+        return create_boundary_extractor(
+            variable_name=variable_name,
+            left_boundary=left_boundary,
+            right_boundary=right_boundary,
+            testname=testname
+        )
+
     if not variable_name or not expression:
         return None
     
