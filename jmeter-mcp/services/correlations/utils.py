@@ -119,13 +119,18 @@ def walk_json(obj: Any, path: str = "$", depth: int = 0) -> List[Tuple[str, Any,
     """
     Recursively walk JSON object, yielding (json_path, value, key_name) tuples.
     
-    Only extracts values from keys matching ID_KEY_PATTERNS.
+    Extracts values from keys matching ID_KEY_PATTERNS or OAUTH_TOKEN_FIELDS
+    (case-insensitive). This ensures token fields like accessToken are detected
+    at arbitrary nesting depth (e.g., $.data.currentUser.accessToken).
+
     Respects MAX_JSON_DEPTH to avoid overly deep traversal.
     
-    Used for SOURCE extraction (looking for ID fields).
+    Used for SOURCE extraction (looking for ID and token fields).
     """
-    from .constants import ID_KEY_PATTERNS
+    from .constants import ID_KEY_PATTERNS, OAUTH_TOKEN_FIELDS
     
+    oauth_token_fields_lower = {f.lower() for f in OAUTH_TOKEN_FIELDS}
+
     results = []
     
     if depth > MAX_JSON_DEPTH:
@@ -134,12 +139,11 @@ def walk_json(obj: Any, path: str = "$", depth: int = 0) -> List[Tuple[str, Any,
     if isinstance(obj, dict):
         for key, value in obj.items():
             new_path = f"{path}.{key}"
-            # Check if key looks like an ID field
-            if ID_KEY_PATTERNS.search(key):
-                # Only add if value is a primitive
+            is_id_key = ID_KEY_PATTERNS.search(key)
+            is_token_key = key.lower() in oauth_token_fields_lower
+            if is_id_key or is_token_key:
                 if isinstance(value, (str, int, float, bool)):
                     results.append((new_path, value, key))
-            # Recurse into nested objects
             if isinstance(value, (dict, list)):
                 results.extend(walk_json(value, new_path, depth + 1))
     

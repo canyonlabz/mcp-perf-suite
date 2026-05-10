@@ -32,6 +32,7 @@ from .constants import (
     PKCE_PARAMS,
     SAML_PARAMS,
     SAML_PARAM_VALUE_TYPES,
+    OPENAM_TOKEN_FIELDS,
     SKIP_HEADERS_SOURCE,
     WSFED_FORM_FIELDS,
 )
@@ -168,14 +169,18 @@ def extract_from_json_body(
     except (json.JSONDecodeError, TypeError):
         return candidates
     
-    # Build set of OAuth token field names (lowercase for comparison)
+    # Build combined set of token field names for top-level scan (lowercase)
+    # Includes OAuth tokens (access_token, id_token, etc.) and
+    # OpenAM fields (authId, nonce, cdssoToken) for /json/authenticate responses
     oauth_token_fields_lower = {f.lower() for f in OAUTH_TOKEN_FIELDS}
+    openam_fields_lower = {f.lower() for f in OPENAM_TOKEN_FIELDS}
+    all_token_fields_lower = oauth_token_fields_lower | openam_fields_lower
     
-    # First, explicitly extract OAuth token fields from top-level JSON
+    # First, explicitly extract token fields from top-level JSON
     # (These may not match ID_KEY_PATTERNS used by walk_json)
     if isinstance(json_data, dict):
         for key_name, value in json_data.items():
-            if key_name.lower() in oauth_token_fields_lower:
+            if key_name.lower() in all_token_fields_lower:
                 value_str = str(value) if value is not None else ""
                 if value_str:
                     suggested_var = _get_oauth_token_var_name(key_name)
@@ -196,10 +201,10 @@ def extract_from_json_body(
                         "suggested_var_name": suggested_var,
                     })
     
-    # Then walk JSON for ID-like values (using existing ID_KEY_PATTERNS)
+    # Then walk JSON for ID-like and token values at nested depth
     for json_path, value, key_name in walk_json(json_data):
-        # Skip if already added as OAuth token
-        if key_name.lower() in oauth_token_fields_lower:
+        # Skip if already added as a top-level token field
+        if key_name.lower() in all_token_fields_lower:
             continue
 
         if value is None:
