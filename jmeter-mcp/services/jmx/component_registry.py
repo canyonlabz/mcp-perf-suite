@@ -54,6 +54,8 @@ from services.jmx.pre_processor import (
     create_uuid_preprocessor,
     create_pkce_preprocessor,
     create_cookie_preprocessor,
+    create_entra_state_preprocessor,
+    create_entra_wsfed_cookie_preprocessor,
 )
 from services.jmx.assertions import (
     create_response_assertion,
@@ -321,6 +323,23 @@ def _build_cookie_preprocessor(cfg: dict) -> Tuple[ET.Element, ET.Element]:
         cookie_value_var=cfg.get("cookie_value_var", ""),
         domain=cfg.get("domain", ""),
         testname=cfg.get("name"),
+    )
+    return elem, ET.Element("hashTree")
+
+
+def _build_entra_state_preprocessor(cfg: dict) -> Tuple[ET.Element, ET.Element]:
+    elem = create_entra_state_preprocessor(
+        state_var=cfg.get("state_var", "oauth_state"),
+        testname=cfg.get("name", "Generate MSAL oauth_state"),
+    )
+    return elem, ET.Element("hashTree")
+
+
+def _build_entra_wsfed_cookie_preprocessor(cfg: dict) -> Tuple[ET.Element, ET.Element]:
+    elem = create_entra_wsfed_cookie_preprocessor(
+        flow_token_var=cfg.get("flow_token_var", "flowToken_1"),
+        domain=cfg.get("domain", "login.microsoftonline.com"),
+        testname=cfg.get("name", "Add EntraID WS-Fed Cookies"),
     )
     return elem, ET.Element("hashTree")
 
@@ -632,6 +651,24 @@ COMPONENT_REGISTRY: Dict[str, Dict[str, Any]] = {
         "optional_fields": ["name"],
         "defaults": {},
         "description": "Add a cookie to the Cookie Manager via Groovy script (cross-domain SSO)",
+    },
+    "entra_state_preprocessor": {
+        "testclass": "JSR223PreProcessor",
+        "category": "pre_processor",
+        "builder": _build_entra_state_preprocessor,
+        "required_fields": [],
+        "optional_fields": ["name", "state_var"],
+        "defaults": {"state_var": "oauth_state"},
+        "description": "Generate MSAL-format base64url-encoded oauth_state for EntraID flows",
+    },
+    "entra_wsfed_cookie_preprocessor": {
+        "testclass": "BeanShellPreProcessor",
+        "category": "pre_processor",
+        "builder": _build_entra_wsfed_cookie_preprocessor,
+        "required_fields": [],
+        "optional_fields": ["name", "flow_token_var", "domain"],
+        "defaults": {"flow_token_var": "flowToken_1", "domain": "login.microsoftonline.com"},
+        "description": "Inject ESTSWCTXFLOWTOKEN and AADSSO cookies for EntraID WS-Fed form submission",
     },
 
     # ---- Post-Processors / Extractors ----
