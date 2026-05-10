@@ -6,7 +6,10 @@ This module contains functions to create JMeter pre-processor elements,
 primarily for dynamic value generation before HTTP requests:
 - JSR223 PreProcessor (Groovy) - Execute custom scripts
 - Timestamp generation for SignalR/cache-busting parameters
-- Future: PKCE code_verifier/code_challenge generation for OAuth 2.0
+- PKCE (Proof Key for Code Exchange) code_verifier/code_challenge generation for OAuth 2.0
+- Cookie addition for cross-domain cookie scenarios
+- MSAL (Microsoft Authentication Library) oauth_state generation for OAuth 2.0
+- EntraID WS-Federation cookie injection for EntraID SSO
 
 Pre-processors are placed inside an HTTP Sampler's hashTree and execute
 before the sampler runs, allowing dynamic value generation.
@@ -282,6 +285,100 @@ if (cookieValue != null && !cookieValue.isEmpty()) {{
         script=script,
         testname=testname
     )
+
+
+def create_entra_state_preprocessor(
+    state_var: str = "oauth_state",
+    testname: str = "Generate MSAL oauth_state"
+) -> ET.Element:
+    """
+    Creates a JSR223 PreProcessor that generates an MSAL-format oauth_state.
+
+    Microsoft Authentication Library (MSAL) uses a base64url-encoded JSON
+    structure for the OAuth state parameter:
+        {id: "<UUID>", meta: {interactionType: "redirect"}}
+
+    Args:
+        state_var: Variable name for the encoded state value
+        testname: Display name in JMeter
+
+    Returns:
+        ET.Element: The JSR223PreProcessor XML element
+    """
+    script = f'''import java.util.Base64
+import groovy.json.JsonOutput
+
+def stateId = UUID.randomUUID().toString()
+def stateJson = JsonOutput.toJson([id: stateId, meta: [interactionType: "redirect"]])
+def encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(stateJson.getBytes("UTF-8"))
+vars.put("{state_var}", encoded)
+
+log.info("MSAL state generated - id: " + stateId)
+'''
+
+    return create_jsr223_preprocessor(
+        script=script,
+        testname=testname
+    )
+
+
+def create_entra_wsfed_cookie_preprocessor(
+    flow_token_var: str = "flowToken_1",
+    domain: str = "login.microsoftonline.com",
+    testname: str = "Add EntraID WS-Fed Cookies"
+) -> ET.Element:
+    """
+    Creates a BeanShell PreProcessor that injects EntraID WS-Federation cookies.
+
+    During the WS-Fed form submission step, EntraID expects two cookies:
+    - ESTSWCTXFLOWTOKEN: Contains the flow token from the previous $Config
+    - AADSSO: Static value "NA|NoExtension" signaling no SSO extension
+
+    Uses BeanShell (not Groovy) because JMeter's CookieManager API is more
+    reliably accessible from BeanShell PreProcessors in older JMeter versions.
+
+    Args:
+        flow_token_var: JMeter variable containing the flow token value
+        domain: Cookie domain (default: login.microsoftonline.com)
+        testname: Display name in JMeter
+
+    Returns:
+        ET.Element: The BeanShellPreProcessor XML element
+    """
+    script = f'''import org.apache.jmeter.protocol.http.control.CookieManager;
+import org.apache.jmeter.protocol.http.control.Cookie;
+
+CookieManager manager = sampler.getCookieManager();
+Cookie cookie1 = new Cookie("ESTSWCTXFLOWTOKEN","${{{flow_token_var}}}","{domain}","/",false,0);
+Cookie cookie2 = new Cookie("AADSSO","NA|NoExtension","{domain}","/",false,0);
+manager.add(cookie1);
+manager.add(cookie2);
+'''
+
+    preprocessor = ET.Element("BeanShellPreProcessor", attrib={
+        "guiclass": "TestBeanGUI",
+        "testclass": "BeanShellPreProcessor",
+        "testname": testname,
+        "enabled": "true"
+    })
+
+    ET.SubElement(preprocessor, "stringProp", attrib={
+        "name": "filename"
+    }).text = ""
+
+    ET.SubElement(preprocessor, "stringProp", attrib={
+        "name": "parameters"
+    }).text = ""
+
+    ET.SubElement(preprocessor, "boolProp", attrib={
+        "name": "resetInterpreter"
+    }).text = "false"
+
+    ET.SubElement(preprocessor, "stringProp", attrib={
+        "name": "script"
+    }).text = script
+
+    return preprocessor
 
 
 # === Helper function to append preprocessor to sampler hashTree ===
