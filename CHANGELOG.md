@@ -1,572 +1,182 @@
-# MCP Performance Suite - Changelog (April 2026)
+# MCP Performance Suite - Changelog (May 2026)
 
-This document summarizes the enhancements and new features added to the MCP Performance Suite during April 2026.
+This document summarizes the enhancements and new features added to the MCP Performance Suite during May 2026.
 
 ---
 
 ## Table of Contents
 
-- [1. Cursor Rules to Cursor Skills Migration](#1-cursor-rules-to-cursor-skills-migration)
-- [2. Cursor Subagents](#2-cursor-subagents)
-- [3. PerfMemory MCP Server](#3-perfmemory-mcp-server)
-- [4. PerfMemory AI Skill & Debugging Integration](#4-perfmemory-ai-skill--debugging-integration)
-- [5. MS Teams MCP Server](#5-ms-teams-mcp-server)
-- [6. PerfMemory Apache AGE Knowledge Graph](#6-perfmemory-apache-age-knowledge-graph)
-- [7. JMeter MCP — Structure Export & HAR-JMX Comparison](#7-jmeter-mcp--structure-export--har-jmx-comparison)
+- [1. PerfMemory Taxonomy System](#1-perfmemory-taxonomy-system)
+- [2. JMeter MCP — EntraID Correlation Engine](#2-jmeter-mcp--entraid-correlation-engine)
+- [3. EntraID Debugging Skill](#3-entraid-debugging-skill)
 - [Previous Changelogs](#previous-changelogs)
 
 ---
 
-## 1. Cursor Rules to Cursor Skills Migration
+## 1. PerfMemory Taxonomy System
 
 ### 1.1 Overview
 
-Migrated the project's primary AI workflows from Cursor Rules (`.mdc` files always loaded into context) to Cursor Skills (`.md` files loaded on-demand when relevant). This significantly reduces context window consumption — rules are always injected into every conversation, while skills are only loaded when the agent detects a matching trigger.
+Added a YAML-driven taxonomy layer to the PerfMemory MCP server that standardizes application and service naming before data enters the vector database and knowledge graph. This solves the problem of inconsistent `system_under_test` naming across teams and sessions (e.g., "OCP", "ocp-app", "Online Cart Application" all mapping to the same system), which previously degraded vector search quality and fragmented graph relationships.
 
-### 1.2 Why This Matters
+### 1.2 Taxonomy Configuration
 
-With 8+ MCP servers and growing workflow complexity, the accumulated rule files consumed substantial context on every interaction, even when irrelevant. Skills are invoked selectively based on user intent, preserving context for the actual task.
+A new `taxonomy.yaml` file defines the canonical mapping of applications, services, and aliases:
 
-### 1.3 Skills Created
+- Each application entry has a canonical `system_under_test` name, optional aliases, and service hierarchy
+- Aliases enable `system_alias` lookups — agents can pass any known alias and the taxonomy resolves it to the canonical name
+- Services within an application inherit the parent's project context in the knowledge graph
 
-12 skills now cover the full performance testing lifecycle:
+### 1.3 Database Schema Updates
 
-| Skill | Folder | Purpose |
-|-------|--------|---------|
-| Performance Testing Workflow | `performance-testing-workflow/` | End-to-end pipeline: BlazeMeter, Datadog, PerfAnalysis, PerfReport, Confluence |
-| Comparison Report Workflow | `comparison-report-workflow/` | Multi-run side-by-side comparison reports |
-| Report Revision Workflow | `report-revision-workflow/` | AI-assisted HITL report revision with version tracking |
-| Playwright Browser Automation | `playwright-browser-automation/` | Browser automation to capture traffic and generate JMeter scripts |
-| JMeter HITL Editing | `jmeter-hitl-editing/` | AI-assisted script analysis, component addition, and editing |
-| JMeter Debugging | `jmeter-debugging/` | Iterative smoke test, diagnose, fix cycle |
-| JMeter HAR Conversion | `jmeter-har-conversion/` | HAR file to JMX script conversion |
-| JMeter Swagger Conversion | `jmeter-swagger-conversion/` | Swagger/OpenAPI spec to JMX script conversion |
-| JMeter Correlation Naming | `jmeter-correlation-naming/` | Correlation variable naming review and adjustment |
-| ADO Test Case Conversion | `ado-test-case-conversion/` | Azure DevOps QA test cases to browser automation specs |
-| Subagent Orchestrator | `subagent-orchestrator/` | Orchestrate BlazeMeter and Datadog extraction via subagents |
-| PerfMemory | `perfmemory/` | Lessons-learned memory layer for debugging |
+Extended both the relational and graph schemas to support taxonomy-driven fields:
 
-All skills live under `.cursor/skills/` with a consistent `SKILL.md` structure: frontmatter with name/description/triggers, a Reference section for context, and an Execution section with step-by-step instructions.
+| Layer | Changes |
+|-------|---------|
+| Relational (`debug_sessions`, `debug_attempts`) | New taxonomy columns for standardized system and service identification |
+| Graph (`perf_knowledge`) | Updated vertex labels and edge properties for service-level tracking |
 
-### 1.4 Rules Retained
+### 1.4 Tool Enhancements
 
-Six rules remain as `.mdc` files because they apply globally across all workflows:
+Updated existing MCP tools to leverage the taxonomy:
 
-| Rule | Purpose |
+| Tool | Enhancement |
+|------|-------------|
+| `store_debug_session` | Resolves `system_alias` to canonical `system_under_test` via taxonomy |
+| `store_debug_attempt` | Applies taxonomy normalization to system and service fields |
+| `find_similar_attempts` | Accepts `system_alias` input parameter for taxonomy-aware search |
+| `find_cross_project_patterns` | Resolves error category and project aliases via taxonomy |
+| `list_sessions` / `get_session_detail` | Enhanced filtering options using taxonomy fields |
+
+### 1.5 Taxonomy Normalization Tool
+
+A new `normalize_taxonomy` MCP tool that validates and normalizes existing data against the taxonomy:
+
+- Scans existing sessions and attempts for non-compliant naming
+- Backfills alias mappings for historical data
+- Reports compliance status and suggested corrections
+
+### 1.6 Files Created / Modified
+
+| File | Purpose |
 |------|---------|
-| `prerequisites.mdc` | Pre-flight checks: credentials, artifact structure, `test_run_id` |
-| `skill-execution-rules.mdc` | Follow skills exactly, sequential processing, task tracking |
-| `mcp-error-handling.mdc` | Retry/no-retry policies for API vs code-based MCP tools |
-| `jmeter-script-guardrails.mdc` | Smoke test = 1/1/1, one fix at a time, max 5 iterations |
-| `browser-automation-guardrails.mdc` | Browser automation safety and network capture rules |
+| `perfmemory-mcp/taxonomy.example.yaml` | Example taxonomy configuration with application/service/alias definitions |
+| `perfmemory-mcp/perfmemory.py` | Added `normalize_taxonomy` tool, taxonomy resolution in existing tools |
+| `perfmemory-mcp/services/session_manager.py` | Taxonomy column support in CRUD operations and search |
+| `perfmemory-mcp/services/graph_manager.py` | Graph schema updates for taxonomy-driven service tracking |
+| `.cursor/skills/perfmemory/SKILL.md` | Updated with taxonomy usage guidance and `system_alias` parameter docs |
 
 ---
 
-## 2. Cursor Subagents
+## 2. JMeter MCP — EntraID Correlation Engine
 
 ### 2.1 Overview
 
-Introduced Cursor subagents to offload long-running MCP extraction tasks from the main agent context. Subagents run in isolated contexts with their own tool access, enabling parallel execution and preserving the parent agent's context window for higher-level orchestration.
+Extended the JMeter MCP correlation analysis engine to automatically detect and generate extractors and pre-processors for Microsoft Entra ID (formerly Azure AD) authentication flows. Previously, EntraID login flows required 10+ manual debugging iterations to identify missing correlations. This enhancement automates the detection of EntraID-specific dynamic values during script generation from HAR or Playwright network captures.
 
-### 2.2 BlazeMeter Extractor Subagent
+### 2.2 EntraID-Specific Constants
 
-**Type:** `blazemeter-extractor`
+New constant sets in `constants.py` categorizing EntraID fields and patterns:
 
-Extracts all BlazeMeter test artifacts for a given `test_run_id`:
-- Test results CSV (aggregate performance report)
-- Session data (multi-engine sessions, JMeter logs)
-- Test configuration metadata
-- Public report URLs
+| Constant Set | Purpose |
+|--------------|---------|
+| `ENTRA_CONFIG_FIELDS` | Fields from `$Config` JavaScript objects (`sFT`, `sCtx`, `canary`, `sessionId`, etc.) |
+| `ENTRA_CREDENTIAL_TYPE_FIELDS` | Fields from the GetCredentialType API response (`FederationRedirectUrl`, etc.) |
+| `WSFED_FORM_FIELDS` | WS-Federation hidden form field names (`wresult`, `wctx`, `wa`, `wtrealm`) |
+| `OPENAM_TOKEN_FIELDS` | OpenAM/ForgeRock token fields (`authId`, `nonce`, `cdssoToken`) |
 
-Outputs to `artifacts/{test_run_id}/blazemeter/` with a `subagent_manifest.json` tracking extraction status.
+### 2.3 New Extraction Functions
 
-### 2.3 Datadog Extractor Subagent
+Four new extraction functions in `extractors.py` targeting EntraID response patterns:
 
-**Type:** `datadog-extractor`
+| Function | What It Extracts |
+|----------|-----------------|
+| `extract_from_entra_config()` | `$Config` JS object fields and GetCredentialType JSON responses, including nested URL parsing for `estsrequest` from `FederationRedirectUrl` |
+| `extract_from_body_redirect_urls()` | OAuth parameters from `href`, `<meta refresh>`, and `window.location` assignments in HTML |
+| `extract_from_html_form_post()` (extended) | WS-Federation form fields (`wresult`, `wctx`) and tenant GUIDs from form action URLs |
+| `extract_from_json_body()` (extended) | OpenAM token fields (`authId`, `nonce`, `cdssoToken`) via top-level JSON scan |
 
-Extracts Datadog monitoring data for a given environment and time window:
-- Host or Kubernetes metrics (CPU, memory, network, disk)
-- Application logs (error queries, custom queries)
-- APM traces (if available)
-- KPI metrics (optional, custom query groups)
+### 2.4 EntraID Flow Detection
 
-Outputs to `artifacts/{test_run_id}/datadog/` with a `subagent_manifest.json` tracking extraction status.
+A new `detect_entra_flow()` function in `extractors.py` that identifies EntraID authentication flows based on URL patterns, response content, and headers. When detected, the script generator attaches EntraID-specific pre-processors to the appropriate samplers.
 
-### 2.4 Subagent Orchestrator Skill
+### 2.5 New Pre-Processors
 
-A dedicated skill (`.cursor/skills/subagent-orchestrator/SKILL.md`) coordinates the two subagents sequentially:
+Two new JMeter pre-processor builders in `pre_processor.py`:
 
-1. Invoke `blazemeter-extractor` subagent
-2. Extract test timestamps from BlazeMeter output
-3. Invoke `datadog-extractor` subagent with the extracted time window
-4. Write `orchestrator_manifest.json` with combined results
-5. Hand off to the user for PerfAnalysis (Step 4 of the E2E workflow)
+| Pre-Processor | Type | Purpose |
+|---------------|------|---------|
+| `entra_state_preprocessor` | JSR223 (Groovy) | Generates MSAL-format `oauth_state` as base64url-encoded JSON `{id:UUID, meta:{interactionType:"redirect"}}` |
+| `entra_wsfed_cookie_preprocessor` | BeanShell | Injects `ESTSWCTXFLOWTOKEN` and `AADSSO` cookies into the CookieManager before WS-Fed form submission |
 
-### 2.5 Files Created
+Both are registered in the component registry and can be added via `add_jmeter_component`.
 
-| File | Purpose |
+### 2.6 Boundary Extractor Support
+
+Added `boundary_extractor` support across the pipeline for extracting large values (e.g., WS-Federation `wresult` SAML tokens) that are too large for regex extraction:
+
+- `naming.py` — Generates `left_boundary`/`right_boundary` configuration with WS-Fed-specific templates
+- `extractor_helpers.py` — Creates `BoundaryExtractor` JMeter elements from the naming config
+- `correlation_config.yaml` — New `response_wsfed_form: "boundary_extractor"` extractor type mapping
+
+### 2.7 Script Generator Integration
+
+Updated `script_generator.py` with EntraID-aware logic:
+
+- Calls `detect_entra_flow()` during script generation
+- Inserts `entra_state_preprocessor` on authorize samplers
+- Inserts `entra_wsfed_cookie_preprocessor` on WS-Fed form submission samplers
+- Works in both structured (controller-based) and flat generation modes
+
+### 2.8 Files Modified
+
+| File | Changes |
 |------|---------|
-| `.cursor/skills/subagent-orchestrator/SKILL.md` | Orchestrator skill with step-by-step subagent invocation workflow |
+| `jmeter-mcp/services/correlations/constants.py` | Added 4 EntraID constant sets |
+| `jmeter-mcp/services/correlations/extractors.py` | Added 2 new extraction functions, extended 2 existing ones, added `detect_entra_flow()` |
+| `jmeter-mcp/services/correlations/utils.py` | Extended `walk_json` to match `OAUTH_TOKEN_FIELDS` |
+| `jmeter-mcp/services/correlations/naming.py` | Added boundary extractor config generation and WS-Fed boundary templates |
+| `jmeter-mcp/correlation_config.example.yaml` | Added EntraID extractor type mappings and regex templates |
+| `jmeter-mcp/services/helpers/extractor_helpers.py` | Added `boundary_extractor` case in extractor element creation |
+| `jmeter-mcp/services/jmx/pre_processor.py` | Added 2 new pre-processor builder functions |
+| `jmeter-mcp/services/jmx/component_registry.py` | Registered `entra_state_preprocessor` and `entra_wsfed_cookie_preprocessor` |
+| `jmeter-mcp/services/script_generator.py` | Added EntraID flow detection and pre-processor insertion logic |
 
 ---
 
-## 3. PerfMemory MCP Server
+## 3. EntraID Debugging Skill
 
 ### 3.1 Overview
 
-A new MCP server providing persistent memory and lessons-learned storage for JMeter script debugging. Built on PostgreSQL with the pgvector extension for vector similarity search, enabling AI agents to recall past fixes and avoid repeating mistakes across debugging sessions.
+A new dedicated Cursor Skill (`.cursor/skills/jmeter-entraid-debugging/SKILL.md`) providing domain-specific knowledge for debugging JMeter scripts that interact with Microsoft Entra ID authentication flows. This skill is a companion to the general `jmeter-debugging` skill — the debugging skill defines the iterative workflow, while this skill provides the EntraID-specific diagnosis patterns, component references, and sampler sequences.
 
-### 3.2 Architecture
+### 3.2 Why a Separate Skill
 
-- **Database:** PostgreSQL 18+ with pgvector 0.8.2 extension
-- **Embedding providers:** OpenAI (`text-embedding-3-small`, 1536 dims), Azure OpenAI, Ollama (`nomic-embed-text`, 768 dims)
-- **Search:** Cosine similarity via HNSW index with configurable threshold (default 0.60)
-- **Connection management:** `psycopg2` connection pool with TCP keepalives, health checks, and graceful shutdown
+- The general debugging skill handles any JMeter failure type; EntraID knowledge is only relevant during auth/login flow debugging
+- Skills should stay focused and under 500 lines (this skill is 217 lines)
+- Separation of concerns: agents use `jmeter-debugging` for *how* to debug and `jmeter-entraid-debugging` for *what* to look for in EntraID flows
 
-### 3.3 Database Schema
+### 3.3 Skill Content
 
-Two normalized tables with a parent-child relationship:
+| Section | Purpose |
+|---------|---------|
+| Flow Recognition | Table of indicators that identify an EntraID flow (URL patterns, response markers) |
+| Diagnosis Patterns | 8 patterns ordered by flow sequence: `response_mode=fragment`, BssoInterrupt, `$Config` extraction, GetCredentialType, OpenAM chain, WS-Fed wresult, cookie injection, MSAL state |
+| Available Components | 7 JMeter MCP components relevant to EntraID with their `add_jmeter_component` types |
+| Typical Sampler Sequence | 13-step reference table from authorize to application token |
+| Extractor Quick Reference | 20 extractors with exact variable names, types, and expressions |
+| Network Capture Limitation | Documents the known HAR/Playwright empty-response limitation for EntraID flows |
 
-| Table | Purpose |
-|-------|---------|
-| `debug_sessions` | Top-level debugging sessions with metadata (system, environment, auth flow, outcome) |
-| `debug_attempts` | Individual debug iterations within a session (symptom, diagnosis, fix, embedding) |
+### 3.4 Cross-Reference
 
-Key design decisions:
-- `symptom_text` is the only field embedded as a vector — its structure directly affects search quality
-- `confirmed_count` tracks how many times a fix has been successfully reused
-- `is_verified` flags human-reviewed lessons for higher confidence
-- `is_active` enables soft-archiving without data loss
+A one-line cross-reference was added to the `jmeter-debugging` skill's Common Diagnosis Patterns section, directing agents to the EntraID skill when they encounter EntraID patterns during triage.
 
-### 3.4 MCP Tools (9 total)
-
-| Tool | Purpose |
-|------|---------|
-| `store_debug_session` | Create a new debugging session |
-| `store_debug_attempt` | Record a debug iteration with symptom embedding |
-| `find_similar_attempts` | Semantic similarity search with optional metadata filters |
-| `close_debug_session` | Close a session with final outcome |
-| `list_sessions` | Browse sessions with filters |
-| `get_session_detail` | Full session detail with all attempts |
-| `archive_attempt` | Soft-archive outdated lessons |
-| `verify_attempt` | Mark an attempt as human-verified |
-| `get_memory_stats` | Aggregate statistics on stored knowledge |
-
-### 3.5 Configuration
-
-Follows the same pattern as other MCP servers:
-- **`.env`** for secrets (API keys, database credentials, SSL settings)
-- **`config.yaml`** for tunable settings (similarity threshold, top_k, debug flags)
-- Platform-specific overrides (`config.windows.yaml`, `config.mac.yaml`)
-
-### 3.6 Production Readiness
-
-- TCP keepalives (`idle=30s`, `interval=10s`, `count=3`) for stale connection detection
-- Connection health checks (`SELECT 1`) before returning connections from the pool
-- Leak prevention for `register_vector` failures
-- SSL/TLS support for cloud-hosted PostgreSQL (Azure, AWS, GCP)
-- Graceful shutdown via `atexit` hook for connection pool and HTTP client cleanup
-- Lazy-cached embedding clients to prevent per-call resource creation
-
-### 3.7 Files Created
+### 3.5 Files Created / Modified
 
 | File | Purpose |
 |------|---------|
-| `perfmemory-mcp/perfmemory.py` | FastMCP server entrypoint with 9 tool definitions |
-| `perfmemory-mcp/services/session_manager.py` | Database CRUD, connection pool, vector search |
-| `perfmemory-mcp/services/embeddings.py` | Embedding provider abstraction (OpenAI, Azure, Ollama) |
-| `perfmemory-mcp/utils/config.py` | Configuration loader (YAML + .env hybrid) |
-| `perfmemory-mcp/sql/schema/README.md` | Schema design document |
-| `perfmemory-mcp/sql/schema/schema_openai.sql` | Schema with `vector(1536)` for OpenAI/Azure embeddings |
-| `perfmemory-mcp/sql/schema/schema_ollama.sql` | Schema with `vector(768)` for Ollama embeddings |
-| `perfmemory-mcp/pyproject.toml` | Project metadata and dependencies |
-| `perfmemory-mcp/.env.example` | Example environment variables |
-| `perfmemory-mcp/config.example.yaml` | Example tunable configuration |
-| `perfmemory-mcp/README.md` | Setup guide, tool reference, and workflow documentation |
-| `docs/pgvector_installation_guide.md` | PostgreSQL + pgvector Docker setup guide |
-| `docker/docker-compose-mac.yaml` | Docker Compose for pgvector container (Mac) |
-| `docker/docker-compose-windows.yaml` | Docker Compose for pgvector container (Windows) |
-
----
-
-## 4. PerfMemory AI Skill & Debugging Integration
-
-### 4.1 Overview
-
-Created a new standalone AI Skill for the PerfMemory MCP server and integrated it into the existing JMeter debugging workflow. This enables AI agents to search for past fixes before debugging, store lessons learned during debugging, and ingest existing knowledge from debug manifests or curated lessons-learned documents.
-
-### 4.2 New Standalone Skill
-
-**File:** `.cursor/skills/perfmemory/SKILL.md`
-
-The PerfMemory Skill defines three workflows:
-
-| Workflow | Purpose |
-|----------|---------|
-| **Workflow A** — Search Memory | Search for similar past issues before starting a debug loop. Returns ranked matches with recommendations (apply, review, or no match). |
-| **Workflow B** — Store Lessons | Open a debug session, store each debug attempt with structured symptom text, and close the session when done. |
-| **Workflow C** — Ingest Knowledge | Bulk-load lessons from debug manifests (`artifacts/{test_run_id}/analysis/debug_manifest.md`) or curated lessons-learned documents (`.md` files). |
-
-Additional features:
-- Structured symptom text template for consistent embedding quality
-- Similarity score interpretation guide (>0.85 apply, 0.60-0.85 review, <0.60 no match)
-- Maintenance operations: verify, archive, stats, session browsing
-
-### 4.3 JMeter Debugging Skill Integration
-
-**File:** `.cursor/skills/jmeter-debugging/SKILL.md`
-
-Five additive integration points were added to the existing 10-step debugging workflow:
-
-| Step | Name | Purpose |
-|------|------|---------|
-| Step 0.5 | Memory Check | Broad search for past issues on this system before debugging begins |
-| Step 1.5 | Open PerfMemory Session | Create a debug session to track this debugging effort |
-| Step 5d | Memory-Assisted Triage | Targeted search for the specific error — can skip verbose debugging if a high-confidence match exists |
-| Step 8e | Store Attempt | Record each debug attempt (symptom, diagnosis, fix, outcome) in PerfMemory |
-| Step 10b | Close Session | Close the PerfMemory session with final outcome and resolution reference |
-
-All PerfMemory steps are **advisory only** — if the PerfMemory MCP server is unavailable, all memory steps are skipped and debugging proceeds normally.
-
-### 4.4 Early Stop on Errors
-
-Updated the smoke test monitoring logic (Steps 3c, 7a, 9c) to stop tests early when errors are detected instead of waiting for the full test to complete. Uses `stop_jmeter_test` for graceful shutdown with PID kill as a fallback only.
-
-### 4.5 Files Created
-
-| File | Purpose |
-|------|---------|
-| `.cursor/skills/perfmemory/SKILL.md` | Standalone PerfMemory Skill with 3 workflows, symptom template, and maintenance operations |
-
-### 4.6 Files Modified
-
-| File | Changes |
-|------|---------|
-| `.cursor/skills/jmeter-debugging/SKILL.md` | Added PerfMemory Integration reference section, Steps 0.5/1.5/5d/8e/10b, early-stop logic in Steps 3c/7a/9c, updated error handling for PerfMemory advisory behavior |
-
----
-
-## 5. MS Teams MCP Server
-
-### 5.1 Overview
-
-A new MCP server (`msteams-mcp`) that automates Microsoft Teams notifications for performance testing workflows. Enables pre-test alerts, post-test result sharing, channel/chat discovery, and stakeholder communication — all driven by AI agents.
-
-The server uses browser-based authentication (via Playwright) instead of Azure AD app registration, removing the need for admin consent, client secrets, and OAuth2 flows. Authentication architecture informed by [m0nkmaster/msteams-mcp](https://github.com/nicholasgriffintn/msteams-mcp) (MIT License), reimplemented in Python for the mcp-perf-suite ecosystem.
-
-### 5.2 Authentication Architecture
-
-Three-layer token resolution for fast, reliable authentication:
-
-| Layer | Strategy | Speed |
-|-------|----------|-------|
-| 1. In-Memory Cache | Reuse tokens already in memory | Instant |
-| 2. Encrypted Session File | Decrypt `session-state.json` (AES-256-GCM, machine-bound key) | Fast |
-| 3. Browser Login | SSO first (headless), then visible browser fallback | Slow |
-
-Token types used:
-
-| Token | Used For | TTL |
-|-------|----------|-----|
-| Skype Token | Messaging APIs (chatsvc), CSA channel listing | ~24 hours |
-| Auth Token | General Teams API auth | ~24 hours |
-| Substrate Token | Search, People, and Channel discovery APIs | ~1 hour |
-| CSA Token | Teams/channels list API (CSA v3) | ~24 hours |
-
-### 5.3 MCP Tools (10 total)
-
-#### Authentication
-
-| Tool | Description |
-|------|-------------|
-| `teams_login` | Authenticate to MS Teams (SSO → headless → visible browser fallback) |
-| `teams_status` | Check session health, token validity, and user info (no network calls) |
-
-#### Messaging & Channels
-
-| Tool | Description |
-|------|-------------|
-| `teams_send_message` | Send a message to a channel, chat, or group — supports templates, named targets, and `test_run_id` context |
-| `teams_list_channels` | List all teams and channels the authenticated user has access to |
-| `teams_find_channel` | Search for channels by name (org-wide discovery + membership status) |
-
-#### Chats
-
-| Tool | Description |
-|------|-------------|
-| `teams_get_chat` | Get a 1:1 chat conversation ID for another user (deterministic, no API call) |
-| `teams_create_group_chat` | Create a new group chat with 2+ members and optional topic |
-
-#### Search & People
-
-| Tool | Description |
-|------|-------------|
-| `teams_search` | Full-text search across Teams messages with operator support |
-| `teams_search_people` | Search for people by name or email (returns job title, department, MRI) |
-| `teams_get_me` | Get the current user's profile (display name, email, tenant ID, MRI) |
-
-### 5.4 Templated Notifications
-
-Markdown notification templates with `{{PLACEHOLDER}}` interpolation, auto-converted to Teams-compatible HTML. The enhanced `teams_send_message` tool supports:
-
-- **Template loading** with layered fallback: channel-specific → caller-specified → `default-` prefixed
-- **Variable interpolation** from explicit parameters, `test_run_id` artifact files, or the `message` parameter
-- **Config-driven named targets** — map friendly names (e.g. `perf-channel`) to conversation IDs in `config.yaml`
-- **Per-channel template overrides** — bind a custom template to a specific channel in config
-- **Notification logging** to `artifacts/<test_run_id>/notifications/notification_log.json` for context tracking across notifications (e.g. stop-test references start-test details)
-
-Default templates provided:
-
-| Template | Purpose |
-|----------|---------|
-| `default-notification-start-test.md` | Pre-test alert with test name, environment, duration, virtual users |
-| `default-notification-stop-test.md` | Post-test completion with status and end time |
-| `default-notification-test-results.md` | Results summary with key metrics and report links |
-
-Auto-populated variables from `test_run_id` artifacts:
-
-| Source | Variables |
-|--------|-----------|
-| `blazemeter/public_report.json` | `BLAZEMETER_REPORT_LINK`, `REPORT_LINK` |
-| `confluence/report_metadata.json` | `CONFLUENCE_REPORT_LINK`, `REPORT_LINK` |
-| `notifications/notification_log.json` | `TEST_NAME`, `ENVIRONMENT`, `DURATION`, `START_TIME` (from last start notification) |
-
-### 5.5 Markdown to Teams HTML Conversion
-
-A Python port of the TypeScript markdown converter, supporting:
-
-- Bold, italic, strikethrough, inline code, fenced code blocks
-- Ordered and unordered lists
-- Paragraph breaks and line breaks
-- Auto-detection: plain text with markdown formatting is automatically converted when `content_type="text"`
-
-### 5.6 Files Created
-
-| File | Purpose |
-|------|---------|
-| `msteams-mcp/msteams.py` | FastMCP server entry point with 10 tool definitions |
-| `msteams-mcp/services/auth_manager.py` | Three-layer auth orchestration |
-| `msteams-mcp/services/browser_auth.py` | Teams navigation + login detection |
-| `msteams-mcp/services/browser_context.py` | Playwright persistent browser context |
-| `msteams-mcp/services/token_extractor.py` | JWT decode + token extraction from localStorage |
-| `msteams-mcp/services/session_store.py` | Encrypted session persistence |
-| `msteams-mcp/services/crypto.py` | AES-256-GCM encryption primitives |
-| `msteams-mcp/services/errors.py` | ErrorCode enum, McpError, Result monad |
-| `msteams-mcp/services/teams_api.py` | Chatsvc + CSA API client (messaging, chats, channels) |
-| `msteams-mcp/services/substrate_api.py` | Substrate API client (search, people, channel discovery) |
-| `msteams-mcp/services/parsers.py` | Parsing functions + markdown to Teams HTML converter |
-| `msteams-mcp/services/template_manager.py` | Template loading, rendering, and notification logging |
-| `msteams-mcp/services/target_resolver.py` | Named target resolution from config |
-| `msteams-mcp/templates/default-notification-start-test.md` | Start-test notification template |
-| `msteams-mcp/templates/default-notification-stop-test.md` | Stop-test notification template |
-| `msteams-mcp/templates/default-notification-test-results.md` | Results summary notification template |
-| `msteams-mcp/utils/config.py` | Platform-aware YAML config loader |
-| `msteams-mcp/config.example.yaml` | Configuration template with notification targets |
-| `msteams-mcp/pyproject.toml` | Python project metadata + dependencies |
-| `msteams-mcp/README.md` | Setup guide, tool reference, and workflow documentation |
-
----
-
-## 6. PerfMemory Apache AGE Knowledge Graph
-
-### 6.1 Overview
-
-Enhanced the PerfMemory MCP server (v0.2.0) with an Apache AGE knowledge graph layer alongside the existing pgvector vector search. This enables structural relationship traversal across projects, error patterns, and fix patterns — complementing semantic similarity search with graph-based issue discovery. The goal: give AI agents enough structural memory to recognize patterns and auto-fix JMeter scripts, breaking out of repetitive debugging loops.
-
-### 6.2 Infrastructure
-
-Built a custom Docker image (`perfmem-pgvector-age`) that compiles Apache AGE from source against PostgreSQL 18, layered on top of the existing `pgvector/pgvector:pg18` base image.
-
-| Component | Details |
-|-----------|---------|
-| Base image | `pgvector/pgvector:pg18` |
-| AGE version | `PG18/v1.7.0-rc0` (compiled from source) |
-| Container name | `perfmem-pgvector-age` |
-| Preloaded libraries | `shared_preload_libraries = 'age'` |
-
-Existing pgvector data is fully preserved — the volume mount is unchanged and no migration is needed for relational/vector data.
-
-### 6.3 Graph Schema
-
-The `perf_knowledge` graph uses 4 vertex labels and 4 edge types:
-
-**Vertex Labels:**
-
-| Label | Purpose | Key Properties |
-|-------|---------|----------------|
-| `Attempt` | Maps 1:1 to a `debug_attempts` row | `attempt_id`, `project`, `error_category`, `fix_type`, `outcome` |
-| `Project` | Groups attempts by `system_under_test` | `name` |
-| `ErrorPattern` | Represents a class of error | `error_category`, `response_code` |
-| `FixPattern` | Represents a class of fix | `fix_type`, `component_type` |
-
-**Edge Types:**
-
-| Edge | From → To | Purpose |
-|------|-----------|---------|
-| `BELONGS_TO` | Attempt → Project | Project membership |
-| `HAS_ERROR` | Attempt → ErrorPattern | Links attempt to its error class |
-| `FIXED_BY` | Attempt → FixPattern | Links resolved attempt to its fix class |
-| `SIMILAR_TO` | Attempt → Attempt | Structural or embedding-based similarity |
-
-### 6.4 New MCP Tools
-
-Two new graph-specific tools added (11 tools total):
-
-| Tool | Purpose |
-|------|---------|
-| `find_cross_project_patterns` | Graph traversal to find resolved attempts from other projects sharing the same ErrorPattern. Used as a fallback when vector search returns no matches. Supports enrichment with full relational details. |
-| `get_related_issues` | Explore the graph neighborhood of a specific attempt — returns connected ErrorPatterns, FixPatterns, and neighboring attempts via SIMILAR_TO edges. Supports enrichment. |
-
-### 6.5 Hybrid Search Enhancement
-
-`find_similar_attempts` now performs both vector and graph searches, merging results with configurable weighted scoring:
-
-| Setting | Default | Purpose |
-|---------|---------|---------|
-| `graph.vector_weight` | 0.6 | Weight for vector cosine similarity |
-| `graph.graph_weight` | 0.4 | Weight for graph match presence |
-
-Results include a `source` field (`vector`, `graph`, or `both`) and a `combined_score`. Matches found by both vector and graph (`source: "both"`) are highest confidence.
-
-### 6.6 Graph Manager Module
-
-A new `graph_manager.py` module encapsulates all Apache AGE/Cypher operations, keeping them isolated from the relational `session_manager.py`:
-
-- Separate `psycopg2` connection pool with AGE-specific `search_path` and `statement_timeout` (10s)
-- Custom `agtype` result parsing for Python interop
-- Write operations: `create_attempt_node`, `create_cross_project_edges`, `create_embedding_edges`
-- Read operations: `find_graph_related`, `find_cross_project_patterns`, `get_related_issues`
-
-### 6.7 Automatic Graph Population
-
-When `graph.enabled: true`, `store_debug_attempt` automatically:
-
-1. Creates an Attempt node with BELONGS_TO → Project edge
-2. MERGEs ErrorPattern and FixPattern nodes with HAS_ERROR / FIXED_BY edges
-3. Creates deterministic SIMILAR_TO edges to attempts from other projects sharing the same ErrorPattern
-4. Creates embedding-based SIMILAR_TO edges for attempts above the configurable similarity threshold (default 0.82)
-
-Existing data can be backfilled using `sql/graph/002_seed_graph_from_existing_data.sql`.
-
-### 6.8 PerfMemory Skill Updates
-
-Updated `.cursor/skills/perfmemory/SKILL.md` with:
-
-- New **Step 3** in Workflow A: Cross-project graph search as fallback when vector returns no matches
-- New **Step 4** in Workflow A: Graph neighborhood exploration for deeper context
-- `enrich` parameter documentation for both graph tools
-- "When to use" guidance for `get_related_issues` (post-match exploration, pre-fix context, cross-project verification)
-
-### 6.9 Files Created
-
-| File | Purpose |
-|------|---------|
-| `docker/Dockerfile.pgvector-age` | Custom Docker image: pgvector + Apache AGE on PostgreSQL 18 |
-| `perfmemory-mcp/services/graph_manager.py` | Apache AGE/Cypher operations module |
-| `perfmemory-mcp/sql/graph/001_create_graph.sql` | Graph schema creation (vertex/edge labels) |
-| `perfmemory-mcp/sql/graph/002_seed_graph_from_existing_data.sql` | Backfill graph from existing relational data |
-| `perfmemory-mcp/sql/graph/README.md` | Graph schema documentation |
-
-### 6.10 Files Modified
-
-| File | Changes |
-|------|---------|
-| `docker/docker-compose-windows.yaml` | Custom build from `Dockerfile.pgvector-age`, renamed container to `perfmem-pgvector-age` |
-| `docker/docker-compose-mac.yaml` | Same as Windows compose changes |
-| `perfmemory-mcp/perfmemory.py` | Added 2 graph tools, hybrid search in `find_similar_attempts`, graph ingestion in `store_debug_attempt` |
-| `perfmemory-mcp/services/session_manager.py` | Added `get_attempt_by_id()` for enriching graph results |
-| `perfmemory-mcp/utils/config.py` | Added graph config loading and `ef_search` parameter |
-| `perfmemory-mcp/config.example.yaml` | Added `server` version block and `graph` configuration section |
-| `perfmemory-mcp/README.md` | Added graph tools, updated workflow diagram, project structure, and config reference |
-| `.cursor/skills/perfmemory/SKILL.md` | Added graph workflow steps, `enrich` parameter docs, usage guidance |
-| `README.md` | Updated PerfMemory description, workflow diagram, architecture tree, removed MS Graph references |
-| `docs/enhancements/Enhancement_Apache AGE Graph Layer for PerfMemory.md` | Updated status to "In Progress" |
-
----
-
-## 7. JMeter MCP — Structure Export & HAR-JMX Comparison
-
-### 7.1 Overview
-
-Two enhancements to the JMeter MCP server that improve AI agent efficiency when working with large JMX scripts and automate the detection of API changes between HAR captures and existing JMeter scripts.
-
-| # | Type | Name | Purpose |
-|---|------|------|---------|
-| 1 | Enhancement | `analyze_jmeter_script` structure export | Persist analysis output to versioned JSON + Markdown files so AI agents don't exhaust context on large scripts |
-| 2 | New Tool | `compare_har_to_jmx` | Cross-compare a HAR file against a JMX script to identify API changes requiring script updates |
-
-### 7.2 Enhancement 1 — Structure Export
-
-Added `export_structure` and `output_format` parameters to the existing `analyze_jmeter_script` tool. When enabled (default), the analysis is persisted to timestamped files under `artifacts/<test_run_id>/jmeter/analysis/`:
-
-- `jmx_structure_<timestamp>.json` — full structure with node_index for machine consumption
-- `jmx_structure_<timestamp>.md` — concise summary for human review
-
-File retention is configurable via `config.example.yaml` under `jmx_editing.max_analysis_files` (default: 10). Oldest files are pruned when the count is exceeded.
-
-The exported JSON includes `jmx_last_modified` timestamps, enabling downstream tools to detect staleness — the `compare_har_to_jmx` tool leverages this as a natural warm cache.
-
-### 7.3 Enhancement 2 — HAR-JMX Comparison Tool
-
-A new `compare_har_to_jmx` MCP tool that runs a four-phase diagnostic pipeline:
-
-**Phase A — Extraction:** Parses both HAR and JMX files, extracting comparison-relevant fields (URL patterns, methods, request bodies, response schemas, child extractors, assertions).
-
-**Phase B — Multi-Pass Matching:** Aligns HAR entries to JMX samplers via four sequential passes:
-
-| Pass | Strategy | Confidence |
-|------|----------|------------|
-| Pass 1 | Exact match (method + URL path) | High |
-| Pass 2 | Parameterized regex match (`${var}` and `{param}` patterns) | High/Medium |
-| Pass 3 | Fuzzy path-segment match (skipped when `strict_matching=True`) | Medium/Low |
-| Pass 4 | Unmatched classification (new endpoints, possibly removed endpoints) | — |
-
-**Phase C — Difference Analysis:** Per-match comparison across 10 categories:
-
-| Severity | Categories |
-|----------|------------|
-| High | URL change, method change, correlation drift |
-| Medium | Payload field added/removed/type changed, response schema change |
-| Low | Status code change, query param change, header change |
-
-**Phase D — Report Generation:** Produces versioned JSON and Markdown reports with actionable findings organized by severity.
-
-### 7.4 Key Design Decisions
-
-- Diagnostic only — the tool identifies changes but does not modify the JMX
-- `strict_matching` parameter allows PTEs to iterate: strict first (Passes 1-2), then broaden (Pass 3)
-- Schema comparison depth is configurable via `config.example.yaml` (`har_jmx_comparison.schema_comparison_depth`)
-- Report retention shares the `max_analysis_files` config with structure exports
-- Sampler name convention (`{param}` placeholders) is supported alongside URL pattern `${var}` placeholders
-
-### 7.5 Updated Skills & Agents
-
-Three existing skills/agents were updated to leverage the new structure export files:
-
-| File | Changes |
-|------|---------|
-| `.cursor/agents/jmeter-script-validator.md` | Updated to note exported files and include them in validation reports |
-| `.cursor/skills/jmeter-debugging/SKILL.md` | Updated to save `exported_files` and note that re-analysis refreshes persisted files |
-| `.cursor/skills/jmeter-hitl-editing/SKILL.md` | Updated tool reference, analysis steps, and re-analysis guidance for exported files |
-
-### 7.6 Files Created
-
-| File | Purpose |
-|------|---------|
-| `jmeter-mcp/services/har_jmx_diffengine.py` | Core diff engine — HAR/JMX extraction, multi-pass matching, difference analysis |
-| `jmeter-mcp/services/helpers/diffengine_report_helpers.py` | Report generation — JSON and Markdown builders, file persistence with rotation |
-| `jmeter-mcp/services/helpers/analysis_export_helpers.py` | Structure export helpers — JSON/Markdown builders for `analyze_jmeter_script` |
-| `docs/har_jmx_comparison_guide.md` | User guide for the HAR-JMX comparison tool |
-
-### 7.7 Files Modified
-
-| File | Changes |
-|------|---------|
-| `jmeter-mcp/jmeter.py` | Added `compare_har_to_jmx` tool registration, `export_structure`/`output_format` params on `analyze_jmeter_script` |
-| `jmeter-mcp/services/jmx_editor.py` | Integrated structure export via helper module, added `export_structure`/`output_format` to `analyze_jmx_file` |
-| `jmeter-mcp/utils/file_utils.py` | Added `get_jmeter_analysis_dir()` and `rotate_analysis_files()` utilities |
-| `jmeter-mcp/config.example.yaml` | Added `jmx_editing.max_analysis_files` and `har_jmx_comparison.schema_comparison_depth` settings |
-| `jmeter-mcp/README.md` | Added tool documentation, workflow step, project structure, and artifacts layout |
+| `.cursor/skills/jmeter-entraid-debugging/SKILL.md` | New EntraID debugging skill with diagnosis patterns and component references |
+| `.cursor/skills/jmeter-debugging/SKILL.md` | Added cross-reference to the EntraID skill |
 
 ---
 
@@ -574,10 +184,11 @@ Three existing skills/agents were updated to leverage the new structure export f
 
 | Month | File | Highlights |
 |-------|------|------------|
+| April 2026 | [CHANGELOG-2026-04.md](docs/changelogs/CHANGELOG-2026-04.md) | Skills Migration, Cursor Subagents, PerfMemory MCP + AGE Graph, MS Teams MCP, KPI Analysis, JMeter Script Validator, Structure Export & HAR-JMX Comparison |
 | March 2026 | [CHANGELOG-2026-03.md](docs/changelogs/CHANGELOG-2026-03.md) | HITL Editing Tools, Correlation Analysis v0.6/v0.7, AI-Assisted Debugging, Artifact Path Alignment, BlazeMeter Shared Folders |
 | February 2026 | [CHANGELOG-2026-02.md](docs/changelogs/CHANGELOG-2026-02.md) | Swagger/OpenAPI Adapter, HAR Adapter, Centralized SLA Config, JMeter Log Analysis, Bottleneck Analyzer v0.2, Multi-Session Artifacts |
 | January 2026 | [CHANGELOG-2026-01.md](docs/changelogs/CHANGELOG-2026-01.md) | AI-Assisted Report Revision, Datadog Dynamic Limits, Report Enhancements, New Charts |
 
 ---
 
-*Last Updated: April 21, 2026*
+*Last Updated: May 10, 2026*
