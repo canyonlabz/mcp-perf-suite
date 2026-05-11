@@ -129,6 +129,12 @@ protocol_types:
 # Define your applications (systems under test) here. Each application has:
 #   - name:       Full/proper name (what business stakeholders call it)
 #   - alias:      Short name or acronym (what the team uses daily)
+#                 Stored in the DB as system_alias.
+#   - aliases:    (Optional) Additional lookup names for matching only.
+#                 These are NOT stored in the DB — they are used solely for
+#                 resolving alternative names to the canonical application.
+#                 Useful for historical name variants, acronym expansions,
+#                 or common misnomers that should map to the same application.
 #   - services:   List of microservices/APIs within this application
 #                 NOTE: This list is informational only — not yet consumed by any
 #                 MCP tool, search query, or validation path. The service_name
@@ -139,8 +145,8 @@ protocol_types:
 #   - auth_alias: Human-friendly description of the auth implementation
 #
 # These entries are used for:
-#   1. Alias resolution — if a PTE types the alias, PerfMemory resolves
-#      it to the canonical application name
+#   1. Alias resolution — if a PTE types the alias or any entry in aliases,
+#      PerfMemory resolves it to the canonical application name
 #   2. Taxonomy validation — warn if system_under_test is not registered
 #   3. Service lookups — associate services with their parent application
 #
@@ -148,6 +154,9 @@ protocol_types:
 applications:
   - name: "Online Shopping Portal"
     alias: "OSP"
+    aliases:
+      - "Online Shopping App"
+      - "OSP Portal"
     services:
       - name: "cart-service"
       - name: "checkout-api"
@@ -159,6 +168,9 @@ applications:
 
   - name: "Enterprise Inventory Management"
     alias: "EIM"
+    aliases:
+      - "Enterprise Inventory"
+      - "Inventory Management System"
     services:
       - name: "inventory-api"
       - name: "warehouse-sync"

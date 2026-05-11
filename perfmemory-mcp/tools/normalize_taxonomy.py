@@ -220,8 +220,10 @@ class TaxonomyMatcher:
         Returns dict with 'canonical_name' and 'alias' if matched, None otherwise.
 
         Matching tiers:
-          1. Exact match on application name or alias (case-insensitive)
-          2. Contains match — application name or alias found as substring
+          1. Exact match on application name, alias, or any aliases entry
+             (case-insensitive)
+          2. Contains match — application name, alias, or aliases entry found
+             as substring
           3. No match — returns None
         """
         if not system_under_test:
@@ -235,9 +237,13 @@ class TaxonomyMatcher:
             alias = app.get("alias", "")
             if value_lower == name.lower() or value_lower == alias.lower():
                 return {"canonical_name": name, "alias": alias}
+            for alt in app.get("aliases", []):
+                if alt and value_lower == alt.lower():
+                    return {"canonical_name": name, "alias": alias}
 
-        # Tier 2: Contains match (taxonomy name or alias appears in the value)
-        # Prefer longer matches to avoid false positives with short aliases
+        # Tier 2: Contains match (taxonomy name, alias, or aliases entry
+        # appears in the value). Prefer longer matches to avoid false
+        # positives with short aliases.
         best_match = None
         best_match_len = 0
 
@@ -245,17 +251,21 @@ class TaxonomyMatcher:
             name = app.get("name", "")
             alias = app.get("alias", "")
 
-            # Check if the canonical name is a substring
             if name and name.lower() in value_lower:
                 if len(name) > best_match_len:
                     best_match = {"canonical_name": name, "alias": alias}
                     best_match_len = len(name)
 
-            # Check if the alias is a substring (with word boundary heuristic)
             if alias and self._alias_in_value(alias.lower(), value_lower):
                 if len(alias) > best_match_len:
                     best_match = {"canonical_name": name, "alias": alias}
                     best_match_len = len(alias)
+
+            for alt in app.get("aliases", []):
+                if alt and alt.lower() in value_lower:
+                    if len(alt) > best_match_len:
+                        best_match = {"canonical_name": name, "alias": alias}
+                        best_match_len = len(alt)
 
         return best_match
 

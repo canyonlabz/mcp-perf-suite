@@ -45,6 +45,9 @@ class TaxonomyResolver:
                 self._app_lookup[name.lower()] = app
             if alias:
                 self._app_lookup[alias.lower()] = app
+            for alt in app.get("aliases", []):
+                if alt:
+                    self._app_lookup[alt.lower()] = app
 
         for env in self._raw.get("environments", []):
             env_name = env.get("name", "")
@@ -73,11 +76,13 @@ class TaxonomyResolver:
         return mapping.get(value.lower(), value)
 
     def resolve_application(self, system_under_test: str) -> Optional[Dict[str, Any]]:
-        """Look up an application by name or alias.
+        """Look up an application by name, alias, or any entry in aliases.
 
-        Accepts the application name (e.g., "Online Shopping Portal") or alias
-        (e.g., "OSP"). The resolved name maps to system_under_test in the
-        relational DB and Project.name in the knowledge graph.
+        Accepts the canonical application name (e.g., "Online Shopping Portal"),
+        the short alias (e.g., "OSP"), or any alternative name registered in the
+        application's ``aliases`` list. The resolved name maps to
+        system_under_test in the relational DB and Project.name in the
+        knowledge graph.
 
         Returns:
             The application dict from taxonomy if found, None otherwise.

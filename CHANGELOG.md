@@ -56,14 +56,29 @@ A new `normalize_taxonomy` MCP tool that validates and normalizes existing data 
 - Backfills alias mappings for historical data
 - Reports compliance status and suggested corrections
 
-### 1.6 Files Created / Modified
+### 1.6 Multi-Alias Support for Applications (E-009)
+
+Added an optional `aliases` list field to application entries in the taxonomy YAML, enabling multiple alternative names to resolve to the same canonical application. This mirrors the existing `aliases` list design used by `error_categories`, `environment_types`, and `auth_flow_types`.
+
+The singular `alias` field (stored as `system_alias` in the DB) remains unchanged. The new `aliases` list is used for input matching only — entries are not stored in the database.
+
+| Layer | Change |
+|-------|--------|
+| `taxonomy.example.yaml` | Added `aliases` list field to application entries with documentation |
+| `TaxonomyResolver._build_lookups()` | Registers each `aliases` entry in the app lookup table alongside `name` and `alias` |
+| `TaxonomyResolver.resolve_application()` | Updated docstring to document `aliases` list matching |
+| `TaxonomyMatcher.match_system()` | Tier 1 (exact) and Tier 2 (contains) now check `aliases` list entries |
+
+### 1.7 Files Created / Modified
 
 | File | Purpose |
 |------|---------|
-| `perfmemory-mcp/taxonomy.example.yaml` | Example taxonomy configuration with application/service/alias definitions |
+| `perfmemory-mcp/taxonomy.example.yaml` | Example taxonomy configuration with application/service/alias definitions, multi-alias support |
 | `perfmemory-mcp/perfmemory.py` | Added `normalize_taxonomy` tool, taxonomy resolution in existing tools |
+| `perfmemory-mcp/services/taxonomy.py` | Multi-alias application resolution in `_build_lookups()` and `resolve_application()` |
 | `perfmemory-mcp/services/session_manager.py` | Taxonomy column support in CRUD operations and search |
 | `perfmemory-mcp/services/graph_manager.py` | Graph schema updates for taxonomy-driven service tracking |
+| `perfmemory-mcp/tools/normalize_taxonomy.py` | Multi-alias matching in `TaxonomyMatcher.match_system()` Tier 1 and Tier 2 |
 | `.cursor/skills/perfmemory/SKILL.md` | Updated with taxonomy usage guidance and `system_alias` parameter docs |
 
 ---
