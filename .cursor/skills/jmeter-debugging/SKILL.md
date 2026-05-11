@@ -58,6 +58,8 @@ Maximum **5 iterations**. If not resolved after 5 cycles, stop and report.
 - Request data invalid from server's perspective (duplicate, expired)
 - Fix: Report to user — may need test data adjustments, not script fixes
 
+**EntraID / Microsoft Entra ID auth flows:** See the `jmeter-entraid-debugging` skill for EntraID-specific diagnosis patterns, components, and sampler sequences.
+
 ### Debug Manifest
 
 A markdown file maintained throughout debugging to log all issues and fixes.
