@@ -15,6 +15,7 @@ import asyncio
 import logging
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -42,6 +43,8 @@ RETRY_MAX = _sp_cfg.get("retry_max_attempts", 3)
 RETRY_BASE_DELAY = _sp_cfg.get("retry_base_delay_sec", 1)
 RETRY_MAX_DELAY = _sp_cfg.get("retry_max_delay_sec", 10)
 MAX_UPLOAD_SIZE_MB = _sp_cfg.get("max_upload_size_mb", 250)
+CHUNK_SIZE_MB = _sp_cfg.get("chunk_size_mb", 10)
+CHUNK_SIZE_BYTES = CHUNK_SIZE_MB * 1024 * 1024
 
 # Form Digest cache (valid ~30 minutes, we refresh at 25 min)
 _digest_cache: dict[str, Any] = {}
@@ -218,11 +221,11 @@ async def upload_file(
 
     file_size_mb = local_path.stat().st_size / (1024 * 1024)
     if file_size_mb > MAX_UPLOAD_SIZE_MB:
-        return err(create_error(
-            ErrorCode.UPLOAD_ERROR,
-            f"File size ({file_size_mb:.1f} MB) exceeds maximum ({MAX_UPLOAD_SIZE_MB} MB). "
-            f"Chunked upload required (not yet implemented for this file).",
-        ))
+        logger.info(
+            "File %.1f MB exceeds standard limit (%d MB), using chunked upload",
+            file_size_mb, MAX_UPLOAD_SIZE_MB,
+        )
+        return await upload_file_chunked(site_url, destination_folder, local_file_path)
 
     digest_result = await get_form_digest(site_url)
     if not digest_result.ok:
@@ -266,6 +269,174 @@ async def upload_file(
             "serverRelativeUrl": f"{destination_folder}/{filename}",
             "size": len(file_content),
         })
+
+
+# ---------------------------------------------------------------------------
+# Chunked file upload (for files > MAX_UPLOAD_SIZE_MB)
+# ---------------------------------------------------------------------------
+
+async def upload_file_chunked(
+    site_url: str,
+    destination_folder: str,
+    local_file_path: str,
+) -> Result[dict[str, Any]]:
+    """Upload a large file using SharePoint's chunked upload API.
+
+    Uses the StartUpload / ContinueUpload / FinishUpload flow:
+    1. Create an empty placeholder file via Files/add
+    2. Get the file's UniqueId
+    3. Upload chunks using startupload -> continueupload -> finishupload
+
+    Args:
+        site_url: Full SharePoint site URL
+        destination_folder: Server-relative folder path
+        local_file_path: Absolute path to the local file
+
+    Returns:
+        Result with file metadata (name, url, size) on success.
+    """
+    local_path = Path(local_file_path)
+    if not local_path.is_file():
+        return err(create_error(
+            ErrorCode.INVALID_INPUT,
+            f"Local file not found: {local_file_path}",
+        ))
+
+    file_size = local_path.stat().st_size
+    filename = local_path.name
+
+    digest_result = await get_form_digest(site_url)
+    if not digest_result.ok:
+        return err(digest_result.error)
+    digest = digest_result.value
+
+    write_headers = {"X-RequestDigest": digest}
+
+    # Step 1: Create an empty placeholder file
+    encoded_folder = quote(destination_folder, safe="/")
+    placeholder_url = (
+        f"{site_url}/_api/web/GetFolderByServerRelativeUrl('{encoded_folder}')"
+        f"/Files/add(url='{quote(filename)}',overwrite=true)"
+    )
+
+    placeholder_result = await _request(
+        "POST",
+        placeholder_url,
+        data=b"",
+        extra_headers=write_headers,
+    )
+    if not placeholder_result.ok:
+        return err(placeholder_result.error)
+
+    # Step 2: Get the file's UniqueId
+    file_server_relative = f"{destination_folder.rstrip('/')}/{filename}"
+    encoded_file_path = quote(file_server_relative, safe="/")
+    file_info_url = (
+        f"{site_url}/_api/web/GetFileByServerRelativePath("
+        f"decodedurl='{encoded_file_path}')?$select=UniqueId"
+    )
+
+    info_result = await _request("POST", file_info_url, extra_headers=write_headers)
+    if not info_result.ok:
+        return err(create_error(
+            ErrorCode.UPLOAD_ERROR,
+            f"Failed to get UniqueId for placeholder file: {info_result.error.message}",
+        ))
+
+    try:
+        unique_id = info_result.value.json()["d"]["UniqueId"]
+    except (KeyError, TypeError) as exc:
+        return err(create_error(
+            ErrorCode.UPLOAD_ERROR,
+            f"Could not parse UniqueId from response: {exc}",
+        ))
+
+    # Step 3: Upload in chunks
+    upload_guid = str(uuid.uuid4())
+    file_offset = 0
+    chunk_number = 0
+    total_chunks = (file_size + CHUNK_SIZE_BYTES - 1) // CHUNK_SIZE_BYTES
+
+    try:
+        with open(local_file_path, "rb") as f:
+            while True:
+                chunk_data = f.read(CHUNK_SIZE_BYTES)
+                if not chunk_data:
+                    break
+
+                chunk_number += 1
+                is_last = (file_offset + len(chunk_data)) >= file_size
+
+                if chunk_number == 1 and is_last:
+                    # Single chunk that exceeds threshold but fits in one read
+                    # (edge case near the boundary)
+                    chunk_url = (
+                        f"{site_url}/_api/web/getfilebyid('{unique_id}')"
+                        f"/finishupload(uploadId=guid'{upload_guid}',fileOffset={file_offset})"
+                    )
+                elif chunk_number == 1:
+                    chunk_url = (
+                        f"{site_url}/_api/web/getfilebyid('{unique_id}')"
+                        f"/startupload(uploadId=guid'{upload_guid}')"
+                    )
+                elif is_last:
+                    chunk_url = (
+                        f"{site_url}/_api/web/getfilebyid('{unique_id}')"
+                        f"/finishupload(uploadId=guid'{upload_guid}',fileOffset={file_offset})"
+                    )
+                else:
+                    chunk_url = (
+                        f"{site_url}/_api/web/getfilebyid('{unique_id}')"
+                        f"/continueupload(uploadId=guid'{upload_guid}',fileOffset={file_offset})"
+                    )
+
+                chunk_result = await _request(
+                    "POST",
+                    chunk_url,
+                    data=chunk_data,
+                    extra_headers=write_headers,
+                    timeout=max(HTTP_TIMEOUT, 120),
+                )
+
+                if not chunk_result.ok:
+                    return err(create_error(
+                        ErrorCode.UPLOAD_ERROR,
+                        f"Chunk {chunk_number}/{total_chunks} failed: {chunk_result.error.message}",
+                    ))
+
+                # Update offset from response for accuracy
+                try:
+                    resp_body = chunk_result.value.json()
+                    d = resp_body.get("d", {})
+                    if "StartUpload" in d:
+                        file_offset = int(d["StartUpload"])
+                    elif "ContinueUpload" in d:
+                        file_offset = int(d["ContinueUpload"])
+                    else:
+                        file_offset += len(chunk_data)
+                except Exception:
+                    file_offset += len(chunk_data)
+
+                logger.info(
+                    "Chunk %d/%d uploaded (%.1f%%)",
+                    chunk_number, total_chunks,
+                    min(file_offset / file_size * 100, 100),
+                )
+
+    except Exception as exc:
+        return err(create_error(
+            ErrorCode.UPLOAD_ERROR,
+            f"Chunked upload failed at chunk {chunk_number}: {exc}",
+        ))
+
+    return ok({
+        "name": filename,
+        "serverRelativeUrl": file_server_relative,
+        "size": file_size,
+        "uploadMethod": "chunked",
+        "totalChunks": chunk_number,
+        "chunkSizeMb": CHUNK_SIZE_MB,
+    })
 
 
 # ---------------------------------------------------------------------------
