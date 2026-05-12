@@ -501,3 +501,177 @@ async def folder_exists(
         return result.value.json().get("d", {}).get("Exists", False)
     except Exception:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Document library listing
+# ---------------------------------------------------------------------------
+
+async def list_libraries(
+    site_url: str,
+) -> Result[list[dict[str, Any]]]:
+    """List all document libraries in a SharePoint site.
+
+    Filters by BaseTemplate=101 (document libraries only, excludes
+    system lists, task lists, etc.).
+
+    Args:
+        site_url: Full SharePoint site URL
+
+    Returns:
+        Result with a list of libraries (title, url, item count, description).
+    """
+    url = (
+        f"{site_url}/_api/web/lists"
+        f"?$filter=BaseTemplate eq 101 and Hidden eq false"
+        f"&$select=Title,RootFolder/ServerRelativeUrl,ItemCount,Description"
+        f"&$expand=RootFolder"
+    )
+
+    result = await _request("GET", url)
+    if not result.ok:
+        return err(result.error)
+
+    libraries = []
+    try:
+        for item in result.value.json().get("d", {}).get("results", []):
+            libraries.append({
+                "title": item.get("Title", ""),
+                "serverRelativeUrl": item.get("RootFolder", {}).get("ServerRelativeUrl", ""),
+                "itemCount": item.get("ItemCount", 0),
+                "description": item.get("Description", ""),
+            })
+    except Exception as exc:
+        return err(create_error(
+            ErrorCode.API_ERROR,
+            f"Failed to parse libraries response: {exc}",
+        ))
+
+    return ok(libraries)
+
+
+# ---------------------------------------------------------------------------
+# Search
+# ---------------------------------------------------------------------------
+
+async def search(
+    site_url: str,
+    query_text: str,
+    max_results: int = 25,
+) -> Result[dict[str, Any]]:
+    """Search SharePoint content using KQL (Keyword Query Language).
+
+    Args:
+        site_url: Full SharePoint site URL (used as the API base)
+        query_text: KQL search query
+        max_results: Maximum number of results to return
+
+    Returns:
+        Result with search results (title, path, content type, author).
+    """
+    encoded_query = quote(query_text)
+    url = (
+        f"{site_url}/_api/search/query"
+        f"?querytext='{encoded_query}'"
+        f"&selectproperties='Title,Path,ContentType,Author,LastModifiedTime,Size'"
+        f"&rowlimit={max_results}"
+    )
+
+    result = await _request("GET", url)
+    if not result.ok:
+        return err(result.error)
+
+    results = []
+    try:
+        body = result.value.json()
+        query_result = (
+            body.get("d", {})
+            .get("query", {})
+            .get("PrimaryQueryResult", {})
+            .get("RelevantResults", {})
+        )
+        total = query_result.get("TotalRows", 0)
+
+        rows = query_result.get("Table", {}).get("Rows", {}).get("results", [])
+        for row in rows:
+            cells = row.get("Cells", {}).get("results", [])
+            item = {cell["Key"]: cell["Value"] for cell in cells if "Key" in cell}
+            results.append({
+                "title": item.get("Title", ""),
+                "path": item.get("Path", ""),
+                "contentType": item.get("ContentType", ""),
+                "author": item.get("Author", ""),
+                "lastModified": item.get("LastModifiedTime", ""),
+                "size": item.get("Size", ""),
+            })
+    except Exception as exc:
+        return err(create_error(
+            ErrorCode.API_ERROR,
+            f"Failed to parse search response: {exc}",
+        ))
+
+    return ok({
+        "query": query_text,
+        "totalResults": total,
+        "returnedResults": len(results),
+        "results": results,
+    })
+
+
+# ---------------------------------------------------------------------------
+# File download
+# ---------------------------------------------------------------------------
+
+async def download_file(
+    site_url: str,
+    server_relative_url: str,
+    local_destination: str,
+) -> Result[dict[str, Any]]:
+    """Download a file from SharePoint to a local path.
+
+    Args:
+        site_url: Full SharePoint site URL
+        server_relative_url: Server-relative URL of the file to download
+        local_destination: Local file path to save to (directories are created if needed)
+
+    Returns:
+        Result with download details (name, size, local path).
+    """
+    encoded_url = quote(server_relative_url, safe="/")
+    url = f"{site_url}/_api/web/GetFileByServerRelativeUrl('{encoded_url}')/$value"
+
+    auth_result = await _get_auth_headers()
+    if not auth_result.ok:
+        return err(auth_result.error)
+
+    try:
+        dest_path = Path(local_destination)
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+        async with httpx.AsyncClient(timeout=max(HTTP_TIMEOUT, 120)) as client:
+            response = await client.get(url, headers=auth_result.value)
+
+        if response.status_code >= 400:
+            error_code = classify_http_error(response.status_code)
+            return err(create_error(
+                error_code,
+                f"Download failed with status {response.status_code}",
+            ))
+
+        dest_path.write_bytes(response.content)
+
+        filename = server_relative_url.rsplit("/", 1)[-1]
+        return ok({
+            "name": filename,
+            "serverRelativeUrl": server_relative_url,
+            "localPath": str(dest_path),
+            "sizeBytes": len(response.content),
+        })
+
+    except httpx.TimeoutException:
+        return err(create_error(ErrorCode.TIMEOUT, "Download timed out"))
+    except Exception as exc:
+        return err(create_error(
+            ErrorCode.NETWORK_ERROR,
+            f"Download failed: {exc}",
+        ))
