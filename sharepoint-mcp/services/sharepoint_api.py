@@ -3,9 +3,501 @@ SharePoint REST API client.
 
 Interacts with SharePoint's native _api/ endpoints for:
 - Form Digest management (X-RequestDigest for write operations)
-- File upload (single and chunked)
+- File upload (single file, up to max_upload_size_mb)
+- Folder upload (recursive, uploads all files in a local directory)
 - Folder operations (create, list, check existence)
-- Site and document library discovery
+
+All methods return Result[T] for consistent error handling.
+Tokens are obtained from auth_manager.get_bearer_token().
 """
 
-# Implementation follows in subsequent tasks
+import asyncio
+import logging
+import os
+import time
+from pathlib import Path
+from typing import Any
+from urllib.parse import quote
+
+import httpx
+
+from . import auth_manager
+from .errors import (
+    ErrorCode,
+    Result,
+    ok,
+    err,
+    create_error,
+    classify_http_error,
+)
+from utils.config import load_config
+
+logger = logging.getLogger("sharepoint-mcp.api")
+
+_config = load_config()
+_sp_cfg = _config.get("sharepoint", {})
+
+HTTP_TIMEOUT = _sp_cfg.get("http_request_timeout_sec", 60)
+RETRY_MAX = _sp_cfg.get("retry_max_attempts", 3)
+RETRY_BASE_DELAY = _sp_cfg.get("retry_base_delay_sec", 1)
+RETRY_MAX_DELAY = _sp_cfg.get("retry_max_delay_sec", 10)
+MAX_UPLOAD_SIZE_MB = _sp_cfg.get("max_upload_size_mb", 250)
+
+# Form Digest cache (valid ~30 minutes, we refresh at 25 min)
+_digest_cache: dict[str, Any] = {}
+_DIGEST_REFRESH_SEC = 25 * 60
+
+
+# ---------------------------------------------------------------------------
+# HTTP helpers
+# ---------------------------------------------------------------------------
+
+async def _get_auth_headers() -> Result[dict[str, str]]:
+    """Build authorization headers using the cached Bearer token."""
+    token_result = await auth_manager.get_bearer_token()
+    if not token_result.ok:
+        return err(token_result.error)
+
+    return ok({
+        "Authorization": f"Bearer {token_result.value}",
+        "Accept": "application/json;odata=verbose",
+    })
+
+
+async def _request(
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    json_body: dict | None = None,
+    data: bytes | None = None,
+    extra_headers: dict[str, str] | None = None,
+    timeout: float | None = None,
+) -> Result[httpx.Response]:
+    """Make an HTTP request with auth headers, retries, and error classification."""
+    auth_result = await _get_auth_headers()
+    if not auth_result.ok:
+        return err(auth_result.error)
+
+    req_headers = {**auth_result.value}
+    if headers:
+        req_headers.update(headers)
+    if extra_headers:
+        req_headers.update(extra_headers)
+
+    effective_timeout = timeout or HTTP_TIMEOUT
+    last_error: Exception | None = None
+
+    for attempt in range(RETRY_MAX):
+        try:
+            async with httpx.AsyncClient(timeout=effective_timeout) as client:
+                response = await client.request(
+                    method,
+                    url,
+                    headers=req_headers,
+                    json=json_body,
+                    content=data,
+                )
+
+            if response.status_code < 400:
+                return ok(response)
+
+            error_code = classify_http_error(response.status_code)
+
+            # 429 — respect Retry-After
+            if response.status_code == 429:
+                retry_after = float(response.headers.get("Retry-After", RETRY_BASE_DELAY))
+                if attempt < RETRY_MAX - 1:
+                    logger.warning("Rate limited, retrying after %.1fs", retry_after)
+                    await asyncio.sleep(retry_after)
+                    continue
+                return err(create_error(
+                    error_code,
+                    f"Rate limited after {RETRY_MAX} attempts",
+                    retry_after_sec=retry_after,
+                ))
+
+            # 5xx — retry with exponential backoff
+            if response.status_code >= 500 and attempt < RETRY_MAX - 1:
+                delay = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
+                logger.warning("Server error %d, retrying in %.1fs", response.status_code, delay)
+                await asyncio.sleep(delay)
+                continue
+
+            # 401/403 — don't retry, auth issue
+            error_msg = f"SharePoint API error {response.status_code}"
+            try:
+                body = response.json()
+                sp_error = body.get("error", {})
+                if isinstance(sp_error, dict):
+                    error_msg = sp_error.get("message", {}).get("value", error_msg)
+            except Exception:
+                pass
+
+            return err(create_error(error_code, error_msg))
+
+        except httpx.TimeoutException:
+            last_error = None
+            if attempt < RETRY_MAX - 1:
+                delay = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
+                logger.warning("Request timed out, retrying in %.1fs", delay)
+                await asyncio.sleep(delay)
+                continue
+            return err(create_error(ErrorCode.TIMEOUT, f"Request timed out after {RETRY_MAX} attempts"))
+
+        except Exception as exc:
+            last_error = exc
+            if attempt < RETRY_MAX - 1:
+                delay = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
+                logger.warning("Request error: %s, retrying in %.1fs", exc, delay)
+                await asyncio.sleep(delay)
+                continue
+
+    return err(create_error(
+        ErrorCode.NETWORK_ERROR,
+        f"Request failed after {RETRY_MAX} attempts: {last_error}",
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Form Digest (X-RequestDigest — required for all write operations)
+# ---------------------------------------------------------------------------
+
+async def get_form_digest(site_url: str) -> Result[str]:
+    """Get a valid Form Digest value for write operations.
+
+    The digest is cached per site_url and refreshed every 25 minutes
+    (SharePoint digests expire after ~30 minutes).
+    """
+    cached = _digest_cache.get(site_url)
+    if cached and (time.time() - cached["fetched_at"]) < _DIGEST_REFRESH_SEC:
+        return ok(cached["digest"])
+
+    result = await _request("POST", f"{site_url}/_api/contextinfo")
+    if not result.ok:
+        return err(result.error)
+
+    try:
+        body = result.value.json()
+        digest = body["d"]["GetContextWebInformation"]["FormDigestValue"]
+    except (KeyError, TypeError) as exc:
+        return err(create_error(
+            ErrorCode.API_ERROR,
+            f"Failed to parse Form Digest from contextinfo response: {exc}",
+        ))
+
+    _digest_cache[site_url] = {"digest": digest, "fetched_at": time.time()}
+    return ok(digest)
+
+
+# ---------------------------------------------------------------------------
+# File upload
+# ---------------------------------------------------------------------------
+
+async def upload_file(
+    site_url: str,
+    destination_folder: str,
+    local_file_path: str,
+) -> Result[dict[str, Any]]:
+    """Upload a single file to a SharePoint document library folder.
+
+    Args:
+        site_url: Full SharePoint site URL (e.g. https://contoso.sharepoint.com/sites/PerfTesting)
+        destination_folder: Server-relative folder path (e.g. /sites/PerfTesting/Shared Documents/Results)
+        local_file_path: Absolute path to the local file to upload
+
+    Returns:
+        Result with file metadata (name, url, size) on success.
+    """
+    local_path = Path(local_file_path)
+    if not local_path.is_file():
+        return err(create_error(
+            ErrorCode.INVALID_INPUT,
+            f"Local file not found: {local_file_path}",
+        ))
+
+    file_size_mb = local_path.stat().st_size / (1024 * 1024)
+    if file_size_mb > MAX_UPLOAD_SIZE_MB:
+        return err(create_error(
+            ErrorCode.UPLOAD_ERROR,
+            f"File size ({file_size_mb:.1f} MB) exceeds maximum ({MAX_UPLOAD_SIZE_MB} MB). "
+            f"Chunked upload required (not yet implemented for this file).",
+        ))
+
+    digest_result = await get_form_digest(site_url)
+    if not digest_result.ok:
+        return err(digest_result.error)
+
+    filename = local_path.name
+    encoded_folder = quote(destination_folder, safe="/")
+    upload_url = (
+        f"{site_url}/_api/web/GetFolderByServerRelativeUrl('{encoded_folder}')"
+        f"/Files/add(url='{quote(filename)}',overwrite=true)"
+    )
+
+    file_content = local_path.read_bytes()
+
+    result = await _request(
+        "POST",
+        upload_url,
+        data=file_content,
+        extra_headers={
+            "X-RequestDigest": digest_result.value,
+            "Content-Length": str(len(file_content)),
+        },
+        timeout=max(HTTP_TIMEOUT, 120),
+    )
+
+    if not result.ok:
+        return err(result.error)
+
+    try:
+        body = result.value.json()
+        file_info = body.get("d", {})
+        return ok({
+            "name": file_info.get("Name", filename),
+            "serverRelativeUrl": file_info.get("ServerRelativeUrl", ""),
+            "size": file_info.get("Length", len(file_content)),
+            "timeLastModified": file_info.get("TimeLastModified", ""),
+        })
+    except Exception:
+        return ok({
+            "name": filename,
+            "serverRelativeUrl": f"{destination_folder}/{filename}",
+            "size": len(file_content),
+        })
+
+
+# ---------------------------------------------------------------------------
+# Folder upload (recursive)
+# ---------------------------------------------------------------------------
+
+async def upload_folder(
+    site_url: str,
+    destination_folder: str,
+    local_folder_path: str,
+) -> Result[dict[str, Any]]:
+    """Upload an entire local folder (recursive) to a SharePoint document library.
+
+    Creates the destination folder structure in SharePoint and uploads
+    all files, preserving the directory hierarchy.
+
+    Args:
+        site_url: Full SharePoint site URL
+        destination_folder: Server-relative destination folder path
+        local_folder_path: Absolute path to the local folder to upload
+
+    Returns:
+        Result with upload summary (file count, total size, errors).
+    """
+    local_root = Path(local_folder_path)
+    if not local_root.is_dir():
+        return err(create_error(
+            ErrorCode.INVALID_INPUT,
+            f"Local folder not found: {local_folder_path}",
+        ))
+
+    # Collect all files to upload
+    files_to_upload: list[tuple[Path, str]] = []
+    for file_path in local_root.rglob("*"):
+        if not file_path.is_file():
+            continue
+        relative = file_path.relative_to(local_root)
+        sp_folder = destination_folder.rstrip("/")
+        if relative.parent != Path("."):
+            sp_folder = f"{sp_folder}/{relative.parent.as_posix()}"
+        files_to_upload.append((file_path, sp_folder))
+
+    if not files_to_upload:
+        return ok({
+            "status": "empty",
+            "message": "No files found in the local folder",
+            "filesUploaded": 0,
+            "totalSizeBytes": 0,
+            "errors": [],
+        })
+
+    # Collect unique folders to create
+    unique_folders = sorted(set(sp_folder for _, sp_folder in files_to_upload))
+
+    # Create all necessary folders
+    for folder_path in unique_folders:
+        folder_result = await create_folder(site_url, folder_path)
+        if not folder_result.ok:
+            logger.warning("Failed to create folder %s: %s", folder_path, folder_result.error.message)
+
+    # Upload files sequentially
+    uploaded_count = 0
+    total_size = 0
+    errors: list[dict[str, str]] = []
+
+    for file_path, sp_folder in files_to_upload:
+        result = await upload_file(site_url, sp_folder, str(file_path))
+        if result.ok:
+            uploaded_count += 1
+            total_size += file_path.stat().st_size
+            logger.info("Uploaded: %s -> %s", file_path.name, sp_folder)
+        else:
+            errors.append({
+                "file": str(file_path),
+                "error": result.error.message,
+            })
+            logger.error("Failed to upload %s: %s", file_path.name, result.error.message)
+
+    return ok({
+        "status": "completed",
+        "filesUploaded": uploaded_count,
+        "filesTotal": len(files_to_upload),
+        "totalSizeBytes": total_size,
+        "destinationFolder": destination_folder,
+        "errors": errors,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Folder operations
+# ---------------------------------------------------------------------------
+
+async def create_folder(
+    site_url: str,
+    folder_path: str,
+) -> Result[dict[str, Any]]:
+    """Create a folder in a SharePoint document library.
+
+    Creates the full path recursively (creates parent folders if needed).
+
+    Args:
+        site_url: Full SharePoint site URL
+        folder_path: Server-relative folder path to create
+
+    Returns:
+        Result with folder metadata on success.
+    """
+    digest_result = await get_form_digest(site_url)
+    if not digest_result.ok:
+        return err(digest_result.error)
+
+    encoded_path = quote(folder_path, safe="/")
+    url = f"{site_url}/_api/web/folders/add('{encoded_path}')"
+
+    result = await _request(
+        "POST",
+        url,
+        extra_headers={"X-RequestDigest": digest_result.value},
+    )
+
+    if not result.ok:
+        # Folder may already exist — treat 500 with "already exists" as success
+        if result.error.code == ErrorCode.API_ERROR and "already exists" in result.error.message.lower():
+            return ok({
+                "name": folder_path.rsplit("/", 1)[-1],
+                "serverRelativeUrl": folder_path,
+                "alreadyExisted": True,
+            })
+        return err(result.error)
+
+    try:
+        body = result.value.json()
+        folder_info = body.get("d", {})
+        return ok({
+            "name": folder_info.get("Name", ""),
+            "serverRelativeUrl": folder_info.get("ServerRelativeUrl", folder_path),
+            "alreadyExisted": False,
+        })
+    except Exception:
+        return ok({
+            "name": folder_path.rsplit("/", 1)[-1],
+            "serverRelativeUrl": folder_path,
+            "alreadyExisted": False,
+        })
+
+
+async def list_folder(
+    site_url: str,
+    folder_path: str,
+) -> Result[dict[str, Any]]:
+    """List contents of a SharePoint folder (files and subfolders).
+
+    Args:
+        site_url: Full SharePoint site URL
+        folder_path: Server-relative folder path to list
+
+    Returns:
+        Result with files and folders arrays.
+    """
+    encoded_path = quote(folder_path, safe="/")
+
+    # Fetch files and folders in parallel
+    files_url = (
+        f"{site_url}/_api/web/GetFolderByServerRelativeUrl('{encoded_path}')"
+        f"/Files?$select=Name,ServerRelativeUrl,Length,TimeLastModified"
+    )
+    folders_url = (
+        f"{site_url}/_api/web/GetFolderByServerRelativeUrl('{encoded_path}')"
+        f"/Folders?$select=Name,ServerRelativeUrl,ItemCount"
+    )
+
+    files_result, folders_result = await asyncio.gather(
+        _request("GET", files_url),
+        _request("GET", folders_url),
+    )
+
+    if not files_result.ok:
+        return err(files_result.error)
+    if not folders_result.ok:
+        return err(folders_result.error)
+
+    files = []
+    try:
+        for item in files_result.value.json().get("d", {}).get("results", []):
+            files.append({
+                "name": item.get("Name", ""),
+                "serverRelativeUrl": item.get("ServerRelativeUrl", ""),
+                "size": item.get("Length", 0),
+                "lastModified": item.get("TimeLastModified", ""),
+                "type": "file",
+            })
+    except Exception as exc:
+        logger.warning("Failed to parse files response: %s", exc)
+
+    folders = []
+    try:
+        for item in folders_result.value.json().get("d", {}).get("results", []):
+            name = item.get("Name", "")
+            if name in ("Forms",):
+                continue
+            folders.append({
+                "name": name,
+                "serverRelativeUrl": item.get("ServerRelativeUrl", ""),
+                "itemCount": item.get("ItemCount", 0),
+                "type": "folder",
+            })
+    except Exception as exc:
+        logger.warning("Failed to parse folders response: %s", exc)
+
+    return ok({
+        "folderPath": folder_path,
+        "fileCount": len(files),
+        "folderCount": len(folders),
+        "files": files,
+        "folders": folders,
+    })
+
+
+async def folder_exists(
+    site_url: str,
+    folder_path: str,
+) -> bool:
+    """Check if a folder exists in SharePoint. Returns True/False."""
+    encoded_path = quote(folder_path, safe="/")
+    url = (
+        f"{site_url}/_api/web/GetFolderByServerRelativeUrl('{encoded_path}')"
+        f"?$select=Exists"
+    )
+    result = await _request("GET", url)
+    if not result.ok:
+        return False
+    try:
+        return result.value.json().get("d", {}).get("Exists", False)
+    except Exception:
+        return False
