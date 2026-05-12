@@ -1,4 +1,4 @@
-# 📂☁️ SharePoint MCP Server
+# 📂🏢 SharePoint MCP Server
 
 A Python-based MCP server built with FastMCP 2.0 to upload performance test artifacts to SharePoint. Enables performance test engineers to persist test results, reports, and analysis files to SharePoint document libraries — all driven by AI agents.
 

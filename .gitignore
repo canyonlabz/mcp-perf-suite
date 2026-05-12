@@ -333,6 +333,9 @@ msteams-mcp/config.yaml
 msteams-mcp/templates/*
 !msteams-mcp/templates/default-notification-*.md
 
+# Ignore the following Microsoft SharePoint local configuration files
+sharepoint-mcp/config.yaml
+
 # Ignore all Playwright output files
 .playwright-mcp/*
 
