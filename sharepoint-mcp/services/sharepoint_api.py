@@ -56,15 +56,8 @@ _DIGEST_REFRESH_SEC = 25 * 60
 # ---------------------------------------------------------------------------
 
 async def _get_auth_headers() -> Result[dict[str, str]]:
-    """Build authorization headers using the cached Bearer token."""
-    token_result = await auth_manager.get_bearer_token()
-    if not token_result.ok:
-        return err(token_result.error)
-
-    return ok({
-        "Authorization": f"Bearer {token_result.value}",
-        "Accept": "application/json;odata=verbose",
-    })
+    """Build authorization headers using dual-mode auth (Bearer or cookies)."""
+    return await auth_manager.get_auth_headers()
 
 
 async def _request(
@@ -120,6 +113,31 @@ async def _request(
                     retry_after_sec=retry_after,
                 ))
 
+            # 401 — try cookie fallback if we were using Bearer auth
+            if response.status_code == 401 and "Authorization" in req_headers:
+                cookie_headers = auth_manager._get_cookie_auth_headers()
+                if cookie_headers:
+                    logger.info("Bearer auth returned 401, retrying with cookie auth")
+                    retry_headers = {**cookie_headers}
+                    if headers:
+                        retry_headers.update(headers)
+                    if extra_headers:
+                        retry_headers.update(extra_headers)
+                    try:
+                        async with httpx.AsyncClient(timeout=effective_timeout) as client:
+                            retry_resp = await client.request(
+                                method,
+                                url,
+                                headers=retry_headers,
+                                json=json_body,
+                                content=data,
+                            )
+                        if retry_resp.status_code < 400:
+                            return ok(retry_resp)
+                        logger.warning("Cookie fallback also returned %d", retry_resp.status_code)
+                    except Exception as cookie_exc:
+                        logger.warning("Cookie fallback request failed: %s", cookie_exc)
+
             # 5xx — retry with exponential backoff
             if response.status_code >= 500 and attempt < RETRY_MAX - 1:
                 delay = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
@@ -127,7 +145,7 @@ async def _request(
                 await asyncio.sleep(delay)
                 continue
 
-            # 401/403 — don't retry, auth issue
+            # 401/403/other 4xx — don't retry further
             error_msg = f"SharePoint API error {response.status_code}"
             try:
                 body = response.json()

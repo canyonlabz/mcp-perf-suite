@@ -22,6 +22,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
+
 from . import session_store, token_extractor
 from .browser_context import (
     _browser_lock,
@@ -51,6 +53,7 @@ class AuthState:
     tenant: str = ""
     user_name: str = "Unknown User"
     last_refresh: float = 0
+    has_cookie_auth: bool = False
 
 
 _auth_state = AuthState()
@@ -135,31 +138,91 @@ def _update_auth_state_from_interceptor(
 async def get_bearer_token() -> Result[str]:
     """Get a valid SharePoint Bearer token (cache -> file -> browser).
 
-    This is the primary entry point for sharepoint_api.py to obtain
-    a token for _api/ REST calls.
+    Returns Ok with the token string, or Err if no valid SP-scoped token.
+    Prefer get_auth_headers() which also falls back to cookie auth.
     """
     async with _auth_lock:
-        # Layer 1: In-memory cache
         if (
             _auth_state.bearer_token
             and not _token_needs_refresh(_auth_state.bearer_expiry)
         ):
             return ok(_auth_state.bearer_token)
 
-        # Layer 2: Encrypted token cache file
         if _update_auth_state_from_cache():
             if not _token_needs_refresh(_auth_state.bearer_expiry):
                 return ok(_auth_state.bearer_token)
 
-        # Layer 3: Headless browser refresh
-        result = await _browser_login(headless=True)
-        if result.ok and _auth_state.bearer_token:
-            return ok(_auth_state.bearer_token)
-
         return err(create_error(
             ErrorCode.AUTH_REQUIRED,
-            "No valid SharePoint Bearer token — call sharepoint_login first",
+            "No valid SharePoint Bearer token available",
         ))
+
+
+async def get_auth_headers() -> Result[dict[str, str]]:
+    """Get authentication headers for SharePoint _api/ calls.
+
+    Dual-mode: tries Bearer token first (with audience validation),
+    falls back to cookie-based auth (FedAuth/rtFa). This is the
+    primary entry point for sharepoint_api.py.
+    """
+    # Try Bearer token first
+    bearer_result = await get_bearer_token()
+    if bearer_result.ok:
+        headers = {
+            "Authorization": f"Bearer {bearer_result.value}",
+            "Accept": "application/json;odata=verbose",
+        }
+        return ok(headers)
+
+    # Fall back to cookie auth
+    cookie_headers = _get_cookie_auth_headers()
+    if cookie_headers:
+        return ok(cookie_headers)
+
+    return err(create_error(
+        ErrorCode.AUTH_REQUIRED,
+        "No valid authentication — call sharepoint_login first",
+    ))
+
+
+def _get_cookie_auth_headers() -> dict[str, str] | None:
+    """Build auth headers using FedAuth/rtFa cookies from session state."""
+    tenant = _auth_state.tenant or _get_configured_tenant()
+    cookies = session_store.get_auth_cookies(tenant)
+    if not cookies:
+        return None
+
+    cookie_parts = [f"{name}={value}" for name, value in cookies.items()]
+    cookie_header = "; ".join(cookie_parts)
+
+    return {
+        "Cookie": cookie_header,
+        "Accept": "application/json;odata=verbose",
+    }
+
+
+def get_auth_cookies() -> dict[str, str] | None:
+    """Public accessor for cookie auth. Returns cookie dict or None."""
+    tenant = _auth_state.tenant or _get_configured_tenant()
+    return session_store.get_auth_cookies(tenant)
+
+
+async def _probe_auth(site_url: str, headers: dict[str, str]) -> bool:
+    """Verify auth headers work by making a lightweight _api call.
+
+    Returns True if the probe succeeds (HTTP 200), False otherwise.
+    """
+    probe_url = f"{site_url}/_api/web?$select=Title"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(probe_url, headers=headers)
+        if resp.status_code == 200:
+            return True
+        logger.debug("Auth probe returned %d", resp.status_code)
+        return False
+    except Exception as exc:
+        logger.debug("Auth probe failed: %s", exc)
+        return False
 
 
 def get_tenant() -> str:
@@ -182,26 +245,64 @@ async def login(*, force: bool = False) -> Result[dict[str, Any]]:
     """
     async with _auth_lock:
         if not force:
-            # Layer 1: In-memory cache
-            if (
-                _auth_state.bearer_token
-                and not _token_needs_refresh(_auth_state.bearer_expiry)
-            ):
+            # Layer 1: In-memory Bearer token or cookie auth
+            if _auth_state.bearer_token and not _token_needs_refresh(_auth_state.bearer_expiry):
                 return ok({
                     "status": "already_authenticated",
                     "user": _auth_state.user_name,
                     "tenant": _auth_state.tenant,
-                    "message": "Already authenticated with valid tokens",
+                    "authMode": "bearer",
+                    "message": "Already authenticated with valid Bearer token",
                 })
 
-            # Layer 2: Token cache file
+            if _auth_state.has_cookie_auth:
+                cookie_headers = _get_cookie_auth_headers()
+                if cookie_headers:
+                    site_url = _get_sharepoint_url()
+                    if await _probe_auth(site_url, cookie_headers):
+                        return ok({
+                            "status": "already_authenticated",
+                            "user": _auth_state.user_name,
+                            "tenant": _auth_state.tenant,
+                            "authMode": "cookie",
+                            "message": "Already authenticated with session cookies",
+                        })
+
+            # Layer 2: Token cache file (with probe verification)
             if _update_auth_state_from_cache():
                 if not _token_needs_refresh(_auth_state.bearer_expiry):
+                    site_url = _get_sharepoint_url()
+                    bearer_headers = {
+                        "Authorization": f"Bearer {_auth_state.bearer_token}",
+                        "Accept": "application/json;odata=verbose",
+                    }
+                    if await _probe_auth(site_url, bearer_headers):
+                        return ok({
+                            "status": "restored_session",
+                            "user": _auth_state.user_name,
+                            "tenant": _auth_state.tenant,
+                            "authMode": "bearer",
+                            "message": "Restored Bearer token from cached session",
+                        })
+                    else:
+                        logger.warning("Cached Bearer token failed probe — invalidating")
+                        _auth_state.bearer_token = None
+                        _auth_state.bearer_expiry = 0
+                        session_store.clear_token_cache()
+
+            # Layer 2b: Try cookie auth from session state
+            cookie_headers = _get_cookie_auth_headers()
+            if cookie_headers:
+                site_url = _get_sharepoint_url()
+                if await _probe_auth(site_url, cookie_headers):
+                    _auth_state.has_cookie_auth = True
+                    _auth_state.last_refresh = time.time()
                     return ok({
                         "status": "restored_session",
                         "user": _auth_state.user_name,
                         "tenant": _auth_state.tenant,
-                        "message": "Restored tokens from cached session",
+                        "authMode": "cookie",
+                        "message": "Restored session cookies from cached session",
                     })
 
         # Layer 3: Try headless first, fall back to visible
@@ -241,17 +342,38 @@ async def _browser_login(*, headless: bool) -> Result[dict[str, Any]]:
 
         if auth_result["success"]:
             tenant = auth_result.get("tenant") or interceptor.tenant
+            if tenant:
+                _auth_state.tenant = tenant
+
+            # Try to save a valid SP-scoped Bearer token
             _update_auth_state_from_interceptor(interceptor, tenant)
 
-            # If we got cookies but no Bearer token from intercept,
-            # try navigating to an _api endpoint to trigger a token
-            if not _auth_state.bearer_token and manager:
-                await _try_trigger_api_call(manager.page, interceptor)
-                _update_auth_state_from_interceptor(interceptor, tenant)
+            # If no Bearer token was captured (cookie-only tenant),
+            # check if cookie auth works instead
+            auth_mode = "bearer"
+            if not _auth_state.bearer_token:
+                cookie_headers = _get_cookie_auth_headers()
+                if cookie_headers:
+                    site_url = _get_sharepoint_url(tenant)
+                    if await _probe_auth(site_url, cookie_headers):
+                        _auth_state.has_cookie_auth = True
+                        _auth_state.last_refresh = time.time()
+                        auth_mode = "cookie"
+                        logger.info(
+                            "Cookie-auth mode active — tenant uses FedAuth/rtFa "
+                            "session cookies (no SharePoint-scoped Bearer token emitted)"
+                        )
+                    else:
+                        logger.warning("No Bearer token and cookie probe also failed")
+
+            # Extract user name from any available JWT (even Graph tokens have name claims)
+            if _auth_state.user_name == "Unknown User":
+                _auth_state.user_name = token_extractor.get_user_display_name()
 
             response: dict[str, Any] = {
                 "status": "authenticated",
                 "method": auth_result["method"],
+                "authMode": auth_mode,
                 "user": _auth_state.user_name,
                 "message": auth_result["message"],
             }
@@ -316,13 +438,23 @@ def get_status() -> dict[str, Any]:
     """Return a diagnostic snapshot of auth state (no network I/O)."""
     has_session = session_store.has_session_state()
     session_age = session_store.get_session_age_hours()
+    tenant = _auth_state.tenant or get_tenant()
+    has_cookies = session_store.get_auth_cookies(tenant) is not None
+
+    auth_mode = "none"
+    if _auth_state.bearer_token and not _token_needs_refresh(_auth_state.bearer_expiry):
+        auth_mode = "bearer"
+    elif _auth_state.has_cookie_auth or has_cookies:
+        auth_mode = "cookie"
 
     return {
         "hasSession": has_session,
         "sessionAgeHours": round(session_age, 1) if session_age else None,
         "isSessionExpired": session_store.is_session_likely_expired(),
         "bearerToken": token_extractor.get_bearer_token_status(),
-        "tenant": _auth_state.tenant or get_tenant(),
+        "cookieAuth": {"hasCookies": has_cookies},
+        "authMode": auth_mode,
+        "tenant": tenant,
         "user": _auth_state.user_name,
         "lastRefresh": _auth_state.last_refresh,
     }

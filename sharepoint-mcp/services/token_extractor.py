@@ -51,6 +51,35 @@ def _is_jwt(value: Any) -> bool:
     return isinstance(value, str) and value.startswith("ey")
 
 
+def validate_token_audience(token: str, tenant: str = "") -> bool:
+    """Check if a JWT's audience (aud) claim is scoped to SharePoint.
+
+    Rejects tokens scoped to Graph, WebShell, or other services that
+    happen to be issued on *.sharepoint.com URLs during MSAL refresh flows.
+    """
+    payload = decode_jwt_payload(token)
+    if not payload:
+        return False
+
+    aud = payload.get("aud", "")
+    if not aud:
+        return False
+
+    # Accept tokens scoped to *.sharepoint.com
+    if "sharepoint.com" in aud:
+        return True
+
+    # Accept if aud matches the tenant's SP resource exactly
+    if tenant and aud == f"https://{tenant}.sharepoint.com":
+        return True
+
+    logger.debug(
+        "Rejected token with wrong audience: aud=%s (expected *sharepoint.com*)",
+        aud,
+    )
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Token data types
 # ---------------------------------------------------------------------------
@@ -77,14 +106,14 @@ class UserProfile:
 def get_valid_bearer_token() -> BearerTokenInfo | None:
     """Get a valid SharePoint Bearer token from the encrypted token cache.
 
-    Returns None if no cached token or if the token has expired.
+    Returns None if no cached token, if the token has expired, or if
+    the token's audience is not scoped to SharePoint.
     """
     cache = session_store.read_token_cache()
     if not cache:
         return None
 
     expiry = cache.get("bearerTokenExpiry", 0)
-    # expiry stored as seconds (Unix timestamp)
     if expiry <= time.time():
         return None
 
@@ -92,20 +121,31 @@ def get_valid_bearer_token() -> BearerTokenInfo | None:
     if not token or not _is_jwt(token):
         return None
 
+    tenant = cache.get("tenant", "")
+    if not validate_token_audience(token, tenant):
+        logger.warning("Cached token has wrong audience — clearing stale cache")
+        session_store.clear_token_cache()
+        return None
+
     return BearerTokenInfo(
         token=token,
         expiry=expiry,
-        tenant=cache.get("tenant", ""),
+        tenant=tenant,
     )
 
 
 def save_bearer_token(token: str, tenant: str = "") -> BearerTokenInfo | None:
     """Save a captured Bearer token to the encrypted token cache.
 
-    Extracts the expiry from the JWT claims. Returns the token info
-    on success, None if the token is invalid or already expired.
+    Extracts the expiry from the JWT claims and validates the audience.
+    Returns the token info on success, None if the token is invalid,
+    expired, or scoped to the wrong audience (e.g. Graph instead of SP).
     """
     if not token or not _is_jwt(token):
+        return None
+
+    if not validate_token_audience(token, tenant):
+        logger.warning("Rejecting Bearer token — audience is not SharePoint-scoped")
         return None
 
     expiry = get_jwt_expiry(token)

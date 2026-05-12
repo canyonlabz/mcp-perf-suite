@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 from playwright.async_api import Page, BrowserContext, Request
 
 from .browser_context import save_session_state
+from .token_extractor import validate_token_audience, decode_jwt_payload
 
 logger = logging.getLogger("sharepoint-mcp.browser-auth")
 
@@ -73,9 +74,18 @@ class TokenInterceptor:
 
         auth_header = request.headers.get("authorization", "")
         if auth_header.startswith("Bearer ") and auth_header[7:].startswith("ey"):
-            self.bearer_token = auth_header[7:]
+            candidate_token = auth_header[7:]
+            tenant = extract_tenant_from_url(url) or self.tenant or ""
+
+            if not validate_token_audience(candidate_token, tenant):
+                payload = decode_jwt_payload(candidate_token)
+                aud = payload.get("aud", "unknown") if payload else "unknown"
+                logger.debug("Ignoring non-SP token (aud=%s) on %s", aud, url[:80])
+                return
+
+            self.bearer_token = candidate_token
             if not self.tenant:
-                self.tenant = extract_tenant_from_url(url)
+                self.tenant = tenant or extract_tenant_from_url(url)
 
     @property
     def has_token(self) -> bool:
@@ -185,15 +195,16 @@ async def wait_for_manual_login(
     Returns True if login succeeded within timeout, False otherwise.
     """
     elapsed = 0
+    heartbeat_interval = 30
+    next_heartbeat = heartbeat_interval
+
     while elapsed < timeout_sec:
         current_url = page.url
 
-        # Primary: Bearer token captured from network traffic
         if interceptor.has_token:
             await save_session_state(context)
             return True
 
-        # Secondary: on SharePoint domain with auth cookies
         if _is_sharepoint_url(current_url) and not _is_login_url(current_url):
             if await _has_fedauth_cookies(context):
                 await save_session_state(context)
@@ -201,6 +212,10 @@ async def wait_for_manual_login(
 
         await asyncio.sleep(POLL_INTERVAL_SEC)
         elapsed += POLL_INTERVAL_SEC
+
+        if elapsed >= next_heartbeat:
+            logger.info("Waiting for login... %ds / %ds", elapsed, timeout_sec)
+            next_heartbeat += heartbeat_interval
 
     return False
 

@@ -210,3 +210,64 @@ def ensure_user_data_dir() -> str:
     """Ensure the browser user data directory exists and return its path."""
     _ensure_user_data_dir()
     return USER_DATA_DIR
+
+
+# ---------------------------------------------------------------------------
+# Auth cookie extraction (FedAuth / rtFa for cookie-based tenants)
+# ---------------------------------------------------------------------------
+
+def get_auth_cookies(tenant: str = "") -> dict[str, str] | None:
+    """Extract FedAuth and rtFa cookies from the stored Playwright session state.
+
+    These cookies are used by tenants that authenticate _api/ calls via
+    session cookies rather than Bearer tokens. Returns a dict with
+    cookie name -> value mappings, or None if no valid cookies found.
+    """
+    state = read_session_state()
+    if not state:
+        return None
+
+    cookies = state.get("cookies", [])
+    if not cookies:
+        return None
+
+    # Domains to match: exact tenant domain and the root .sharepoint.com
+    match_domains = {".sharepoint.com"}
+    if tenant:
+        match_domains.add(f"{tenant}.sharepoint.com")
+        match_domains.add(f".{tenant}.sharepoint.com")
+
+    result: dict[str, str] = {}
+    now = time.time()
+
+    for cookie in cookies:
+        name = cookie.get("name", "")
+        if name not in ("FedAuth", "rtFa"):
+            continue
+
+        value = cookie.get("value", "")
+        if not value:
+            continue
+
+        # Skip expired cookies (expires=0 or -1 means session cookie — keep those)
+        expires = cookie.get("expires", -1)
+        if isinstance(expires, (int, float)) and expires > 0 and expires < now:
+            continue
+
+        domain = cookie.get("domain", "")
+        if not any(domain.endswith(d) or d.endswith(domain) for d in match_domains):
+            if "sharepoint.com" not in domain:
+                continue
+
+        # Keep the first (most specific) cookie for each name
+        if name not in result:
+            result[name] = value
+
+    if not result:
+        return None
+
+    logger.debug(
+        "Extracted auth cookies: %s",
+        ", ".join(f"{k}={'...' + v[-8:]}" for k, v in result.items()),
+    )
+    return result
