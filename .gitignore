@@ -378,6 +378,8 @@ sharepoint-mcp/config.yaml
 !.cursor/skills/playwright-browser-automation/SKILL.md
 !.cursor/skills/report-revision-workflow/
 !.cursor/skills/report-revision-workflow/SKILL.md
+!.cursor/skills/sharepoint-upload/
+!.cursor/skills/sharepoint-upload/SKILL.md
 !.cursor/skills/subagent-orchestrator/
 !.cursor/skills/subagent-orchestrator/SKILL.md
 
