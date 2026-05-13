@@ -9,6 +9,7 @@ This document summarizes the enhancements and new features added to the MCP Perf
 - [1. PerfMemory Taxonomy System](#1-perfmemory-taxonomy-system)
 - [2. JMeter MCP — EntraID Correlation Engine](#2-jmeter-mcp--entraid-correlation-engine)
 - [3. EntraID Debugging Skill](#3-entraid-debugging-skill)
+- [4. SharePoint MCP Server](#4-sharepoint-mcp-server)
 - [Previous Changelogs](#previous-changelogs)
 
 ---
@@ -195,6 +196,90 @@ A one-line cross-reference was added to the `jmeter-debugging` skill's Common Di
 
 ---
 
+## 4. SharePoint MCP Server
+
+### 4.1 Overview
+
+A new MCP server (`sharepoint-mcp`) that enables performance test engineers to upload artifacts (files, folders, reports) to SharePoint document libraries directly from Cursor agent conversations. Built with FastMCP 2.0, it reuses the browser-based authentication pattern from `msteams-mcp` to work in environments without Azure AD app registration access.
+
+### 4.2 Authentication: Dual Auth Strategy
+
+The initial implementation used Bearer token interception from Playwright network requests. Smoke testing on a personal small business tenant revealed that some SharePoint tenants use **cookie-only authentication** (FedAuth/rtFa) for `_api/` calls and never emit SharePoint-scoped Bearer tokens during browser sessions.
+
+The fix introduced a **Dual Auth Strategy** that transparently supports both authentication modes:
+
+| Auth Mode | Mechanism | When Used |
+|-----------|-----------|-----------|
+| **Bearer** | `Authorization: Bearer` header with JWT audience validated to `*.sharepoint.com` | Tenants that issue SP-scoped tokens in browser requests |
+| **Cookie** | `Cookie: FedAuth=...; rtFa=...` header extracted from Playwright session state | Tenants that rely on session cookies for `_api/` calls |
+
+Key improvements:
+
+- **JWT audience validation** — rejects Graph-scoped or other wrong-audience tokens that were previously cached as valid
+- **Probe-based verification** — validates cached tokens with a lightweight API call before reporting authentication success
+- **Automatic 401 retry** — if Bearer auth returns 401, retries once with cookie auth before failing
+- **Heartbeat logging** — logs progress every 30 seconds during the 5-minute manual login wait
+
+### 4.3 MCP Tools (10 Tools)
+
+| Tool | Category | Description |
+|------|----------|-------------|
+| `sharepoint_login` | Auth | Authenticate via SSO, headless, or visible browser. Reports active `authMode`. |
+| `sharepoint_status` | Auth | Diagnostic snapshot of session, token, cookie, and auth mode state |
+| `sharepoint_upload_file` | File Ops | Upload a single file (auto-chunked above 250 MB) |
+| `sharepoint_upload_folder` | File Ops | Upload an entire local folder recursively, preserving directory structure |
+| `sharepoint_download_file` | File Ops | Download a file from SharePoint to local disk |
+| `sharepoint_create_folder` | Folder Ops | Create a folder (and parents) in a document library |
+| `sharepoint_list_folder` | Folder Ops | List files and subfolders with metadata |
+| `sharepoint_list_libraries` | Discovery | List all document libraries in a SharePoint site |
+| `sharepoint_search` | Discovery | Search content using KQL (Keyword Query Language) |
+| `sharepoint_get_me` | Discovery | View authenticated user's profile from JWT claims |
+
+### 4.4 Chunked Upload
+
+Files exceeding the configurable `max_upload_size_mb` threshold (default 250 MB) are automatically uploaded using SharePoint's chunked upload API (`StartUpload` / `ContinueUpload` / `FinishUpload`). Chunk size is configurable (default 10 MB) with progress logging per chunk.
+
+### 4.5 Cursor Skill: SharePoint Upload
+
+A new Cursor Skill (`.cursor/skills/sharepoint-upload/SKILL.md`) orchestrates the artifact upload workflow:
+
+1. Authenticate via `sharepoint_login`
+2. Validate the destination folder exists (or create it)
+3. Upload file(s) via `sharepoint_upload_file` or `sharepoint_upload_folder`
+4. Optionally send an MS Teams notification via the `msteams-mcp` server
+
+A companion Teams notification template (`msteams-mcp/templates/default-notification-sharepoint-upload.md`) was added for upload-complete notifications.
+
+### 4.6 Security Model
+
+- AES-256-GCM encryption at rest for session state and token cache
+- Machine-bound key derivation via scrypt (hostname + username)
+- Encrypted files are useless on another machine or user account
+- No credentials stored in plaintext; no `.env` files required
+
+### 4.7 Files Created
+
+| File | Purpose |
+|------|---------|
+| `sharepoint-mcp/sharepoint.py` | FastMCP server entry point with 10 tool definitions |
+| `sharepoint-mcp/services/auth_manager.py` | Three-layer auth orchestration with dual auth strategy |
+| `sharepoint-mcp/services/browser_auth.py` | Playwright navigation, audience-aware token interception, login detection |
+| `sharepoint-mcp/services/browser_context.py` | Persistent Playwright browser context management |
+| `sharepoint-mcp/services/token_extractor.py` | JWT extraction, audience validation, user profile parsing |
+| `sharepoint-mcp/services/session_store.py` | Encrypted session persistence with cookie extraction |
+| `sharepoint-mcp/services/sharepoint_api.py` | SharePoint `_api/` REST client with chunked upload support |
+| `sharepoint-mcp/services/crypto.py` | AES-256-GCM encryption primitives |
+| `sharepoint-mcp/services/errors.py` | Error codes, Result monad, HTTP error classification |
+| `sharepoint-mcp/utils/config.py` | Platform-aware YAML config loader |
+| `sharepoint-mcp/config.example.yaml` | Configuration template |
+| `sharepoint-mcp/pyproject.toml` | Python project metadata and dependencies |
+| `sharepoint-mcp/README.md` | Full documentation |
+| `.cursor/skills/sharepoint-upload/SKILL.md` | Cursor skill for artifact upload workflow |
+| `msteams-mcp/templates/default-notification-sharepoint-upload.md` | Teams notification template for upload completion |
+| `docs/bugs/sharepoint-mcp-bearer-token-interception-failure.md` | Bug report documenting the cookie-auth discovery |
+
+---
+
 ## Previous Changelogs
 
 | Month | File | Highlights |
@@ -206,4 +291,4 @@ A one-line cross-reference was added to the `jmeter-debugging` skill's Common Di
 
 ---
 
-*Last Updated: May 10, 2026*
+*Last Updated: May 12, 2026*

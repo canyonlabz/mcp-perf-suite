@@ -112,13 +112,15 @@ OPTIONAL:
 sharepoint_status()
 ```
 
-Inspect the response. If the session is expired or missing:
+Inspect the response:
+- `authMode` should be `"bearer"` or `"cookie"` — either is valid
+- If `authMode` is `"none"`, or `isSessionExpired` is `true`, authenticate:
 
 ```
 sharepoint_login()
 ```
 
-Do not proceed until authentication is confirmed.
+Do not proceed until `authMode` is confirmed as `"bearer"` or `"cookie"`.
 
 If the tenant was auto-detected, note it — it can help construct the `site_url`
 if the user only provides a site name.
@@ -217,9 +219,12 @@ the Teams notification was not sent because `msteams-mcp` is not authenticated.
 
 ## Error Handling
 
-- **Auth expired mid-upload:** Run `sharepoint_login()`, then retry the upload once.
-- **File too large:** Report the file size and the configured maximum. Suggest
-  chunked upload if available, or splitting the file.
+- **Auth expired mid-upload:** The API layer automatically retries 401 errors once
+  with cookie auth if Bearer auth fails. If the retry also fails, run
+  `sharepoint_login()`, then retry the upload once.
+- **File too large:** Files over the `max_upload_size_mb` threshold (default 250 MB)
+  are automatically uploaded using chunked upload. If a file exceeds SharePoint's
+  absolute limit (~10 GB), report the error and suggest splitting the file.
 - **Folder not found (404):** The `site_url` or `destination_folder` is incorrect.
   Ask the user to verify the path. Suggest using `sharepoint_list_libraries` and
   `sharepoint_list_folder` to discover the correct path.

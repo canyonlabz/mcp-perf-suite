@@ -7,13 +7,19 @@ A Python-based MCP server built with FastMCP 2.0 to upload performance test arti
 ## ✨ Features
 
 - 🔐 **Browser-Based Authentication**: No Azure AD app registration required — authenticates via the SharePoint web client directly
+- 🍪 **Dual Auth Strategy**: Supports both Bearer token and cookie-based (FedAuth/rtFa) authentication — works on tenants that don't emit SharePoint-scoped Bearer tokens
 - 🔄 **Three-Layer Token Resolution**: In-memory cache, encrypted session file, browser login (fast path avoids browser launches)
+- 🔍 **Probe-Based Verification**: Validates cached tokens with a lightweight API probe before reporting success
 - 🛡️ **Encrypted Session Storage**: AES-256-GCM encryption with machine-bound scrypt key derivation
 - 📡 **SSO Support**: Automatic session reuse across server restarts — login once, reuse silently until tokens expire
 - 🏢 **Tenant Auto-Detection**: Extracts tenant name from browser URL after login (no manual configuration needed)
 - 📤 **Single File Upload**: Upload individual artifacts to a specified SharePoint location
 - 📦 **Folder Upload**: Upload an entire artifact folder (recursive) in one operation
+- 📥 **File Download**: Download files from SharePoint to local disk
 - 📁 **Folder Management**: Create folders and list document library contents
+- 📚 **Library Discovery**: List all document libraries in a SharePoint site
+- 🔎 **KQL Search**: Search SharePoint content using Keyword Query Language
+- 👤 **User Profile**: View the authenticated user's identity from JWT claims
 - 💬 **Optional Teams Notification**: Notify your team via MS Teams MCP after upload completes (config-driven)
 - 🧩 **FastMCP 2.0**: Consistent architecture with the rest of the mcp-perf-suite ecosystem
 
@@ -58,31 +64,41 @@ The `sharepoint` MCP server will appear in your available tools.
 Call `sharepoint_login` from any Cursor agent conversation. On first run:
 1. A visible Edge/Chrome window opens and navigates to your SharePoint site
 2. You log in manually (SSO, password, MFA — whatever your tenant requires)
-3. The session and Bearer token are captured, encrypted, and saved locally
-4. All subsequent calls reuse the cached session — **no browser opens again** until tokens expire
+3. The session state (cookies, tokens) is captured, encrypted, and saved locally
+4. The server auto-detects whether your tenant uses Bearer tokens or cookie-based auth and reports the active `authMode`
+5. All subsequent calls reuse the cached session — **no browser opens again** until tokens expire
 
-## 🔧 Available MCP Tools
+## 🔧 Available MCP Tools (10 Tools)
 
-### Authentication
-
-| 🛠️ Tool Name | 📃 Description |
-|-----------|-------------|
-| `sharepoint_login` | Authenticate to SharePoint (SSO, headless, visible browser fallback) |
-| `sharepoint_status` | Check session health, token validity, tenant info (no network calls) |
-
-### File Operations
+### Authentication (2 tools)
 
 | 🛠️ Tool Name | 📃 Description |
 |-----------|-------------|
-| `sharepoint_upload_file` | Upload a single file to a specified SharePoint folder |
-| `sharepoint_upload_folder` | Upload an entire local folder (recursive) to a SharePoint folder |
+| `sharepoint_login` | Authenticate to SharePoint (SSO, headless, visible browser fallback). Returns `authMode` (bearer or cookie). |
+| `sharepoint_status` | Check session health, token validity, auth mode, cookie state, tenant info (no network calls) |
 
-### Folder Operations
+### File Operations (3 tools)
 
 | 🛠️ Tool Name | 📃 Description |
 |-----------|-------------|
-| `sharepoint_create_folder` | Create a folder in a SharePoint document library |
-| `sharepoint_list_folder` | List contents of a SharePoint folder (files and subfolders) |
+| `sharepoint_upload_file` | Upload a single file to a specified SharePoint folder. Files > 250 MB use chunked upload automatically. |
+| `sharepoint_upload_folder` | Upload an entire local folder (recursive) to a SharePoint folder, preserving directory structure |
+| `sharepoint_download_file` | Download a file from SharePoint to a local path |
+
+### Folder Operations (2 tools)
+
+| 🛠️ Tool Name | 📃 Description |
+|-----------|-------------|
+| `sharepoint_create_folder` | Create a folder (and parent folders) in a SharePoint document library |
+| `sharepoint_list_folder` | List contents of a SharePoint folder (files and subfolders with metadata) |
+
+### Discovery & Search (3 tools)
+
+| 🛠️ Tool Name | 📃 Description |
+|-----------|-------------|
+| `sharepoint_list_libraries` | List all document libraries in a SharePoint site (title, URL, item count) |
+| `sharepoint_search` | Search SharePoint content using KQL (Keyword Query Language) with filtering support |
+| `sharepoint_get_me` | Get the authenticated user's profile (display name, email, Azure AD object ID, tenant ID) |
 
 ### 📤 Upload Design
 
@@ -93,7 +109,43 @@ The upload interface is deliberately simple — two modes only:
 
 Both modes **require** `site_url` and `destination_folder`. There is no default upload location — the user must always specify where artifacts go.
 
+Files larger than 250 MB are automatically uploaded using SharePoint's chunked upload API (`StartUpload` / `ContinueUpload` / `FinishUpload`), with configurable chunk size (default 10 MB).
+
 ## 🔐 Authentication Architecture
+
+### Dual Auth Strategy
+
+Some SharePoint tenants issue SharePoint-scoped Bearer tokens in the browser's network requests, while others rely exclusively on cookie-based authentication (FedAuth/rtFa). The MCP server supports both modes transparently:
+
+```
+_request() called (sharepoint_api.py)
+       |
+       v
++--------------------------------+
+| Valid Bearer token?            |
+| (correct aud: *.sharepoint.com)|
++--------+----------+------------+
+     yes |          | no
+         v          v
++----------------+  +-----------------------------+
+| Authorization: |  | FedAuth/rtFa in session?    |
+| Bearer header  |  +--------+--------------------+
++-------+--------+       yes |          | no
+        |                    v          v
+        |  +-------------------+  +-----------------+
+        |  | Cookie: FedAuth=  |  | AUTH_REQUIRED   |
+        |  | rtFa= header      |  | → login needed  |
+        |  +--------+----------+  +-----------------+
+        |           |
+        v           v
++----------------------------+
+| Execute API call           |
+| (401 with Bearer? → retry  |
+|  once with cookie fallback)|
++----------------------------+
+```
+
+The active auth mode is reported in `sharepoint_login()` and `sharepoint_status()` responses via the `authMode` field (`"bearer"` or `"cookie"`).
 
 ### Three-Layer Token Resolution
 
@@ -103,38 +155,44 @@ sharepoint_login() called
        v
 +----------------------------+
 | Layer 1: In-Memory Cache   |  <-- Fastest (no I/O)
-| Valid Bearer token?        |
+| Valid Bearer or cookie?    |
 +----------+-----------------+
            | miss
            v
 +----------------------------+
 | Layer 2: Encrypted File    |  <-- Fast (local file decrypt)
 | session-state.json         |
-| Valid token extractable?   |
+| Bearer → probe verify      |
+| Cookies → probe verify     |
 +----------+-----------------+
-           | miss or expired
+           | miss, expired, or probe failed
            v
 +----------------------------+
 | Layer 3: Browser Login     |  <-- Slow (launches browser)
 | Headless SSO first         |
 | Visible login fallback     |
+| Auto-detect auth mode      |
 +----------------------------+
 ```
+
+Layer 2 now includes a **probe verification step** — after restoring cached tokens, a lightweight `GET _api/web?$select=Title` call validates that the auth actually works before reporting success. If the probe fails, the cached token is invalidated and the flow continues to Layer 3.
 
 ### Token Types
 
 | Token | Source | Used For | Typical TTL |
 |-------|--------|----------|-------------|
-| **SharePoint Bearer** | Network request intercept | All `_api/` REST calls | ~1 hour |
-| **FedAuth Cookie** | Browser cookies | Session continuity | Session-based |
-| **rtFa Cookie** | Browser cookies | Root federation auth | Session-based |
+| **SharePoint Bearer** | Network request intercept (audience-validated) | All `_api/` REST calls (when available) | ~1 hour |
+| **FedAuth Cookie** | Browser session cookies | `_api/` REST calls (primary on cookie-auth tenants) | Session-based |
+| **rtFa Cookie** | Browser session cookies | Root federation auth (paired with FedAuth) | Session-based |
 | **Form Digest** | `_api/contextinfo` | Write operations (CSRF) | ~30 minutes |
+
+> **JWT Audience Validation**: Bearer tokens intercepted during browser login are validated against the `aud` claim before caching. Only tokens scoped to `*.sharepoint.com` are accepted. Tokens scoped to `graph.microsoft.com` or other services are silently rejected to prevent wrong-audience tokens from masking authentication failures.
 
 ### Why Browser-Based Auth?
 
 Traditional approaches require registering an Azure AD app with Graph API permissions, admin consent, client secrets, and OAuth2 flows. This is often inaccessible for performance testing teams.
 
-Instead, we authenticate the same way a human does — through the SharePoint web client. Playwright captures the resulting Bearer token from network requests, which is then reused for `_api/` REST calls. No app registration, no client secrets, no admin consent needed.
+Instead, we authenticate the same way a human does — through the SharePoint web client. Playwright captures the resulting session state (Bearer tokens and/or cookies), which is then reused for `_api/` REST calls via `httpx`. No app registration, no client secrets, no admin consent needed.
 
 ## 🛡️ Security Model
 
@@ -244,14 +302,20 @@ Upload Artifacts / Reports / Logs
 - The tenant is the subdomain in your SharePoint URL: `https://<tenant>.sharepoint.com`
 
 ### Upload Fails with 401
-- Your Bearer token has likely expired (~1 hour lifetime)
-- Call `sharepoint_login()` to refresh authentication, then retry
-- Check `sharepoint_status()` for token health
+- Call `sharepoint_status()` to check the active `authMode` and token/cookie state
+- If `authMode` is `"none"`, call `sharepoint_login()` to re-authenticate
+- If `authMode` is `"bearer"`, the token may have expired (~1 hour lifetime) — call `sharepoint_login()` to refresh
+- If `authMode` is `"cookie"`, session cookies may have expired — call `sharepoint_login(force=True)` for a fresh browser login
 
 ### Session Expired
 - Call `sharepoint_login(force=True)` to force a fresh browser login
 - Sessions expire after 12 hours by default (configurable)
 - Quick fix: delete `%APPDATA%\sharepoint-mcp-server\*`, restart Cursor, then call `sharepoint_login()`
+
+### Login Appears to Hang
+- During interactive login, the server logs a heartbeat every 30 seconds (`"Waiting for login... Xs / 300s"`)
+- The 5-minute timeout is normal for tenants with complex MFA flows
+- If login consistently times out, check that your browser channel (`chrome` or `msedge`) is correctly set in `config.yaml`
 
 ## License
 
