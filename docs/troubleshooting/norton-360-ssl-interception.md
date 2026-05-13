@@ -1,9 +1,11 @@
-# Norton 360 SSL Interception — Node.js / npm / MCP Startup Failures
+# Norton 360 SSL Interception — Node.js / npm / Python / uv / MCP Startup Failures
 
 This guide addresses SSL/TLS certificate verification failures caused by Norton 360's
-Web/Mail Shield intercepting HTTPS traffic on Windows. This affects any Node.js-based
-MCP server launched via `npx` (e.g. Playwright MCP) as well as general `npm install`
-and `npm exec` operations.
+Web/Mail Shield intercepting HTTPS traffic on Windows. This affects:
+
+- **Node.js-based MCP servers** launched via `npx` (e.g. Playwright MCP)
+- **Python-based MCP servers** launched via `uv` (e.g. SharePoint MCP, MS Teams MCP)
+- General `npm install`, `npm exec`, `uv run`, and `pip install` operations
 
 ---
 
@@ -40,6 +42,32 @@ delay on first invocation after cache expiry.
 
 ---
 
+## Symptom: Python / uv MCP Servers
+
+MCP servers configured with `uv` fail to start in Cursor with a connection closed error:
+
+```
+MCP error -32000: Connection closed
+```
+
+Cursor logs show the SSL failure immediately (no retry delay like npm):
+
+```
+[error]   × Failed to fetch: `https://pypi.org/simple/fastmcp/`
+  ├─▶ Request failed after 3 retries
+  ├─▶ error sending request for url (https://pypi.org/simple/fastmcp/)
+  ├─▶ client error (Connect)
+  ╰─▶ invalid peer certificate: UnknownIssuer
+  help: Consider enabling use of system TLS certificates with the `--native-tls` command-line flag
+[warning] Connection failed: MCP error -32000: Connection closed
+```
+
+This occurs when `uv` needs to download dependencies from PyPI for the first time (new
+MCP server, deleted `.venv`, or dependency version bump). Existing MCP servers with a
+populated `.venv` are unaffected until their next dependency resolution.
+
+---
+
 ## Root Cause
 
 Norton 360's **Web/Mail Shield** performs HTTPS/SSL inspection (man-in-the-middle) on
@@ -50,6 +78,10 @@ Node.js maintains its own CA certificate bundle (compiled into the binary) and d
 trust the Windows certificate store by default. When npm connects to `registry.npmjs.org`,
 it receives Norton's certificate instead of the real one and rejects it with
 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`.
+
+Similarly, `uv` (the fast Python package installer) uses its own bundled certificate store
+by default. When it connects to `pypi.org`, it receives Norton's certificate and rejects
+it with `invalid peer certificate: UnknownIssuer`.
 
 ### Why It Works on macOS
 
@@ -140,6 +172,51 @@ Close and reopen Cursor. The MCP server should now start without timeout errors.
 
 ---
 
+## Fix: Configure uv to Use System TLS (Python MCP Servers)
+
+For Python-based MCP servers launched via `uv`, add the `UV_NATIVE_TLS` environment
+variable to the MCP server's configuration in `mcp.json`. This tells `uv` to use the
+Windows system certificate store instead of its bundled certificate bundle.
+
+### Per-Server Fix (mcp.json)
+
+Add `"env": { "UV_NATIVE_TLS": "1" }` to each `uv`-based MCP server entry:
+
+```json
+"sharepoint": {
+  "command": "uv",
+  "args": [
+    "--directory",
+    "C:\\<path-to-repo>\\mcp-perf-suite\\sharepoint-mcp",
+    "run",
+    "sharepoint.py"
+  ],
+  "env": {
+    "UV_NATIVE_TLS": "1"
+  }
+}
+```
+
+### System-Wide Fix (Environment Variable)
+
+Alternatively, set `UV_NATIVE_TLS` as a permanent user-level environment variable so
+all `uv` invocations use system TLS:
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("UV_NATIVE_TLS", "1", "User")
+```
+
+Restart Cursor after applying either fix.
+
+### Recommendation
+
+Add `UV_NATIVE_TLS` to **all** `uv`-based MCP servers proactively, even those that
+currently work. Existing servers with a populated `.venv` won't hit this issue until
+their next dependency resolution (e.g. after deleting `.venv`, updating a dependency,
+or setting up on a new machine).
+
+---
+
 ## Alternative Workarounds
 
 ### Workaround A: Disable Norton SSL Scanning
@@ -187,15 +264,27 @@ Then update `mcp.json` to use the global binary directly:
 
 ## Scope of Impact
 
-This issue affects **any** Node.js-based tool that makes HTTPS connections on a machine
-with Norton 360 SSL inspection enabled:
+This issue affects **any** tool that makes HTTPS connections using its own certificate
+bundle on a machine with Norton 360 SSL inspection enabled:
+
+### Node.js / npm
 
 - `npx` commands (all MCP servers using `npx @package/name@latest`)
 - `npm install` / `npm exec`
 - Node.js `https.request()` and `fetch()` calls
 - Any MCP server that makes outbound HTTPS calls during initialization
 
-The `NODE_EXTRA_CA_CERTS` fix resolves it for all of these.
+The `NODE_EXTRA_CA_CERTS` fix resolves it for all Node.js-based tools.
+
+### Python / uv / pip
+
+- `uv run` / `uv sync` / `uv pip install` (all MCP servers using `uv`)
+- `pip install` (if using pip directly)
+- Python `requests` / `httpx` / `urllib3` calls
+
+The `UV_NATIVE_TLS=1` fix resolves it for all `uv`-based tools. For `pip` and Python
+HTTP libraries, set `SSL_CERT_FILE` or `REQUESTS_CA_BUNDLE` to the exported Norton CA
+PEM file.
 
 ---
 
@@ -205,6 +294,7 @@ The `NODE_EXTRA_CA_CERTS` fix resolves it for all of these.
 - [microsoft/playwright-mcp#911](https://github.com/microsoft/playwright-mcp/issues/911) — Long-running operations causing client timeouts
 - [openai/codex#3994](https://github.com/openai/codex/pull/3994) — Fix adding Windows environment variables for MCP startup
 - [Node.js docs: NODE_EXTRA_CA_CERTS](https://nodejs.org/api/cli.html#node_extra_ca_certsfile)
+- [uv docs: UV_NATIVE_TLS](https://docs.astral.sh/uv/configuration/environment/#uv_native_tls)
 
 ---
 
