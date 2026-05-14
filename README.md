@@ -28,12 +28,15 @@ This repository hosts multiple MCP servers, each designed for a specific role in
 - **PerfMemory MCP Server:**  
   Persistent memory and lessons-learned layer backed by PostgreSQL with pgvector and Apache AGE. Stores debug sessions, attempts, and vector embeddings of symptoms so AI agents can recall past fixes and avoid repeating mistakes. The Apache AGE knowledge graph enables cross-project issue discovery via structural relationship traversal. Supports OpenAI, Azure OpenAI, and Ollama embedding providers.
 
-### 📑 Reporting & Collaboration
+### 📑 Reporting, Collaboration & Artifact Storage
 - **Performance Reporting MCP Server:**  
   Generate formatted reports (e.g. PDF, Word, Markdown) from test data and analysis files for presentation and decision-making.
 
 - **Confluence MCP Server:**  
   Publish Performance Test reports by converting Markdown files into Confluence XHTML format.
+
+- **SharePoint MCP Server:**  
+  Upload and archive performance test artifacts (files, folders, reports) to SharePoint document libraries for long-term persistence. Supports dual authentication (Bearer token and cookie-based FedAuth/rtFa), automatic chunked uploads for large files, KQL search, and library discovery. Uses browser-based authentication (no Azure AD app registration required).
 
 ### 💬 Notifications & Communication
 - **MS Teams MCP Server:**  
@@ -98,14 +101,15 @@ The MCP servers in this repository (and external integrations like Playwright MC
         │ (PDF, Word, Markdown reports)  │
         └────────────────┬───────────────┘
                          │
-                 ┌───────┴───────┐
-                 ▼               ▼
-      ┌──────────────────────┐ ┌──────────────────────────┐
-      │ Confluence MCP       │ │ MS Teams MCP Server      │
-      │ (Publish reports to  │ │ (Post-test notification: │
-      │  Confluence; HITL    │ │  high-level summary      │
-      │  review cycle)       │ │  results & report links) │
-      └──────────────────────┘ └──────────────────────────┘
+            ┌────────────┼────────────────┐
+            ▼            ▼                ▼
+ ┌────────────────────┐ ┌──────────────────────────┐ ┌──────────────────────┐
+ │ Confluence MCP     │ │ MS Teams MCP Server      │ │ SharePoint MCP       │
+ │ (Publish reports   │ │ (Post-test notification: │ │ (Archive artifacts   │
+ │  to Confluence;    │ │  high-level summary      │ │  to document         │
+ │  HITL review cycle)│ │  results & report links) │ │  libraries for       │
+ └────────────────────┘ └──────────────────────────┘ │  long-term storage)  │
+                                                     └──────────────────────┘
 ```
 
 ---
@@ -127,6 +131,7 @@ mcp-perf-suite/
 ├── perfanalysis-mcp/        # LLM-powered test analysis MCP (current)
 ├── perfmemory-mcp/          # AI memory & lessons learned MCP (current)
 ├── perfreport-mcp/          # Reporting and formatting MCP (current)
+├── sharepoint-mcp/          # SharePoint artifact storage MCP (current)
 ├── README.md                # This file: repo overview and guidance
 └── LICENSE                  # Repository license (e.g., MIT)
 
@@ -148,6 +153,7 @@ All MCP servers use **FastMCP** and **Python 3.12+**. Each server has its own RE
 | Performance Report | `perfreport-mcp/` | [README](perfreport-mcp/README.md) | Analysis artifacts |
 | Confluence | `confluence-mcp/` | [README](confluence-mcp/README.md) | Confluence token (cloud or on-prem) |
 | MS Teams | `msteams-mcp/` | [README](msteams-mcp/README.md) | Microsoft Teams account, Edge or Chrome |
+| SharePoint | `sharepoint-mcp/` | [README](sharepoint-mcp/README.md) | SharePoint Online account, Edge or Chrome |
 
 **Common setup steps:**
 
@@ -211,12 +217,12 @@ The MCP Perf Suite is evolving toward a **schema-driven architecture** that enab
 │                         │ (source-agnostic)       │                         │
 │                         └───────────┬─────────────┘                         │
 │                                     │                                       │
-│                    ┌────────────────┼────────────────┐                      │
-│                    ▼                ▼                ▼                      │
-│              ┌──────────┐    ┌──────────┐    ┌──────────────┐               │
-│              │Confluence│    │ MS Graph │    │ Other Output │               │
-│              │   MCP    │    │   MCP    │    │   Adapters   │               │
-│              └──────────┘    └──────────┘    └──────────────┘               │
+│               ┌──────────────┼──────────────┬──────────────┐                │
+│               ▼              ▼              ▼              ▼                │
+│        ┌──────────┐   ┌──────────┐  ┌────────────┐ ┌──────────────┐         │
+│        │Confluence│   │SharePoint│  │  MS Teams  │ │ Other Output │         │
+│        │   MCP    │   │   MCP    │  │    MCP     │ │   Adapters   │         │
+│        └──────────┘   └──────────┘  └────────────┘ └──────────────┘         │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
