@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS debug_sessions (
     test_run_id             TEXT NOT NULL,
     script_name             TEXT,
     auth_flow_type          TEXT,
-    environment             TEXT,
+    environment             TEXT,  -- specific environment name (e.g., "QA1", "STG-East")
     total_iterations        INT,
     final_outcome           TEXT NOT NULL,
     resolution_attempt_id   UUID,
@@ -36,10 +36,11 @@ CREATE TABLE IF NOT EXISTS debug_sessions (
     completed_at            TIMESTAMPTZ,
     created_at              TIMESTAMPTZ DEFAULT NOW(),
 
-    -- Taxonomy fields (added in migration 001)
+    -- Taxonomy fields (added in migration 001, updated in migration 003)
     system_alias            TEXT NOT NULL DEFAULT '',
     service_name            TEXT NOT NULL DEFAULT '',
-    environment_alias       TEXT NOT NULL DEFAULT '',
+    env_type                TEXT NOT NULL DEFAULT '',
+    environment_alias       TEXT NOT NULL DEFAULT '',  -- retained, unused (see migration 003)
     auth_alias              TEXT NOT NULL DEFAULT ''
 );
 
@@ -132,6 +133,9 @@ CREATE INDEX IF NOT EXISTS idx_sessions_system_alias
 
 CREATE INDEX IF NOT EXISTS idx_sessions_service
     ON debug_sessions (service_name);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_env_type
+    ON debug_sessions (env_type);
 
 CREATE INDEX IF NOT EXISTS idx_sessions_env_alias
     ON debug_sessions (environment_alias);
