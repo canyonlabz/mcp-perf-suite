@@ -747,7 +747,7 @@ def _row_to_session(row) -> Dict[str, Any]:
         "created_at": row[13].isoformat() if row[13] else None,
         "system_alias": row[14] if len(row) > 14 else "",
         "service_name": row[15] if len(row) > 15 else "",
-        "environment_alias": row[16] if len(row) > 16 else "",
+        "env_type": row[16] if len(row) > 16 else "",
         "auth_alias": row[17] if len(row) > 17 else "",
     }
 
@@ -810,4 +810,5 @@ def _row_to_match(row) -> Dict[str, Any]:
         "test_case_name": row[23] if len(row) > 23 else "",
         "test_step_id": row[24] if len(row) > 24 else "",
         "test_step_name": row[25] if len(row) > 25 else "",
+        "env_type": row[26] if len(row) > 26 else "",
     }
