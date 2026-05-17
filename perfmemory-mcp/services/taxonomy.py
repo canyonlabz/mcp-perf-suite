@@ -91,15 +91,44 @@ class TaxonomyResolver:
             return None
         return self._app_lookup.get(system_under_test.lower())
 
-    def resolve_environment(self, environment_alias: str) -> Optional[Dict[str, Any]]:
-        """Look up a specific environment by name.
+    def resolve_environment(self, environment: str) -> Optional[Dict[str, Any]]:
+        """Look up a specific environment instance by name.
+
+        Accepts a specific environment name (e.g., "QA1", "STG-East", "PERF-01")
+        and returns the full environment dict from taxonomy.yaml[environments]
+        if found. The returned dict includes the ``type`` field which maps to
+        the ``env_type`` column in the database.
+
+        Args:
+            environment: The specific environment name to look up.
 
         Returns:
             The environment dict from taxonomy if found, None otherwise.
         """
-        if not environment_alias:
+        if not environment:
             return None
-        return self._env_lookup.get(environment_alias.lower())
+        return self._env_lookup.get(environment.lower())
+
+    def get_env_type(self, environment: str) -> str:
+        """Derive the canonical environment type from a specific environment name.
+
+        Looks up the environment in taxonomy.yaml[environments] and returns
+        its ``type`` field (e.g., "QA1" → "qa", "STG-East" → "staging").
+
+        If the environment name is not found in taxonomy, returns empty string.
+
+        Args:
+            environment: The specific environment name.
+
+        Returns:
+            The canonical environment type, or "" if not found.
+        """
+        if not environment:
+            return ""
+        env = self._env_lookup.get(environment.lower())
+        if env:
+            return env.get("type", "")
+        return ""
 
     def validate(self, category: str, value: str) -> Tuple[bool, str, str]:
         """Validate a value against a taxonomy category.
@@ -137,11 +166,20 @@ class TaxonomyResolver:
         self,
         system_under_test: str = "",
         environment: str = "",
+        env_type: str = "",
         auth_flow_type: str = "",
         system_alias: str = "",
-        environment_alias: str = "",
     ) -> List[str]:
         """Validate all session-level fields against the taxonomy.
+
+        Args:
+            system_under_test: Application name to validate against applications.
+            environment: Specific environment name (e.g., "QA1", "STG-East") to
+                validate against taxonomy.yaml[environments].
+            env_type: Canonical environment type (e.g., "qa", "staging") to
+                validate against taxonomy.yaml[environment_types].
+            auth_flow_type: Auth flow type to validate against auth_flow_types.
+            system_alias: App alias used as fallback for application lookup.
 
         Returns a list of warning messages (empty if all valid).
         """
@@ -161,8 +199,18 @@ class TaxonomyResolver:
                         f"Known applications: {known_str}"
                     )
 
-        if environment:
-            valid, _, msg = self.validate("environment_types", environment)
+        if environment and self._env_lookup:
+            env = self.resolve_environment(environment)
+            if not env:
+                known_envs = ", ".join(sorted(self._env_lookup.keys()))
+                if known_envs:
+                    warnings.append(
+                        f"Environment '{environment}' is not defined in taxonomy. "
+                        f"Known environments: {known_envs}"
+                    )
+
+        if env_type:
+            valid, _, msg = self.validate("environment_types", env_type)
             if not valid:
                 warnings.append(msg)
 
@@ -170,16 +218,6 @@ class TaxonomyResolver:
             valid, _, msg = self.validate("auth_flow_types", auth_flow_type)
             if not valid:
                 warnings.append(msg)
-
-        if environment_alias and self._env_lookup:
-            env = self.resolve_environment(environment_alias)
-            if not env:
-                known_envs = ", ".join(sorted(self._env_lookup.keys()))
-                if known_envs:
-                    warnings.append(
-                        f"Environment alias '{environment_alias}' is not defined in taxonomy. "
-                        f"Known environments: {known_envs}"
-                    )
 
         return warnings
 

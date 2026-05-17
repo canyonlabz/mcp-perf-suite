@@ -349,8 +349,8 @@ env_name,env_tag,scope,hostname,filter,container_or_pod,timestamp_utc,metric,val
 
 ```csv
 env_name,env_tag,scope,hostname,filter,container_or_pod,timestamp_utc,metric,value,unit
-NGC-QA,my.env.tag,k8s,,my-service,,2026-02-20T15:57:30,errors[http.status_code:415],4,errors
-NGC-QA,my.env.tag,k8s,,my-service,,2026-02-20T15:58:00,errors[http.status_code:415],3,errors
+QA-1,my.env.tag,k8s,,my-service,,2026-02-20T15:57:30,errors[http.status_code:415],4,errors
+QA-1,my.env.tag,k8s,,my-service,,2026-02-20T15:58:00,errors[http.status_code:415],3,errors
 ```
 
 ---

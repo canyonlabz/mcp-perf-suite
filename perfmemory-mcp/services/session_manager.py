@@ -169,7 +169,7 @@ def create_session(
     notes: Optional[str] = None,
     system_alias: str = "",
     service_name: str = "",
-    environment_alias: str = "",
+    env_type: str = "",
     auth_alias: str = "",
 ) -> str:
     """Insert a new debug session. Returns the session UUID as a string."""
@@ -182,14 +182,14 @@ def create_session(
                 INSERT INTO debug_sessions
                     (system_under_test, test_run_id, script_name, auth_flow_type,
                      environment, created_by, notes, final_outcome, started_at,
-                     system_alias, service_name, environment_alias, auth_alias)
+                     system_alias, service_name, env_type, auth_alias)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (system_under_test, test_run_id, script_name, auth_flow_type,
                  environment, created_by, notes, "in_progress",
                  datetime.now(timezone.utc),
-                 system_alias, service_name, environment_alias, auth_alias),
+                 system_alias, service_name, env_type, auth_alias),
             )
             session_id = str(cur.fetchone()[0])
         conn.commit()
@@ -260,7 +260,7 @@ def get_session(db_config: dict, session_id: str) -> Optional[Dict[str, Any]]:
                        auth_flow_type, environment, total_iterations,
                        final_outcome, resolution_attempt_id, created_by,
                        notes, started_at, completed_at, created_at,
-                       system_alias, service_name, environment_alias, auth_alias
+                       system_alias, service_name, env_type, auth_alias
                 FROM debug_sessions WHERE id = %s
                 """,
                 (session_id,),
@@ -300,13 +300,18 @@ def list_sessions_filtered(
     db_config: dict,
     system_under_test: Optional[str] = None,
     environment: Optional[str] = None,
+    env_type: Optional[str] = None,
     final_outcome: Optional[str] = None,
     system_alias: Optional[str] = None,
     service_name: Optional[str] = None,
-    environment_alias: Optional[str] = None,
     limit: int = 20,
 ) -> List[Dict[str, Any]]:
-    """List sessions with optional filters. Returns session metadata only."""
+    """List sessions with optional filters. Returns session metadata only.
+
+    The ``environment`` filter matches on the specific environment name column.
+    The ``env_type`` filter matches on the canonical environment type column.
+    Both can be used independently or together.
+    """
     conn = _get_conn(db_config)
     _healthy = True
     try:
@@ -330,15 +335,15 @@ def list_sessions_filtered(
         if environment:
             conditions.append("environment = %s")
             params.append(environment)
+        if env_type:
+            conditions.append("env_type = %s")
+            params.append(env_type)
         if final_outcome:
             conditions.append("final_outcome = %s")
             params.append(final_outcome)
         if service_name:
             conditions.append("service_name = %s")
             params.append(service_name)
-        if environment_alias:
-            conditions.append("environment_alias = %s")
-            params.append(environment_alias)
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(limit)
@@ -350,7 +355,7 @@ def list_sessions_filtered(
                        auth_flow_type, environment, total_iterations,
                        final_outcome, resolution_attempt_id, created_by,
                        notes, started_at, completed_at, created_at,
-                       system_alias, service_name, environment_alias, auth_alias
+                       system_alias, service_name, env_type, auth_alias
                 FROM debug_sessions
                 {where}
                 ORDER BY created_at DESC

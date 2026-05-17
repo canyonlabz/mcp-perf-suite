@@ -7,10 +7,10 @@
 # ----------------------------------------
 server:
   name: "perfmemory-mcp"
-  version: "0.2.1"
+  version: "0.3.0-beta"
   description: "PerfMemory MCP Server — persistent memory and lessons-learned layer with pgvector + Apache AGE"
   build:
-    date: "2026-05-05"
+    date: "2026-05-16"
 
 # ----------------------------------------
 # Vector Similarity Search
