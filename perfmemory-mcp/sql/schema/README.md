@@ -63,8 +63,9 @@ One row per debug session. Holds session-level metadata and links to the resolvi
 | `script_name` | `TEXT` | | The JMX filename that was being debugged. |
 | `auth_flow_type` | `TEXT` | | The authentication flow type of the script. See allowed values below. |
 | `auth_alias` | `TEXT` | `NOT NULL DEFAULT ''` | Human-readable auth label (e.g., "Corporate SSO Flow", "Partner OAuth"). |
-| `environment` | `TEXT` | | The test environment where the issue occurred. See allowed values below. |
-| `environment_alias` | `TEXT` | `NOT NULL DEFAULT ''` | Specific environment name (e.g., "QA1", "STG-East", "PROD-US"). |
+| `env_type` | `TEXT` | `NOT NULL DEFAULT ''` | Canonical environment type (dev, qa, uat, staging, prod). See allowed values below. |
+| `environment` | `TEXT` | | Specific environment name (e.g., "QA1", "STG-East", "PROD-US"). |
+| `environment_alias` | `TEXT` | `NOT NULL DEFAULT ''` | *(Retained, unused)* — preserved for historical reference. No longer written by active code paths. |
 | `total_iterations` | `INT` | | How many debug attempts were made in this session. |
 | `final_outcome` | `TEXT` | `NOT NULL` | The final result of the debug session. See allowed values below. |
 | `resolution_attempt_id` | `UUID` | `REFERENCES debug_attempts(id)` | FK to the specific attempt that resolved the issue. NULL if unresolved. |
@@ -89,7 +90,7 @@ One row per debug session. Holds session-level metadata and links to the resolvi
 | `other` | Authentication flow not listed above |
 | `NULL` | Not yet determined or unknown |
 
-### Allowed Values: `environment`
+### Allowed Values: `env_type`
 
 | Value | Description |
 |---|---|
@@ -100,7 +101,11 @@ One row per debug session. Holds session-level metadata and links to the resolvi
 | `perf` | Performance environment |
 | `prod` | Production environment |
 
-These are common values. The column is freeform `TEXT` so teams can use whatever environment names apply to their organization.
+These are the canonical environment types defined in `taxonomy.yaml[environment_types]`. The column is freeform `TEXT` so teams can extend with additional types.
+
+### `environment` Column
+
+The `environment` column holds the **specific environment name** (e.g., "QA1", "STG-East") as defined in `taxonomy.yaml[environments]`. This is freeform `TEXT` — teams can use whatever environment names apply to their organization.
 
 ### Allowed Values: `final_outcome`
 
@@ -246,10 +251,11 @@ CREATE INDEX idx_attempts_hostname ON debug_attempts (hostname);
 CREATE INDEX idx_attempts_test_case ON debug_attempts (test_case_id);
 CREATE INDEX idx_sessions_system ON debug_sessions (system_under_test);
 CREATE INDEX idx_sessions_environment ON debug_sessions (environment);
+CREATE INDEX idx_sessions_env_type ON debug_sessions (env_type);
 CREATE INDEX idx_sessions_outcome ON debug_sessions (final_outcome);
 CREATE INDEX idx_sessions_system_alias ON debug_sessions (system_alias);
 CREATE INDEX idx_sessions_service ON debug_sessions (service_name);
-CREATE INDEX idx_sessions_env_alias ON debug_sessions (environment_alias);
+CREATE INDEX idx_sessions_env_alias ON debug_sessions (environment_alias);  -- retained, unused
 ```
 
 ---
