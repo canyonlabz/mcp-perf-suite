@@ -172,9 +172,10 @@ If you already have data in PerfMemory, run the migration scripts to add the new
 ```bash
 psql -h localhost -U perfadmin -d perfmemory -f sql/migrations/001_add_taxonomy_columns.sql
 psql -h localhost -U perfadmin -d perfmemory -f sql/migrations/002_update_graph_schema.sql
+psql -h localhost -U perfadmin -d perfmemory -f sql/migrations/003_env_type_refactor.sql
 ```
 
-Existing data is preserved — new columns default to empty strings (`''`). No re-import needed.
+Existing data is preserved — new columns default to empty strings (`''`). Migration 003 adds the `env_type` column, backfills it from existing `environment` values, and repurposes `environment` to hold specific environment names. The `environment_alias` column is retained but no longer actively used.
 
 ---
 
@@ -208,7 +209,7 @@ The PerfMemory MCP server exposes 11 tools organized into four groups:
 
 | Tool | Description |
 | :--- | :---------- |
-| `store_debug_session` | Create a new debug session to track a debugging workflow. Accepts optional taxonomy fields (`system_alias`, `service_name`, `environment_alias`, `auth_alias`) for standardized naming. Returns a `session_id` for linking attempts. |
+| `store_debug_session` | Create a new debug session to track a debugging workflow. Accepts optional taxonomy fields (`system_alias`, `service_name`, `auth_alias`) for standardized naming. The `environment` parameter accepts a specific environment name (e.g., "QA1") or canonical type (e.g., "qa") — `env_type` is auto-derived via taxonomy resolution. Returns a `session_id` for linking attempts. |
 | `store_debug_attempt` | Embed a symptom and store a debug attempt linked to a session. Records the symptom, diagnosis, fix, and outcome. Accepts optional test context (`test_case_id`, `test_case_name`, `test_step_id`, `test_step_name`). If `matched_attempt_id` is provided, increments the matched attempt's `confirmed_count`. |
 | `find_similar_attempts` | Search the memory store for past attempts that match a symptom. Accepts `system_alias` and `service_name` as additional filters with alias resolution. Returns matches ranked by cosine similarity with a recommendation (`apply_known_fix`, `review_suggestions`, or `no_match`). |
 
@@ -217,7 +218,7 @@ The PerfMemory MCP server exposes 11 tools organized into four groups:
 | Tool | Description |
 | :--- | :---------- |
 | `close_debug_session` | Finalize a session with its outcome (`resolved`, `unresolved`, etc.) and optionally link the resolving attempt. |
-| `list_sessions` | Browse stored debug sessions with optional filters (system, alias, service, environment, environment_alias, outcome). |
+| `list_sessions` | Browse stored debug sessions with optional filters (system, alias, service, environment, env_type, outcome). The `environment` parameter supports smart resolution — specific names, canonical types, or literal match. |
 | `get_session_detail` | Retrieve a full session with all its attempts ordered by iteration number. |
 
 ### Maintenance Tools
@@ -309,7 +310,8 @@ perfmemory-mcp/
 │   │   └── README.md                          # Graph schema documentation
 │   └── migrations/
 │       ├── 001_add_taxonomy_columns.sql       # Add taxonomy columns to existing tables
-│       └── 002_update_graph_schema.sql        # Add Service nodes and alias property
+│       ├── 002_update_graph_schema.sql        # Add Service nodes and alias property
+│       └── 003_env_type_refactor.sql          # Add env_type, repurpose environment column
 ├── .env.example               # Example environment configuration
 ├── config.example.yaml        # Example YAML config (search, graph, embedding, taxonomy)
 ├── taxonomy.example.yaml      # Example taxonomy definitions (copy to taxonomy.yaml)
@@ -336,8 +338,9 @@ Tracks the overall debugging workflow for a JMeter script issue.
 | `script_name` | The JMX file being debugged |
 | `auth_flow_type` | Authentication flow (none, oauth_pkce, saml, entra_id, etc.) |
 | `auth_alias` | Human-readable auth label (e.g., "Corporate SSO Flow") |
-| `environment` | Environment type (dev, qa, uat, staging, prod) |
-| `environment_alias` | Specific environment name (e.g., "QA1", "STG-East") |
+| `env_type` | Canonical environment type (dev, qa, uat, staging, prod) |
+| `environment` | Specific environment name (e.g., "QA1", "STG-East") |
+| `environment_alias` | *(Retained, unused)* — preserved for historical reference |
 | `final_outcome` | How the session ended (resolved, unresolved, etc.) |
 | `resolution_attempt_id` | FK to the attempt that fixed the issue |
 
@@ -372,11 +375,12 @@ Each row is one debug iteration within a session.
 | `idx_attempts_hostname` | B-tree | Filter by hostname |
 | `idx_attempts_test_case` | B-tree | Filter by test case ID |
 | `idx_sessions_system` | B-tree | Filter by system under test |
-| `idx_sessions_environment` | B-tree | Filter by environment |
+| `idx_sessions_environment` | B-tree | Filter by specific environment name |
+| `idx_sessions_env_type` | B-tree | Filter by canonical environment type |
 | `idx_sessions_outcome` | B-tree | Filter by session outcome |
 | `idx_sessions_system_alias` | B-tree | Filter by system alias |
 | `idx_sessions_service` | B-tree | Filter by service name |
-| `idx_sessions_env_alias` | B-tree | Filter by environment alias |
+| `idx_sessions_env_alias` | B-tree | *(Retained, unused)* — index on environment_alias |
 
 ---
 
