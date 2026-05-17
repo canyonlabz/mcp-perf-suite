@@ -536,7 +536,7 @@ async def list_sessions(
     system_alias: Optional[str] = None,
     service_name: Optional[str] = None,
     environment: Optional[str] = None,
-    environment_alias: Optional[str] = None,
+    env_type: Optional[str] = None,
     final_outcome: Optional[str] = None,
     limit: Optional[int] = 20,
 ) -> Dict[str, Any]:
@@ -545,14 +545,32 @@ async def list_sessions(
     Returns session metadata only (no attempts). Use get_session_detail
     to retrieve a full session with all its attempts.
 
+    The ``environment`` parameter accepts either a specific environment name
+    or a canonical type. Resolution logic:
+
+      1. Check taxonomy.yaml[environments] — if matched, filter by specific
+         environment name (e.g., "QA1" filters on environment = 'QA1').
+      2. Check taxonomy.yaml[environment_types] — if matched, filter by
+         canonical type (e.g., "qa" filters on env_type = 'qa', returning
+         sessions across all QA environments).
+      3. If neither matched, attempt literal match on both columns
+         (environment OR env_type).
+
+    The ``env_type`` parameter is an explicit filter on the canonical
+    environment type column. Use this when you specifically want type-level
+    filtering without the resolution logic above.
+
     Args:
         ctx: MCP context
         system_under_test: Filter by application name.
             Maps to Project.name in the knowledge graph.
         system_alias: Filter by app alias/short name (e.g., "CART", "OSP")
         service_name: Filter by microservice name
-        environment: Filter by environment (dev, qa, uat, staging, prod)
-        environment_alias: Filter by specific environment name (e.g., "QA1", "STG-East")
+        environment: Filter by specific environment name (e.g., "QA1",
+            "STG-East") or canonical type (e.g., "qa", "staging"). See
+            resolution logic above.
+        env_type: Filter by canonical environment type (e.g., "qa", "uat",
+            "staging", "prod"). Direct column match — no resolution.
         final_outcome: Filter by outcome (resolved, unresolved, etc.)
         limit: Maximum number of sessions to return (default 20)
 
@@ -561,14 +579,34 @@ async def list_sessions(
     """
     _ = ctx
     try:
+        resolved_environment = None
+        resolved_env_type = env_type
+
+        if environment:
+            # Step 1: Check if input is a specific environment name
+            env_entry = _taxonomy.resolve_environment(environment)
+            if env_entry:
+                resolved_environment = env_entry.get("name", environment)
+            else:
+                # Step 2: Check if input is a canonical environment type
+                resolved_type = _taxonomy.resolve_alias("environment_types", environment)
+                type_valid, _, _ = _taxonomy.validate("environment_types", resolved_type)
+                if type_valid and resolved_type:
+                    resolved_env_type = resolved_type
+                else:
+                    # Step 3: Literal match — pass to both columns via environment
+                    resolved_environment = environment
+                    if not resolved_env_type:
+                        resolved_env_type = environment
+
         sessions = sm.list_sessions_filtered(
             _config["database"],
             system_under_test=system_under_test,
-            environment=environment,
+            environment=resolved_environment,
+            env_type=resolved_env_type,
             final_outcome=final_outcome,
             system_alias=system_alias,
             service_name=service_name,
-            environment_alias=environment_alias,
             limit=limit or 20,
         )
         return {
