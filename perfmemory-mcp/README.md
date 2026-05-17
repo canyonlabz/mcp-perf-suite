@@ -20,6 +20,20 @@ Powered by a **PostgreSQL + pgvector + Apache AGE** database with HNSW indexing 
 
 ---
 
+## 🧬 What Gets Embedded (and What Doesn't)
+
+PerfMemory embeds only the `symptom_text` field — the structured description of what went wrong. The `diagnosis` and `fix_description` are stored as plain text columns but are **not** part of the embedding vector.
+
+This is by design: the embedding captures the *question* (what went wrong), while the structured metadata carries the *answer* (what fixed it). When you search with a new symptom, cosine similarity matches against past symptoms, then returns the associated diagnosis and fix. If the fix text were embedded too, it would skew similarity toward fixes rather than symptoms — meaning a search for "401 on /oauth2/authorize" might match a past fix that mentions OAuth rather than a past symptom that describes the same error pattern.
+
+**Embedded:** `symptom_text` (structured error description → vector)
+
+**Not embedded (stored as metadata):** `diagnosis`, `fix_description`, `fix_type`, `component_type`, `manifest_excerpt`, `test_run_id`, `session_id`, timestamps
+
+For details on the structured symptom template and embedding strategy, see `sql/schema/README.md`.
+
+---
+
 ## 🏁 Prerequisites
 
 * Python 3.12 or higher
