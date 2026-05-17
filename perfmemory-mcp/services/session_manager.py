@@ -568,7 +568,8 @@ def find_similar(
                     1 - (a.embedding <=> %s::vector) AS similarity,
                     s.system_alias, s.service_name,
                     a.test_case_id, a.test_case_name,
-                    a.test_step_id, a.test_step_name
+                    a.test_step_id, a.test_step_name,
+                    s.env_type
                 FROM debug_attempts a
                 JOIN debug_sessions s ON a.session_id = s.id
                 WHERE 1 - (a.embedding <=> %s::vector) >= %s
@@ -703,7 +704,7 @@ def get_attempt_by_id(db_config: dict, attempt_id: str) -> Optional[Dict[str, An
                        a.is_active, a.confirmed_count, a.created_at,
                        a.test_case_id, a.test_case_name, a.test_step_id, a.test_step_name,
                        s.system_under_test, s.environment, s.test_run_id,
-                       s.system_alias, s.service_name
+                       s.system_alias, s.service_name, s.env_type
                 FROM debug_attempts a
                 JOIN debug_sessions s ON s.id = a.session_id
                 WHERE a.id = %s
@@ -719,6 +720,7 @@ def get_attempt_by_id(db_config: dict, attempt_id: str) -> Optional[Dict[str, An
             attempt["test_run_id"] = row[27]
             attempt["system_alias"] = row[28]
             attempt["service_name"] = row[29]
+            attempt["env_type"] = row[30]
             return attempt
     except Exception:
         _healthy = _safe_rollback(conn)
