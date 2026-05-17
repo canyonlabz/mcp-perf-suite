@@ -62,7 +62,6 @@ async def store_debug_session(
     notes: Optional[str] = None,
     system_alias: Optional[str] = "",
     service_name: Optional[str] = "",
-    environment_alias: Optional[str] = "",
     auth_alias: Optional[str] = "",
     strict_taxonomy: Optional[bool] = False,
 ) -> Dict[str, Any]:
@@ -70,6 +69,19 @@ async def store_debug_session(
 
     Called at the start of a debug workflow to establish the session context.
     Returns a session_id used to link subsequent debug attempts.
+
+    The ``environment`` parameter accepts either a specific environment name
+    (e.g., "QA1", "STG-East") or a canonical environment type (e.g., "qa",
+    "staging"). Resolution logic:
+
+      1. Check taxonomy.yaml[environments] — if matched, the input is treated
+         as a specific environment name and env_type is auto-derived from its
+         ``.type`` field.
+      2. Check taxonomy.yaml[environment_types] — if matched, the input is
+         treated as a canonical type. env_type is set accordingly and
+         environment is left empty (no specific name provided).
+      3. If neither matched, the value is stored as-is in environment with
+         env_type left empty. A taxonomy warning is emitted.
 
     Args:
         system_under_test: The application being tested (e.g., "Online Shopping Portal").
@@ -80,12 +92,13 @@ async def store_debug_session(
         script_name: The JMX filename being debugged
         auth_flow_type: Authentication flow type (none, oauth_pkce, oauth_auth_code,
             saml, token_chain, custom_sso, entra_id, other)
-        environment: Test environment (dev, qa, uat, staging, prod)
+        environment: Specific environment name (e.g., "QA1", "STG-East") or canonical
+            type (e.g., "qa", "staging"). env_type is auto-derived when a specific
+            name is provided.
         created_by: PTE name or username
         notes: Freeform session notes
         system_alias: Short name or acronym for the application (e.g., "CART", "OSP")
         service_name: Specific microservice being tested (e.g., "cart-service")
-        environment_alias: Specific environment name (e.g., "QA1", "STG-East")
         auth_alias: Human-friendly auth flow description (e.g., "Corporate EntraID SSO")
         strict_taxonomy: If true, reject unknown taxonomy values. If false (default),
             warn but proceed with the insert.
@@ -95,15 +108,34 @@ async def store_debug_session(
     """
     _ = ctx
     try:
-        resolved_env = _taxonomy.resolve_alias("environment_types", environment or "")
+        env_input = environment or ""
+        resolved_environment = ""
+        resolved_env_type = ""
+
+        # Step 1: Check if input is a specific environment name
+        env_entry = _taxonomy.resolve_environment(env_input)
+        if env_entry:
+            resolved_environment = env_entry.get("name", env_input)
+            resolved_env_type = env_entry.get("type", "")
+        else:
+            # Step 2: Check if input is a canonical environment type
+            resolved_type = _taxonomy.resolve_alias("environment_types", env_input)
+            type_valid, _, _ = _taxonomy.validate("environment_types", resolved_type)
+            if type_valid and resolved_type:
+                resolved_env_type = resolved_type
+                resolved_environment = ""
+            elif env_input:
+                # Step 3: Unrecognized — store as-is in environment
+                resolved_environment = env_input
+
         resolved_auth = _taxonomy.resolve_alias("auth_flow_types", auth_flow_type or "")
 
         taxonomy_warnings = _taxonomy.validate_session_fields(
             system_under_test=system_under_test,
-            environment=resolved_env,
+            environment=resolved_environment,
+            env_type=resolved_env_type,
             auth_flow_type=resolved_auth,
             system_alias=system_alias or "",
-            environment_alias=environment_alias or "",
         )
 
         if strict_taxonomy and taxonomy_warnings:
@@ -119,12 +151,12 @@ async def store_debug_session(
             test_run_id=test_run_id,
             script_name=script_name,
             auth_flow_type=resolved_auth or auth_flow_type,
-            environment=resolved_env or environment,
+            environment=resolved_environment,
             created_by=created_by,
             notes=notes,
             system_alias=system_alias or "",
             service_name=service_name or "",
-            environment_alias=environment_alias or "",
+            env_type=resolved_env_type,
             auth_alias=auth_alias or "",
         )
 
