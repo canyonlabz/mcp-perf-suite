@@ -5,7 +5,8 @@ Normalizes existing database values to canonical taxonomy names:
   - system_under_test → canonical application name
   - system_alias → backfilled from taxonomy application alias
   - error_category (optional) → canonical error category name
-  - environment (optional) → canonical environment type name
+  - env_type (optional) → canonical environment type name
+  - environment (optional) → canonical specific environment name
   - Apache AGE graph (optional) → Project.name, Attempt.project
 
 Usage:
@@ -84,7 +85,8 @@ def parse_args() -> argparse.Namespace:
 Examples:
   python normalize_taxonomy.py                          # Dry-run preview
   python normalize_taxonomy.py --apply                  # Execute changes
-  python normalize_taxonomy.py --apply --fix-error-category --fix-environment
+  python normalize_taxonomy.py --apply --fix-error-category --fix-env-type
+  python normalize_taxonomy.py --apply --fix-environment --fix-env-type
   python normalize_taxonomy.py --apply --include-graph
   python normalize_taxonomy.py --host localhost --port 5433
         """,
@@ -101,9 +103,14 @@ Examples:
         help="Also normalize error_category in debug_attempts via taxonomy alias resolution",
     )
     parser.add_argument(
+        "--fix-env-type",
+        action="store_true",
+        help="Normalize env_type in debug_sessions via taxonomy environment_types alias resolution",
+    )
+    parser.add_argument(
         "--fix-environment",
         action="store_true",
-        help="Also normalize environment in debug_sessions via taxonomy alias resolution",
+        help="Normalize environment (specific name) in debug_sessions via taxonomy environments lookup",
     )
     parser.add_argument(
         "--include-graph",
@@ -186,7 +193,7 @@ class TaxonomyMatcher:
     """Matches database values against taxonomy definitions.
 
     Provides 3-tier matching for system_under_test and simple alias
-    resolution for error_category and environment.
+    resolution for error_category, env_type, and environment names.
 
     Designed to be adaptable — modify _match_system_to_taxonomy() for
     custom matching rules specific to your team's naming conventions.
@@ -197,10 +204,12 @@ class TaxonomyMatcher:
         self.applications = taxonomy.get("applications", [])
         self.error_categories = taxonomy.get("error_categories", [])
         self.environment_types = taxonomy.get("environment_types", [])
+        self.environments = taxonomy.get("environments", [])
 
         # Build lookup tables
         self._error_lookup = self._build_alias_lookup(self.error_categories)
-        self._env_lookup = self._build_alias_lookup(self.environment_types)
+        self._env_type_lookup = self._build_alias_lookup(self.environment_types)
+        self._env_name_lookup = self._build_env_name_lookup()
 
     def _build_alias_lookup(self, entries: List[Dict]) -> Dict[str, str]:
         """Build case-insensitive alias-to-canonical mapping."""
@@ -295,17 +304,38 @@ class TaxonomyMatcher:
 
         return True
 
+    def _build_env_name_lookup(self) -> Dict[str, str]:
+        """Build case-insensitive lookup for specific environment names."""
+        lookup: Dict[str, str] = {}
+        for env in self.environments:
+            name = env.get("name", "")
+            if name:
+                lookup[name.lower()] = name
+        return lookup
+
     def resolve_error_category(self, value: str) -> Optional[str]:
         """Resolve an error_category to its canonical name. Returns None if no match."""
         if not value:
             return None
         return self._error_lookup.get(value.lower().strip())
 
-    def resolve_environment(self, value: str) -> Optional[str]:
-        """Resolve an environment to its canonical name. Returns None if no match."""
+    def resolve_env_type(self, value: str) -> Optional[str]:
+        """Resolve an env_type to its canonical name via environment_types aliases.
+
+        Returns None if no match.
+        """
         if not value:
             return None
-        return self._env_lookup.get(value.lower().strip())
+        return self._env_type_lookup.get(value.lower().strip())
+
+    def resolve_env_name(self, value: str) -> Optional[str]:
+        """Resolve a specific environment name against taxonomy environments.
+
+        Returns the canonical name if found (case-normalized), None otherwise.
+        """
+        if not value:
+            return None
+        return self._env_name_lookup.get(value.lower().strip())
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +429,23 @@ def discover_environments(conn) -> List[Dict[str, Any]]:
         rows = cur.fetchall()
 
     return [{"environment": row[0], "session_count": row[1]} for row in rows]
+
+
+def discover_env_types(conn) -> List[Dict[str, Any]]:
+    """Query distinct env_type values with session counts."""
+    if not check_column_exists(conn, "debug_sessions", "env_type"):
+        return []
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT env_type, COUNT(*) as session_count
+            FROM debug_sessions
+            WHERE env_type IS NOT NULL AND env_type != ''
+            GROUP BY env_type
+            ORDER BY session_count DESC
+        """)
+        rows = cur.fetchall()
+
+    return [{"env_type": row[0], "session_count": row[1]} for row in rows]
 
 
 def apply_system_updates(
@@ -495,7 +542,7 @@ def apply_error_category_updates(
 def apply_environment_updates(
     conn, updates: List[Dict[str, str]], log: logging.Logger
 ) -> int:
-    """Execute UPDATE statements for environment normalization."""
+    """Execute UPDATE statements for environment (specific name) normalization."""
     total_updated = 0
     with conn.cursor() as cur:
         for update in updates:
@@ -511,6 +558,34 @@ def apply_environment_updates(
             count = cur.rowcount
             total_updated += count
             log.debug(f"  Updated {count} sessions: environment '{old_value}' -> '{new_value}'")
+
+    conn.commit()
+    return total_updated
+
+
+def apply_env_type_updates(
+    conn, updates: List[Dict[str, str]], log: logging.Logger
+) -> int:
+    """Execute UPDATE statements for env_type normalization."""
+    if not check_column_exists(conn, "debug_sessions", "env_type"):
+        log.warning("  env_type column not found - skipping. Run migration 003 first.")
+        return 0
+
+    total_updated = 0
+    with conn.cursor() as cur:
+        for update in updates:
+            old_value = update["old_value"]
+            new_value = update["canonical"]
+
+            cur.execute("""
+                UPDATE debug_sessions
+                SET env_type = %s
+                WHERE env_type = %s
+            """, (new_value, old_value))
+
+            count = cur.rowcount
+            total_updated += count
+            log.debug(f"  Updated {count} sessions: env_type '{old_value}' -> '{new_value}'")
 
     conn.commit()
     return total_updated
@@ -617,6 +692,7 @@ def print_header(log: logging.Logger, args: argparse.Namespace, db_config: Dict)
     log.info(f"Taxonomy: {args.taxonomy}")
     log.info(f"Database: {db_config['host']}:{db_config['port']}/{db_config['dbname']}")
     log.info(f"Options:  fix-error-category={args.fix_error_category}, "
+             f"fix-env-type={args.fix_env_type}, "
              f"fix-environment={args.fix_environment}, "
              f"include-graph={args.include_graph}")
     log.info("")
@@ -719,7 +795,8 @@ def main():
     app_count = len(taxonomy.get("applications", []))
     log.info(f"Taxonomy loaded: {app_count} application(s), "
              f"{len(taxonomy.get('error_categories', []))} error categories, "
-             f"{len(taxonomy.get('environment_types', []))} environment types")
+             f"{len(taxonomy.get('environment_types', []))} environment types, "
+             f"{len(taxonomy.get('environments', []))} environments")
     log.info("")
 
     # Load DB config
@@ -824,23 +901,53 @@ def main():
 
         print_category_report(log, "Error Category", error_matched, error_canonical, error_unmatched)
 
-    # --- Phase 3: Environment (optional) ---
+    # --- Phase 3: env_type (optional) ---
+    env_type_matched = []
+    env_type_canonical = []
+    env_type_unmatched = []
+
+    if args.fix_env_type:
+        log.info("--- Discovery Phase: env_type ---")
+        env_types = discover_env_types(conn)
+        log.info(f"Found {len(env_types)} distinct env_type value(s)")
+        log.info("")
+
+        for et in env_types:
+            value = et["env_type"]
+            resolved = matcher.resolve_env_type(value)
+            if resolved is None:
+                env_type_unmatched.append({"value": value, "count": et["session_count"]})
+            elif resolved.lower() == value.lower().strip():
+                env_type_canonical.append({"value": value, "count": et["session_count"]})
+            else:
+                env_type_matched.append({
+                    "old_value": value,
+                    "canonical": resolved,
+                    "count": et["session_count"],
+                })
+
+        print_category_report(
+            log, "Environment Type (env_type)", env_type_matched,
+            env_type_canonical, env_type_unmatched, count_label="sessions"
+        )
+
+    # --- Phase 3b: Environment specific name (optional) ---
     env_matched = []
     env_canonical = []
     env_unmatched = []
 
     if args.fix_environment:
-        log.info("--- Discovery Phase: environment ---")
+        log.info("--- Discovery Phase: environment (specific name) ---")
         environments = discover_environments(conn)
         log.info(f"Found {len(environments)} distinct environment value(s)")
         log.info("")
 
         for env in environments:
             value = env["environment"]
-            resolved = matcher.resolve_environment(value)
+            resolved = matcher.resolve_env_name(value)
             if resolved is None:
                 env_unmatched.append({"value": value, "count": env["session_count"]})
-            elif resolved.lower() == value.lower().strip():
+            elif resolved == value:
                 env_canonical.append({"value": value, "count": env["session_count"]})
             else:
                 env_matched.append({
@@ -850,8 +957,8 @@ def main():
                 })
 
         print_category_report(
-            log, "Environment", env_matched, env_canonical, env_unmatched,
-            count_label="sessions"
+            log, "Environment (specific name)", env_matched, env_canonical,
+            env_unmatched, count_label="sessions"
         )
 
     # --- Phase 4: Apply or Dry-Run ---
@@ -890,9 +997,16 @@ def main():
         log.info(f"  -> {count} attempt(s) updated")
         log.info("")
 
-    # Apply environment updates
+    # Apply env_type updates
+    if args.fix_env_type and env_type_matched:
+        log.info("Normalizing env_type...")
+        count = apply_env_type_updates(conn, env_type_matched, log)
+        log.info(f"  -> {count} session(s) updated")
+        log.info("")
+
+    # Apply environment (specific name) updates
     if args.fix_environment and env_matched:
-        log.info("Normalizing environment...")
+        log.info("Normalizing environment (specific name)...")
         count = apply_environment_updates(conn, env_matched, log)
         log.info(f"  -> {count} session(s) updated")
         log.info("")
