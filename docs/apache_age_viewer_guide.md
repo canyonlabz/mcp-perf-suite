@@ -183,7 +183,7 @@ $$) AS (n agtype, e agtype, m agtype);
 
 ## Troubleshooting
 
-For installation and startup issues on macOS, see [AGE-Viewer Troubleshooting on MacBook](troubleshooting/age-viewer-fix-on-macbook.md). Covers:
+For installation and startup issues, see [AGE-Viewer Troubleshooting](troubleshooting/age-viewer-troubleshooting.md). Covers macOS and Windows:
 
 - `ERR_OSSL_EVP_UNSUPPORTED` with Node.js 18+
 - Missing `@babel/runtime` backend dependency

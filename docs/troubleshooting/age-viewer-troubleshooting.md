@@ -1,15 +1,17 @@
-# Troubleshooting Apache AGE-Viewer on MacBook
+# Troubleshooting Apache AGE-Viewer
 
-This guide covers common issues when installing and running Apache AGE-Viewer on macOS, particularly with Node.js 18+ and Apple Silicon (M1/M2/M3/M4).
+This guide covers common issues when installing and running Apache AGE-Viewer on **macOS** and **Windows**, particularly with Node.js 18+ and modern hardware.
 
 > **See also:**
 > - [Apache AGE-Viewer Guide](../apache_age_viewer_guide.md) — Cypher queries for graph visualization
 > - [Apache AGE Installation Guide](../apache_age_installation_guide.md) — Database and graph schema setup
-> - [MacBook Troubleshooting Guide](pgvector-fix-on-macbook.md) — PostgreSQL 18 startup fixes
+> - [MacBook Troubleshooting Guide](pgvector-fix-on-macbook.md) — PostgreSQL 18 startup fixes (macOS)
 
 ---
 
 ## Issue 1: `ERR_OSSL_EVP_UNSUPPORTED` on `npm run start`
+
+**Platforms:** macOS, Windows
 
 **Symptom:**
 
@@ -26,7 +28,7 @@ Error: error:0308010C:digital envelope routines::unsupported
 
 AGE-Viewer uses an older version of Webpack that relies on legacy OpenSSL algorithms (MD4) which were disabled by default in Node.js 17+.
 
-**Fix:**
+**Fix (macOS / Linux):**
 
 Set the OpenSSL legacy provider flag before starting the viewer:
 
@@ -42,9 +44,31 @@ echo 'export NODE_OPTIONS=--openssl-legacy-provider' >> ~/.zshrc
 source ~/.zshrc
 ```
 
+**Fix (Windows — PowerShell):**
+
+```powershell
+$env:NODE_OPTIONS="--openssl-legacy-provider"
+npm run start
+```
+
+To make this permanent, add it as a system environment variable:
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("NODE_OPTIONS", "--openssl-legacy-provider", "User")
+```
+
+**Fix (Windows — Command Prompt):**
+
+```cmd
+set NODE_OPTIONS=--openssl-legacy-provider
+npm run start
+```
+
 ---
 
 ## Issue 2: `Cannot find module '@babel/runtime/helpers/interopRequireDefault'`
+
+**Platforms:** macOS, Windows
 
 **Symptom:**
 
@@ -71,6 +95,8 @@ The backend dependencies were not correctly installed during the initial `npm ru
 
 2. If the error persists, perform a clean reinstall:
 
+   **macOS / Linux:**
+
    ```bash
    rm -rf node_modules package-lock.json
    cd frontend && rm -rf node_modules package-lock.json && cd ..
@@ -79,16 +105,23 @@ The backend dependencies were not correctly installed during the initial `npm ru
    npm run build-back
    ```
 
-3. Then start with the OpenSSL flag:
+   **Windows (PowerShell):**
 
-   ```bash
-   export NODE_OPTIONS=--openssl-legacy-provider
-   npm run start
+   ```powershell
+   Remove-Item -Recurse -Force node_modules, package-lock.json -ErrorAction SilentlyContinue
+   cd frontend; Remove-Item -Recurse -Force node_modules, package-lock.json -ErrorAction SilentlyContinue; cd ..
+   cd backend; Remove-Item -Recurse -Force node_modules, package-lock.json -ErrorAction SilentlyContinue; cd ..
+   npm run setup
+   npm run build-back
    ```
+
+3. Then start with the OpenSSL flag (see Issue 1 for your platform).
 
 ---
 
 ## Issue 3: `Unable to resolve path to module 'cytoscape/src/util'`
+
+**Platforms:** macOS, Windows
 
 **Symptom:**
 
@@ -121,17 +154,13 @@ The code imports a `uuid` utility from an internal Cytoscape path that doesn't e
    import uuid from 'react-uuid';
    ```
 
-3. Return to the root directory and restart:
-
-   ```bash
-   cd ..
-   export NODE_OPTIONS=--openssl-legacy-provider
-   npm run start
-   ```
+3. Return to the root directory and restart with the OpenSSL flag (see Issue 1 for your platform).
 
 ---
 
 ## Issue 4: `Backend Connection Failed` After Restart
+
+**Platforms:** macOS, Windows
 
 **Symptom:**
 
@@ -139,12 +168,7 @@ AGE-Viewer loads in the browser but displays "Backend Connection Failed" when tr
 
 **Possible causes and fixes:**
 
-1. **OpenSSL flag not set** — If you opened a new terminal, the `NODE_OPTIONS` variable is not set. Re-run:
-
-   ```bash
-   export NODE_OPTIONS=--openssl-legacy-provider
-   npm run start
-   ```
+1. **OpenSSL flag not set** — If you opened a new terminal, the `NODE_OPTIONS` variable is not set. See Issue 1 for your platform.
 
 2. **Database container not running** — Verify the PostgreSQL container is up:
 
@@ -155,7 +179,7 @@ AGE-Viewer loads in the browser but displays "Backend Connection Failed" when tr
 3. **Wrong connection details** — In the AGE-Viewer connection form, use:
    - **Connect URL:** `localhost`
    - **Connect Port:** The port mapped in your `docker-compose` file (e.g., `5432`)
-   - **Database Name:** `perfmemory` (or whatever your `POSTGRES_DB` is set to)
+   - **Database Name:** Your `POSTGRES_DB` value
    - **User/Password:** Your `POSTGRES_USER` and `POSTGRES_PASSWORD` values
 
 4. **AGE not loaded in the database** — Connect via `psql` and verify:
@@ -169,7 +193,9 @@ AGE-Viewer loads in the browser but displays "Backend Connection Failed" when tr
 
 ---
 
-## Apple Silicon Notes
+## Platform-Specific Notes
+
+### macOS (Apple Silicon — M1/M2/M3/M4)
 
 - If `npm run build-back` fails with native compilation errors, ensure you have the build dependencies installed via Homebrew:
 
@@ -184,15 +210,41 @@ AGE-Viewer loads in the browser but displays "Backend Connection Failed" when tr
   npm install -g node-gyp
   ```
 
+### Windows
+
+- If `npm run build-back` fails with native compilation errors, ensure you have the Windows Build Tools installed:
+
+  ```powershell
+  npm install -g windows-build-tools
+  ```
+
+- If you see `gyp ERR!` errors, install `node-gyp` globally:
+
+  ```powershell
+  npm install -g node-gyp
+  ```
+
+- On Windows, `rm -rf` commands in npm scripts may fail. Use PowerShell equivalents with `Remove-Item -Recurse -Force` as shown in Issue 2.
+
 ---
 
 ## Quick Start Cheatsheet
 
 For subsequent launches after initial setup is complete:
 
+**macOS / Linux:**
+
 ```bash
 cd age-viewer
 export NODE_OPTIONS=--openssl-legacy-provider
+npm run start
+```
+
+**Windows (PowerShell):**
+
+```powershell
+cd age-viewer
+$env:NODE_OPTIONS="--openssl-legacy-provider"
 npm run start
 ```
 
