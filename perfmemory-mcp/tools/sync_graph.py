@@ -151,11 +151,20 @@ def _esc(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
+def init_age_session(conn):
+    """Load AGE and set the search path for a connection."""
+    old_autocommit = conn.autocommit
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute("LOAD 'age';")
+        cur.execute("SET search_path = ag_catalog, \"$user\", public;")
+    conn.autocommit = old_autocommit
+
+
 def check_graph_available(conn, graph_name: str) -> bool:
     """Check if the Apache AGE graph exists and is accessible."""
     try:
         with conn.cursor() as cur:
-            cur.execute("SET search_path = ag_catalog, '$user', public;")
             cur.execute(f"""
                 SELECT * FROM cypher('{graph_name}', $$
                     MATCH (n) RETURN n LIMIT 1
@@ -163,8 +172,9 @@ def check_graph_available(conn, graph_name: str) -> bool:
             """)
         conn.rollback()
         return True
-    except Exception:
+    except Exception as e:
         conn.rollback()
+        print(f"  Graph check failed: {e}")
         return False
 
 
@@ -193,7 +203,6 @@ def get_graph_projects(conn, graph_name: str) -> List[Dict[str, str]]:
     projects = []
     try:
         with conn.cursor() as cur:
-            cur.execute("SET search_path = ag_catalog, '$user', public;")
             cur.execute(f"""
                 SELECT * FROM cypher('{graph_name}', $$
                     MATCH (p:Project)
@@ -216,7 +225,6 @@ def get_graph_attempt_projects(conn, graph_name: str) -> List[Dict[str, str]]:
     attempt_projects = []
     try:
         with conn.cursor() as cur:
-            cur.execute("SET search_path = ag_catalog, '$user', public;")
             cur.execute(f"""
                 SELECT * FROM cypher('{graph_name}', $$
                     MATCH (a:Attempt)
@@ -292,7 +300,6 @@ def apply_project_alias_fixes(
     """Update Project.alias in the graph to match relational data."""
     updated = 0
     with conn.cursor() as cur:
-        cur.execute("SET search_path = ag_catalog, '$user', public;")
         for fix in fixes:
             name = fix["name"]
             new_alias = fix["relational_alias"]
@@ -310,7 +317,7 @@ def apply_project_alias_fixes(
             except Exception as e:
                 log.warning(f"  Failed to update Project '{name}' alias: {e}")
                 conn.rollback()
-                cur.execute("SET search_path = ag_catalog, '$user', public;")
+                init_age_session(conn)
     conn.commit()
     return updated
 
@@ -321,7 +328,6 @@ def apply_attempt_project_fixes(
     """Update Attempt.project in the graph where a suggested fix exists."""
     updated = 0
     with conn.cursor() as cur:
-        cur.execute("SET search_path = ag_catalog, '$user', public;")
         for fix in fixes:
             if not fix["suggested_fix"]:
                 continue
@@ -341,7 +347,7 @@ def apply_attempt_project_fixes(
             except Exception as e:
                 log.warning(f"  Failed to update Attempt.project '{old_project}': {e}")
                 conn.rollback()
-                cur.execute("SET search_path = ag_catalog, '$user', public;")
+                init_age_session(conn)
     conn.commit()
     return updated
 
@@ -366,6 +372,15 @@ def main():
         log.info("Database connection: OK")
     except Exception as e:
         log.error(f"Database connection FAILED: {e}")
+        sys.exit(1)
+
+    try:
+        init_age_session(conn)
+        log.info("Apache AGE extension: loaded")
+    except Exception as e:
+        log.error(f"Failed to load AGE extension: {e}")
+        log.error("Ensure Apache AGE is installed in your PostgreSQL instance.")
+        conn.close()
         sys.exit(1)
 
     if not check_graph_available(conn, args.graph_name):
