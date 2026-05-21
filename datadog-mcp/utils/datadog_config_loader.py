@@ -3,7 +3,7 @@
 import json
 import os
 from typing import Dict, Any, Optional
-from fastmcp import Context    # ✅ FastMCP 2.x import
+from fastmcp import Context    # ✅ FastMCP 3.x import
 from utils.config import load_config
 
 config = load_config()
@@ -36,8 +36,8 @@ async def load_environment_json(env_name: str, ctx: Context) -> Dict[str, Any]:
     env_config["environment_name"] = env_name
     
     # Store in context for later steps
-    ctx.set_state("env_config", json.dumps(env_config))  # Store as JSON string
-    ctx.set_state("env_name", env_name)
+    await ctx.set_state("env_config", json.dumps(env_config))
+    await ctx.set_state("env_name", env_name)
 
     # Extract key info for the log message
     env_tag = env_config.get("env_tag", "unknown")
