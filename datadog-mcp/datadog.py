@@ -1,7 +1,7 @@
 # datadog.py
 from typing import Optional, Dict, Any, List
 import json
-from fastmcp import FastMCP, Context    # ✅ FastMCP 2.x import
+from fastmcp import FastMCP, Context    # ✅ FastMCP 3.x import
 from services.datadog_api import (
     load_environment_json, 
     collect_host_metrics,
@@ -11,7 +11,7 @@ from services.datadog_logs import collect_logs
 from services.datadog_apm import collect_apm_traces
 from services.datadog_timeseries import collect_kpi_timeseries
 
-mcp = FastMCP(name="datadog")
+mcp = FastMCP("datadog")
 
 @mcp.tool()
 async def load_environment(env_name: str, ctx: Context) -> Dict[str, Any]:
@@ -162,6 +162,6 @@ async def get_apm_traces(env_name: str, start_time: str, end_time: str, query_ty
 
 if __name__ == "__main__":
     try:
-        mcp.run("stdio")
+        mcp.run(transport="stdio")
     except KeyboardInterrupt:
         print("Shutting down Datadog MCP…")
