@@ -200,7 +200,6 @@ async def get_test_status(run_id: str, ctx: Context) -> dict:
                 await ctx.set_state("last_status", status)
                 await ctx.set_state("statuses", statuses)
                 await ctx.set_state("has_error", has_error)
-                await ctx.info("Current Status", status)
             return {
                 "run_id": run_id,
                 "status": status,
@@ -213,7 +212,7 @@ async def get_test_status(run_id: str, ctx: Context) -> dict:
             await ctx.set_state("last_status", "ERROR")
             await ctx.set_state("error", str(e))
             await ctx.set_state("has_error", True)
-            await ctx.error("Error retrieving test status", str(e))
+            await ctx.error(f"Error retrieving test status: {e}")
         return {
             "run_id": run_id,
             "status": "ERROR",
@@ -344,7 +343,6 @@ async def get_results_summary(run_id: str, ctx: Context) -> str:
 
     # Update context with summary for downstream tools
     if ctx is not None:
-        await ctx.info("Test Configuration JSON Path", test_config_json)
         await ctx.set_state("summary", summary_fields)
         await ctx.set_state("test_config_json_path", test_config_json)
 
@@ -424,16 +422,6 @@ async def list_test_runs(test_id: str, start_time: str, end_time: str, ctx: Cont
                 "duration_seconds": duration_seconds,       # Raw seconds for downstream use
                 "locations": m.get("locations", []),
             })
-            await ctx.info(f"Found run ID {m.get('id')} with test name {m.get('name')}.",
-                           extra={
-                                 "start_time": epoch_to_timestamp(created),
-                                 "end_time": epoch_to_timestamp(ended),
-                                 "duration": duration_str,
-                                 "sessions_id": m.get("sessionsId", []),
-                                 "project_id": m.get("projectId"),
-                                 "max_users": m.get("maxUsers"),
-                                 "locations": m.get("locations", []),
-                           })
         return runs if runs else [{"message": "No matching runs found."}]
 
 async def get_session_artifacts(session_id: str, ctx: Context) -> dict:
@@ -462,8 +450,6 @@ async def get_session_artifacts(session_id: str, ctx: Context) -> dict:
             if filename and filename.lower() == "artifacts.zip":
                 await ctx.set_state("artifact_zip_url", data_url)
                 await ctx.set_state("artifact_zip_filename", filename)
-                await ctx.info("Artifact ZIP URL", data_url)
-                await ctx.info("Artifact ZIP Filename", filename)
         if ctx is not None:
             await ctx.set_state("artifact_file_list", files)
             await ctx.set_state("artifact_file_session_id", session_id)
@@ -507,12 +493,11 @@ async def download_artifact_zip_file(artifact_zip_url: str, run_id: str, ctx: Co
                 f.write(response.content)
         if ctx is not None:
             await ctx.set_state("local_zip_path", local_zip_path)
-            await ctx.info("Downloaded artifacts.zip to", local_zip_path)
         return local_zip_path
     except Exception as e:
         if ctx is not None:
             await ctx.set_state("download_error", str(e))
-            await ctx.error("Error downloading artifacts.zip", str(e))
+            await ctx.error(f"Error downloading artifacts.zip: {e}")
         return f"❗ Error downloading artifacts.zip: {e}"
 
 async def extract_artifact_zip_file(local_zip_path: str, run_id: str, ctx: Context) -> list:
@@ -535,12 +520,11 @@ async def extract_artifact_zip_file(local_zip_path: str, run_id: str, ctx: Conte
             extracted_files = [os.path.join(dest_folder, name) for name in zip_ref.namelist()]
         if ctx is not None:
             await ctx.set_state("extracted_files", extracted_files)
-            await ctx.info(f"Extracted {len(extracted_files)} artifact files.")
         return extracted_files
     except Exception as e:
         if ctx is not None:
             await ctx.set_state("extraction_error", str(e))
-            await ctx.error("Error extracting artifacts.zip", str(e))
+            await ctx.error(f"Error extracting artifacts.zip: {e}")
         return [f"❗ Error extracting ZIP: {e}"]
 
 async def process_extracted_artifact_files(run_id: str, extracted_files: list, ctx: Context) -> dict:
@@ -644,7 +628,6 @@ async def session_artifact_processor(
 
         # Skip completed sessions
         if session_data.get("status") == "completed":
-            await ctx.info(f"Skipping {session_key} (already completed).")
             continue
 
         session_dir = os.path.join(sessions_folder, session_key)
@@ -694,15 +677,11 @@ async def session_artifact_processor(
                 save_manifest(run_id, manifest)
                 await ctx.error(f"Download failed for {session_key}: {dl_result['error']}")
                 continue
-        else:
-            await ctx.info(f"Skipping download for {session_key} (already downloaded).")
-
         # ---- STAGE 2: Extract ----
         ext_stage = session_data.get("stages", {}).get("extract", {})
         extract_dir = os.path.join(session_dir, "artifacts")
 
         if ext_stage.get("status") != "completed":
-            await ctx.info(f"Extracting artifacts for {session_key}...")
             manifest["sessions"][session_key]["status"] = "extracting"
             manifest["sessions"][session_key]["stages"]["extract"]["status"] = "in_progress"
             save_manifest(run_id, manifest)
@@ -715,7 +694,6 @@ async def session_artifact_processor(
                 manifest["sessions"][session_key]["stages"]["extract"] = {
                     "status": "completed", "file_count": file_count,
                 }
-                await ctx.info(f"Extracted {file_count} files for {session_key}.")
             except Exception as e:
                 manifest["sessions"][session_key]["status"] = "failed"
                 manifest["sessions"][session_key]["stages"]["extract"] = {
@@ -724,14 +702,10 @@ async def session_artifact_processor(
                 save_manifest(run_id, manifest)
                 await ctx.error(f"Extraction failed for {session_key}: {e}")
                 continue
-        else:
-            await ctx.info(f"Skipping extraction for {session_key} (already extracted).")
-
         # ---- STAGE 3: Process (move logs + append JTL) ----
         proc_stage = session_data.get("stages", {}).get("process", {})
 
         if proc_stage.get("status") != "completed":
-            await ctx.info(f"Processing artifacts for {session_key}...")
             manifest["sessions"][session_key]["status"] = "processing"
             manifest["sessions"][session_key]["stages"]["process"]["status"] = "in_progress"
             save_manifest(run_id, manifest)
@@ -751,7 +725,6 @@ async def session_artifact_processor(
 
                 if log_file and os.path.exists(log_file):
                     shutil.copy2(log_file, log_dest)
-                    await ctx.info(f"Copied log to {log_dest_name}")
                 else:
                     await ctx.warning(f"jmeter.log not found in {session_key}")
 
@@ -772,8 +745,6 @@ async def session_artifact_processor(
                         manifest["combined_csv"]["sessions_included"].append(session_key)
                         manifest["combined_csv"]["total_rows"] += jtl_rows
                         await ctx.info(f"Appended {jtl_rows} rows from {session_key} to test-results.csv")
-                    else:
-                        await ctx.info(f"Skipping JTL append for {session_key} (already included).")
                 else:
                     await ctx.warning(f"kpi.jtl not found in {session_key}")
 
@@ -802,7 +773,6 @@ async def session_artifact_processor(
         )
         if all_completed:
             shutil.rmtree(sessions_folder, ignore_errors=True)
-            await ctx.info("Cleaned up sessions/ subfolder.")
 
     save_manifest(run_id, manifest)
 
@@ -903,7 +873,6 @@ async def get_public_report_url(run_id: str, ctx: Context) -> dict:
                     await ctx.set_state("public_token", token)
                     await ctx.set_state("is_new_token", is_new)
                     await ctx.set_state("public_report_json_path", json_path)
-                    await ctx.info(f"Public report JSON saved to: {json_path}")
                 
                 return response_data
             else:
@@ -974,9 +943,7 @@ async def fetch_aggregate_report(run_id: str, ctx: Context) -> Dict[str, Any]:
             await ctx.set_state("aggregate_report_data", json.dumps(all_aggregate))
             await ctx.set_state("aggregate_report_csv", csv_file)
             
-            await ctx.info(f"Aggregate report retrieved", 
-                          f"ALL stats: {all_aggregate['samples']} samples, "
-                          f"{all_aggregate['avgResponseTime']:.1f}ms avg")
+            await ctx.info(f"Aggregate report: {all_aggregate['samples']} samples, {all_aggregate['avgResponseTime']:.1f}ms avg")
             
             return {
                 "status": "success",
@@ -988,7 +955,7 @@ async def fetch_aggregate_report(run_id: str, ctx: Context) -> Dict[str, Any]:
             
     except Exception as e:
         error_msg = f"Failed to fetch aggregate report: {str(e)}"
-        await ctx.error("Aggregate Report Error", error_msg)
+        await ctx.error(f"Aggregate report error: {error_msg}")
         return {"error": error_msg, "status": "failed"}
 
 def write_aggregate_report_csv(run_id: str, results: List[Dict]) -> str:
@@ -1322,10 +1289,6 @@ async def upload_to_shared_folder(
                     await ctx.error(f"No signed URL returned for {file_name}")
                 continue
 
-            if ctx:
-                size_mb = round(file_size / (1024 * 1024), 1)
-                await ctx.info(f"Uploading {file_name} ({size_mb} MB)...")
-
             # Step 2: PUT file bytes to the signed URL
             async with httpx.AsyncClient(verify=verify_ssl, timeout=httpx.Timeout(600.0)) as client:
                 with open(file_path, "rb") as f:
@@ -1336,9 +1299,6 @@ async def upload_to_shared_folder(
                     headers={"Content-Type": "application/octet-stream"},
                 )
                 resp.raise_for_status()
-
-            if ctx:
-                await ctx.info(f"Uploaded {file_name} successfully.")
 
             results.append({
                 "status": "success",
