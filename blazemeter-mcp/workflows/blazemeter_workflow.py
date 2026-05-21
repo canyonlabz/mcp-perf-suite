@@ -1,5 +1,7 @@
+# DEPRECATED: This module is unused and will be removed.
+# It will be replaced by a future AI Agent framework (LangChain + LangGraph + A2A).
 import asyncio
-from fastmcp import FastMCP, Context  # ✅ FastMCP 2.x import
+from fastmcp import FastMCP, Context
 from utils.config import load_config, load_workflow_config
 from utils.workflow_utils import (
     interpolate_params, 

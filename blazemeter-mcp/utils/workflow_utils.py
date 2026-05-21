@@ -1,4 +1,6 @@
-# blazemeter-mcp/workflows/blazemeter_workflow.py
+# DEPRECATED: This module is unused and will be removed.
+# It will be replaced by a future AI Agent framework (LangChain + LangGraph + A2A).
+# blazemeter-mcp/utils/workflow_utils.py
 import re
 import asyncio
 
