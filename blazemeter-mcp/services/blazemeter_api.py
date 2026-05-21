@@ -10,7 +10,7 @@ import csv
 from datetime import datetime
 from typing import Dict, Any, List, Union
 from dotenv import load_dotenv
-from fastmcp import FastMCP, Context  # ✅ FastMCP 2.x import
+from fastmcp import FastMCP, Context        # ✅ FastMCP 3.x import
 from utils.config import load_config, get_cleanup_session_folders, get_shared_folder_allowed_extensions
 from utils.file_utils import write_public_report_json
 from services.artifact_manager import (
@@ -163,7 +163,7 @@ async def run_test(test_id: str, ctx: Context) -> str:
         run_id = result['id']
         # Optionally store run_id in context for downstream tools
         if ctx is not None:
-            ctx.set_state("run_id", run_id)
+            await ctx.set_state("run_id", run_id)
         return f"Run started. Run ID: {run_id}"
 
 async def get_test_status(run_id: str, ctx: Context) -> dict:
@@ -197,9 +197,9 @@ async def get_test_status(run_id: str, ctx: Context) -> dict:
             has_error = bool(error) or (status.upper() in {"FAILED", "ERROR", "ABORTED"})
             # Save to context for workflow chaining
             if ctx is not None:
-                ctx.set_state("last_status", status)
-                ctx.set_state("statuses", statuses)
-                ctx.set_state("has_error", has_error)
+                await ctx.set_state("last_status", status)
+                await ctx.set_state("statuses", statuses)
+                await ctx.set_state("has_error", has_error)
                 await ctx.info("Current Status", status)
             return {
                 "run_id": run_id,
@@ -210,9 +210,9 @@ async def get_test_status(run_id: str, ctx: Context) -> dict:
             }
     except Exception as e:
         if ctx is not None:
-            ctx.set_state("last_status", "ERROR")
-            ctx.set_state("error", str(e))
-            ctx.set_state("has_error", True)
+            await ctx.set_state("last_status", "ERROR")
+            await ctx.set_state("error", str(e))
+            await ctx.set_state("has_error", True)
             await ctx.error("Error retrieving test status", str(e))
         return {
             "run_id": run_id,
@@ -345,8 +345,8 @@ async def get_results_summary(run_id: str, ctx: Context) -> str:
     # Update context with summary for downstream tools
     if ctx is not None:
         await ctx.info("Test Configuration JSON Path", test_config_json)
-        ctx.set_state("summary", summary_fields)
-        ctx.set_state("test_config_json_path", test_config_json)
+        await ctx.set_state("summary", summary_fields)
+        await ctx.set_state("test_config_json_path", test_config_json)
 
     report = (
         f"BlazeMeter Test Run Summary\n"
@@ -460,13 +460,13 @@ async def get_session_artifacts(session_id: str, ctx: Context) -> dict:
             if filename and data_url:
                 files[filename] = data_url
             if filename and filename.lower() == "artifacts.zip":
-                ctx.set_state("artifact_zip_url", data_url)
-                ctx.set_state("artifact_zip_filename", filename)
+                await ctx.set_state("artifact_zip_url", data_url)
+                await ctx.set_state("artifact_zip_filename", filename)
                 await ctx.info("Artifact ZIP URL", data_url)
                 await ctx.info("Artifact ZIP Filename", filename)
         if ctx is not None:
-            ctx.set_state("artifact_file_list", files)
-            ctx.set_state("artifact_file_session_id", session_id)
+            await ctx.set_state("artifact_file_list", files)
+            await ctx.set_state("artifact_file_session_id", session_id)
         return files if files else {"message": "No files found in this session's logs report."}
 
 async def download_artifact_zip_file(artifact_zip_url: str, run_id: str, ctx: Context) -> str:
@@ -500,18 +500,18 @@ async def download_artifact_zip_file(artifact_zip_url: str, run_id: str, ctx: Co
                     response.raise_for_status()
                 except Exception as e2:
                     if ctx is not None:
-                        ctx.set_state("download_error", str(e2))
+                        await ctx.set_state("download_error", str(e2))
                     return f"❗ Error downloading artifacts.zip: Minimal headers failed: {e1}, Auth headers failed: {e2}"
             
             with open(local_zip_path, "wb") as f:
                 f.write(response.content)
         if ctx is not None:
-            ctx.set_state("local_zip_path", local_zip_path)
+            await ctx.set_state("local_zip_path", local_zip_path)
             await ctx.info("Downloaded artifacts.zip to", local_zip_path)
         return local_zip_path
     except Exception as e:
         if ctx is not None:
-            ctx.set_state("download_error", str(e))
+            await ctx.set_state("download_error", str(e))
             await ctx.error("Error downloading artifacts.zip", str(e))
         return f"❗ Error downloading artifacts.zip: {e}"
 
@@ -534,16 +534,16 @@ async def extract_artifact_zip_file(local_zip_path: str, run_id: str, ctx: Conte
             zip_ref.extractall(dest_folder)
             extracted_files = [os.path.join(dest_folder, name) for name in zip_ref.namelist()]
         if ctx is not None:
-            ctx.set_state("extracted_files", extracted_files)
+            await ctx.set_state("extracted_files", extracted_files)
             await ctx.info(f"Extracted {len(extracted_files)} artifact files.")
         return extracted_files
     except Exception as e:
         if ctx is not None:
-            ctx.set_state("extraction_error", str(e))
+            await ctx.set_state("extraction_error", str(e))
             await ctx.error("Error extracting artifacts.zip", str(e))
         return [f"❗ Error extracting ZIP: {e}"]
 
-def process_extracted_artifact_files(run_id: str, extracted_files: list, ctx: Context) -> dict:
+async def process_extracted_artifact_files(run_id: str, extracted_files: list, ctx: Context) -> dict:
     """
     Processes BlazeMeter artifact files for a run:
       - Moves/renames kpi.jtl to test-results.csv
@@ -583,9 +583,9 @@ def process_extracted_artifact_files(run_id: str, extracted_files: list, ctx: Co
         result["errors"].append("jmeter.log not found.")
 
     if ctx is not None:
-        ctx.set_state("processed_csv_path", result.get("csv_path"))
-        ctx.set_state("processed_log_path", result.get("log_path"))
-        ctx.set_state("process_errors", result.get("errors"))
+        await ctx.set_state("processed_csv_path", result.get("csv_path"))
+        await ctx.set_state("processed_log_path", result.get("log_path"))
+        await ctx.set_state("process_errors", result.get("errors"))
 
     return result
 
@@ -662,7 +662,7 @@ async def session_artifact_processor(
 
             # Get artifact file list for this session
             await get_session_artifacts(session_id, ctx)
-            artifact_zip_url = ctx.get_state("artifact_zip_url") if ctx else None
+            artifact_zip_url = (await ctx.get_state("artifact_zip_url")) if ctx else None
 
             if not artifact_zip_url:
                 manifest["sessions"][session_key]["status"] = "failed"
@@ -846,9 +846,9 @@ async def session_artifact_processor(
 
     # Update context for downstream tools
     if ctx:
-        ctx.set_state("processed_csv_path", result["combined_csv"])
-        ctx.set_state("processed_log_files", log_files)
-        ctx.set_state("session_manifest", manifest)
+        await ctx.set_state("processed_csv_path", result["combined_csv"])
+        await ctx.set_state("processed_log_files", log_files)
+        await ctx.set_state("session_manifest", manifest)
 
     return result
 
@@ -899,10 +899,10 @@ async def get_public_report_url(run_id: str, ctx: Context) -> dict:
                 response_data["json_path"] = json_path
                 
                 if ctx is not None:
-                    ctx.set_state("public_url", public_url)
-                    ctx.set_state("public_token", token)
-                    ctx.set_state("is_new_token", is_new)
-                    ctx.set_state("public_report_json_path", json_path)
+                    await ctx.set_state("public_url", public_url)
+                    await ctx.set_state("public_token", token)
+                    await ctx.set_state("is_new_token", is_new)
+                    await ctx.set_state("public_report_json_path", json_path)
                     await ctx.info(f"Public report JSON saved to: {json_path}")
                 
                 return response_data
@@ -916,10 +916,10 @@ async def get_public_report_url(run_id: str, ctx: Context) -> dict:
                     "json_path": None
                 }
                 if ctx is not None:
-                    ctx.set_state("public_url", None)
-                    ctx.set_state("public_token", None)
-                    ctx.set_state("is_new_token", False)
-                    ctx.set_state("public_report_error", "Public token not returned by API.")
+                    await ctx.set_state("public_url", None)
+                    await ctx.set_state("public_token", None)
+                    await ctx.set_state("is_new_token", False)
+                    await ctx.set_state("public_report_error", "Public token not returned by API.")
                 return error_data
     except Exception as e:
         error_data = {
@@ -931,8 +931,8 @@ async def get_public_report_url(run_id: str, ctx: Context) -> dict:
             "json_path": None
         }
         if ctx is not None:
-            ctx.set_state("public_url", None)
-            ctx.set_state("public_report_error", str(e))
+            await ctx.set_state("public_url", None)
+            await ctx.set_state("public_report_error", str(e))
         return error_data
 
 async def fetch_aggregate_report(run_id: str, ctx: Context) -> Dict[str, Any]:
@@ -971,8 +971,8 @@ async def fetch_aggregate_report(run_id: str, ctx: Context) -> Dict[str, Any]:
                 return {"error": "No 'ALL' aggregate found in BlazeMeter response", "status": "failed"}
 
             # Update context with aggregate data and CSV path
-            ctx.set_state("aggregate_report_data", json.dumps(all_aggregate))
-            ctx.set_state("aggregate_report_csv", csv_file)
+            await ctx.set_state("aggregate_report_data", json.dumps(all_aggregate))
+            await ctx.set_state("aggregate_report_csv", csv_file)
             
             await ctx.info(f"Aggregate report retrieved", 
                           f"ALL stats: {all_aggregate['samples']} samples, "

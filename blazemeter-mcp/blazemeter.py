@@ -1,5 +1,5 @@
 # blazemeter.py
-from fastmcp import FastMCP, Context  # ✅ FastMCP 2.x import
+from fastmcp import FastMCP, Context        # ✅ FastMCP 3.x import
 from typing import Optional, Dict, Any
 from utils.config import load_config
 
@@ -23,9 +23,7 @@ from services.blazemeter_api import (
     upload_to_shared_folder as _upload_to_shared_folder,
 )
 
-mcp = FastMCP(
-    name="blazemeter",
-)
+mcp = FastMCP("blazemeter")
 
 @mcp.tool
 async def get_workspaces() -> str:
@@ -176,7 +174,7 @@ async def process_session_artifacts(run_id: str, sessions_id: list, ctx: Context
     """
     return await session_artifact_processor(run_id, sessions_id, ctx)
 
-@mcp.tool(enabled=False)
+@mcp.tool()
 async def download_artifacts_zip(artifact_zip_url: str, run_id: str, ctx: Context) -> str:
     """
     [DEPRECATED] Use process_session_artifacts instead.
@@ -204,7 +202,7 @@ async def download_artifacts_zip(artifact_zip_url: str, run_id: str, ctx: Contex
     """
     return await download_artifact_zip_file(artifact_zip_url, run_id, ctx)
 
-@mcp.tool(enabled=False)
+@mcp.tool()
 async def extract_artifact_zip(local_zip_path: str, run_id: str, ctx: Context) -> list:
     """
     [DEPRECATED] Use process_session_artifacts instead.
@@ -222,8 +220,8 @@ async def extract_artifact_zip(local_zip_path: str, run_id: str, ctx: Context) -
     """
     return await extract_artifact_zip_file(local_zip_path, run_id, ctx)
 
-@mcp.tool(enabled=False)
-def process_extracted_files(run_id: str, extracted_files: list, ctx: Context) -> dict:
+@mcp.tool()
+async def process_extracted_files(run_id: str, extracted_files: list, ctx: Context) -> dict:
     """
     [DEPRECATED] Use process_session_artifacts instead.
 
@@ -238,7 +236,7 @@ def process_extracted_files(run_id: str, extracted_files: list, ctx: Context) ->
     Returns:
         Dict of output file paths and errors. Updates context for downstream steps and error handling.
     """
-    return process_extracted_artifact_files(run_id, extracted_files, ctx)
+    return await process_extracted_artifact_files(run_id, extracted_files, ctx)
 
 @mcp.tool()
 async def get_public_report(run_id: str, ctx: Context) -> dict:
@@ -357,10 +355,19 @@ async def upload_to_shared_folder(folder_id: str, path: str, ctx: Context) -> di
 
 
 # -----------------------------
+# Disable deprecated tools (v3: server-level visibility)
+# -----------------------------
+mcp.disable(keys={
+    "tool:download_artifacts_zip",
+    "tool:extract_artifact_zip",
+    "tool:process_extracted_files",
+})
+
+# -----------------------------
 # BlazeMeter MCP entry point
 # -----------------------------
 if __name__ == "__main__":
     try:
-        mcp.run("stdio")
+        mcp.run(transport="stdio")
     except KeyboardInterrupt:
         print("Shutting down BlazeMeter MCP…")
