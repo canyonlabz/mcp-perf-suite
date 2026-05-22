@@ -135,7 +135,7 @@ async def analyze_bottlenecks(
         dict suitable for returning directly from an MCP tool.
     """
     try:
-        await ctx.info("Bottleneck Analysis", f"Starting analysis for run {test_run_id}")
+        await ctx.info(f"Bottleneck Analysis: Starting analysis for run {test_run_id}")
         cfg = _get_bn_config()
 
         # ------------------------------------------------------------------
@@ -146,10 +146,9 @@ async def analyze_bottlenecks(
             jtl_path = ARTIFACTS_PATH / test_run_id / "jmeter" / "test-results.csv"
         if not jtl_path.exists():
             msg = f"JTL file not found (checked blazemeter/ and jmeter/). Run a load test workflow first."
-            await ctx.error("Missing JTL", msg)
+            await ctx.error(f"Missing JTL: {msg}")
             return {"error": msg, "status": "prerequisite_missing"}
 
-        await ctx.info("Loading JTL", str(jtl_path))
         jtl_df = _load_jtl(jtl_path, cfg)
         if jtl_df is None or jtl_df.empty:
             return {"error": "JTL file could not be loaded or is empty", "status": "failed"}
@@ -157,35 +156,19 @@ async def analyze_bottlenecks(
         engine_count = _detect_engine_count(jtl_df)
         if engine_count > 1:
             await ctx.info(
-                "Multi-Engine Detected",
-                f"{engine_count} load-generator engines detected — "
-                f"concurrency will be computed as sum of per-engine threads",
+                f"Multi-Engine Detected: {engine_count} load-generator engines detected — "
+                f"concurrency will be computed as sum of per-engine threads"
             )
-        else:
-            await ctx.info("Single Engine", "1 engine detected — using allThreads directly")
 
         # ------------------------------------------------------------------
         # 2. Build time buckets
         # ------------------------------------------------------------------
         buckets_df = _build_time_buckets(jtl_df, cfg)
-        await ctx.info("Time Buckets", f"Created {len(buckets_df)} buckets ({cfg['bucket_seconds']}s each)")
 
         # ------------------------------------------------------------------
         # 2b. Outlier filtering (rolling median smoothing)
         # ------------------------------------------------------------------
         buckets_df = _apply_outlier_filtering(buckets_df, cfg)
-        outlier_count = int(buckets_df["is_outlier"].sum())
-        if outlier_count > 0:
-            await ctx.info(
-                "Outlier Filtering",
-                f"Smoothed metrics with rolling median (window={cfg['rolling_window_buckets']}). "
-                f"{outlier_count}/{len(buckets_df)} buckets flagged as outliers."
-            )
-        else:
-            await ctx.info(
-                "Outlier Filtering",
-                f"Rolling median applied (window={cfg['rolling_window_buckets']}). No outlier buckets detected."
-            )
 
         # ------------------------------------------------------------------
         # 3. Optionally load infrastructure metrics
@@ -196,14 +179,11 @@ async def analyze_bottlenecks(
             buckets_df = _align_infra_to_buckets(buckets_df, infra_df, cfg)
             if infra_meta["metric_mode"] == "raw":
                 await ctx.info(
-                    "Infrastructure",
-                    "Datadog metrics aligned to time buckets (RAW mode: K8s limits not defined, "
+                    f"Infrastructure: Datadog metrics aligned to time buckets (RAW mode: K8s limits not defined, "
                     f"using {infra_meta['cpu_unit']}/{infra_meta['memory_unit']} with relative-from-baseline thresholds)"
                 )
-            else:
-                await ctx.info("Infrastructure", "Datadog metrics aligned to time buckets")
         else:
-            await ctx.warning("Infrastructure", "No Datadog metrics found - infra analysis will be skipped")
+            await ctx.warning("Infrastructure: No Datadog metrics found - infra analysis will be skipped")
 
         # ------------------------------------------------------------------
         # 4. Establish baseline window
@@ -225,7 +205,7 @@ async def analyze_bottlenecks(
         findings.extend(_detect_multi_tier_bottlenecks(jtl_df, cfg, test_run_id, test_start_time, sla_id=sla_id))
 
         phase1_count = len(findings)
-        await ctx.info("Phase 1", f"Performance detection found {phase1_count} finding(s)")
+        await ctx.info(f"Phase 1: Performance detection found {phase1_count} finding(s)")
 
         # ------------------------------------------------------------------
         # 5b. Phase 2a -- Infrastructure Cross-Reference
@@ -246,14 +226,9 @@ async def analyze_bottlenecks(
                 if (f.get("infrastructure_context") or {}).get("infra_correlated") is False
             )
             await ctx.info(
-                "Phase 2a",
-                f"Infrastructure cross-reference: {len(degradation_windows)} window(s) analyzed, "
+                f"Phase 2a: Infrastructure cross-reference: {len(degradation_windows)} window(s) analyzed, "
                 f"{correlated_count} infra-correlated, {independent_count} infra-independent"
             )
-        elif has_infra:
-            await ctx.info("Phase 2a", "No degradation windows from Phase 1 -- skipping infra cross-reference")
-        else:
-            await ctx.info("Phase 2a", "No infrastructure data available -- skipping cross-reference")
 
         # ------------------------------------------------------------------
         # 5c. Phase 2b -- Capacity Risk Detection
@@ -267,13 +242,8 @@ async def analyze_bottlenecks(
             if capacity_risks:
                 findings.extend(capacity_risks)
                 await ctx.info(
-                    "Phase 2b",
-                    f"Capacity risk detection: {len(capacity_risks)} risk(s) identified"
+                    f"Phase 2b: Capacity risk detection: {len(capacity_risks)} risk(s) identified"
                 )
-            else:
-                await ctx.info("Phase 2b", "No capacity risks detected")
-        else:
-            await ctx.info("Phase 2b", "No infrastructure data -- skipping capacity risk detection")
 
         # ------------------------------------------------------------------
         # 5c2. Phase 3 -- KPI-driven bottleneck detection (optional)
@@ -291,18 +261,13 @@ async def analyze_bottlenecks(
                 if kpi_findings:
                     findings.extend(kpi_findings)
                     await ctx.info(
-                        "Phase 3",
-                        f"KPI bottleneck detection: {len(kpi_findings)} finding(s) from "
-                        f"{len(kpi_files)} KPI file(s)",
+                        f"Phase 3: KPI bottleneck detection: {len(kpi_findings)} finding(s) from "
+                        f"{len(kpi_files)} KPI file(s)"
                     )
-                else:
-                    await ctx.info("Phase 3", "KPI data analyzed — no KPI-driven bottlenecks detected")
             else:
-                await ctx.info("Phase 3", "KPI files found but contained no usable data")
-        else:
-            await ctx.info("Phase 3", "No KPI data available -- skipping KPI bottleneck detection")
+                await ctx.info("Phase 3: KPI files found but contained no usable data")
 
-        await ctx.info("Detection", f"Identified {len(findings)} finding(s) total")
+        await ctx.info(f"Detection: Identified {len(findings)} finding(s) total")
 
         # ------------------------------------------------------------------
         # 5d. Comparison mode (if baseline_run_id supplied)
@@ -348,10 +313,9 @@ async def analyze_bottlenecks(
         result["output_files"] = output_files
 
         await ctx.info(
-            "Bottleneck Analysis Complete",
-            f"{len(findings)} bottleneck(s) detected. "
+            f"Bottleneck Analysis Complete: {len(findings)} bottleneck(s) detected. "
             f"Threshold concurrency: {summary.get('threshold_concurrency', 'N/A')}. "
-            f"Files saved to {analysis_path}",
+            f"Files saved to {analysis_path}"
         )
 
         return {
@@ -365,7 +329,7 @@ async def analyze_bottlenecks(
     except Exception as e:
         tb = traceback.format_exc()
         msg = f"Bottleneck analysis failed: {e}"
-        await ctx.error("Bottleneck Error", msg)
+        await ctx.error(f"Bottleneck Error: {msg}")
         return {"error": msg, "status": "failed", "traceback": tb}
 
 
@@ -2480,7 +2444,7 @@ async def _run_comparison(
     try:
         baseline_json = ARTIFACTS_PATH / baseline_run_id / "analysis" / "bottleneck_analysis.json"
         if not baseline_json.exists():
-            await ctx.warning("Comparison", f"Baseline analysis not found for {baseline_run_id}")
+            await ctx.warning(f"Comparison: Baseline analysis not found for {baseline_run_id}")
             return {"error": f"No bottleneck analysis found for baseline run {baseline_run_id}"}
 
         with open(baseline_json, "r") as f:
