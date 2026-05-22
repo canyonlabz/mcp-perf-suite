@@ -88,7 +88,7 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context, sla_id: Opt
         Dictionary containing comprehensive performance analysis
     """
     try:
-        await ctx.info("BlazeMeter Analysis", f"Starting analysis for run {test_run_id}")
+        await ctx.info(f"BlazeMeter Analysis: Starting analysis for run {test_run_id}")
         
         # Check for aggregate report CSV (primary data source)
         blazemeter_path = Path(artifacts_base) / test_run_id / 'blazemeter'
@@ -96,7 +96,7 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context, sla_id: Opt
         
         if not aggregate_csv.exists():
             error_msg = "BlazeMeter aggregate report not found. Please run 'get_aggregate_report' first."
-            await ctx.error("Missing Prerequisite", error_msg)
+            await ctx.error(f"Missing Prerequisite: {error_msg}")
             return {
                 "error": error_msg,
                 "status": "prerequisite_missing",
@@ -127,9 +127,10 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context, sla_id: Opt
         output_files = await generate_performance_outputs(analysis_result, analysis_path, test_run_id, ctx)
         missing_outputs = [f for f in expected_outputs if f not in output_files]
 
-        await ctx.info("BlazeMeter Analysis Complete",
-                       f"Analysis completed for {len(df)} labels. "
-                       f"Files saved to {analysis_path}")
+        await ctx.info(
+            f"BlazeMeter Analysis Complete: Analysis completed for {len(df)} labels. "
+            f"Files saved to {analysis_path}"
+        )
         return {
             "status": "success" if not missing_outputs else ("failed" if not output_files else "partial"),
             "test_run_id": test_run_id,
@@ -151,7 +152,7 @@ async def analyze_blazemeter_results(test_run_id: str, ctx: Context, sla_id: Opt
         
     except Exception as e:
         error_msg = f"BlazeMeter analysis failed: {str(e)}"
-        await ctx.error("Analysis Error", error_msg)
+        await ctx.error(f"Analysis Error: {error_msg}")
         return {"error": error_msg, "status": "failed"}
 
 async def analyze_apm_metrics(test_run_id: str, environment: str, ctx: Context) -> Dict[str, Any]:
@@ -167,7 +168,7 @@ async def analyze_apm_metrics(test_run_id: str, environment: str, ctx: Context) 
         Dictionary containing infrastructure metrics analysis
     """
     try:
-        await ctx.info("Infrastructure Analysis", f"Starting metrics analysis for run {test_run_id}")
+        await ctx.info(f"Infrastructure Analysis: Starting metrics analysis for run {test_run_id}")
         
         # Get APM tool from config (future-proof for multiple APM tools)
         apm_tool = config['perf_analysis']['apm_tool']
@@ -177,7 +178,7 @@ async def analyze_apm_metrics(test_run_id: str, environment: str, ctx: Context) 
         
         if not apm_path.exists():
             error_msg = f"No {apm_tool} metrics folder found at {apm_path}"
-            await ctx.error("Missing Metrics Data", error_msg)
+            await ctx.error(f"Missing Metrics Data: {error_msg}")
             return {
                 "error": error_msg,
                 "status": "no_data_available",
@@ -191,7 +192,7 @@ async def analyze_apm_metrics(test_run_id: str, environment: str, ctx: Context) 
         
         if not k8s_files and not host_files:
             error_msg = f"No metrics CSV files found in {apm_path}. Expected k8s_metrics_*.csv or host_metrics_*.csv"
-            await ctx.error("No Metrics Files", error_msg)
+            await ctx.error(f"No Metrics Files: {error_msg}")
             return {
                 "error": error_msg,
                 "status": "no_metrics_files",
@@ -230,10 +231,11 @@ async def analyze_apm_metrics(test_run_id: str, environment: str, ctx: Context) 
             )
             output_files.update({f"kpi_{k}": v for k, v in kpi_output_files.items()})
         
-        await ctx.info("Infrastructure Analysis Complete",
-                      f"Analysis completed for {len(k8s_files)} K8s + {len(host_files)} Host files"
-                      f"{f' + {len(kpi_files)} KPI files' if kpi_files else ''}. "
-                      f"Files saved to {analysis_path}")
+        await ctx.info(
+            f"Infrastructure Analysis Complete: Analysis completed for {len(k8s_files)} K8s + {len(host_files)} Host files"
+            f"{f' + {len(kpi_files)} KPI files' if kpi_files else ''}. "
+            f"Files saved to {analysis_path}"
+        )
         
         # Return lightweight summary (not full analysis data)
         infrastructure_summary = analysis_result.get('infrastructure_summary', {})
@@ -263,7 +265,7 @@ async def analyze_apm_metrics(test_run_id: str, environment: str, ctx: Context) 
         
     except Exception as e:
         error_msg = f"Infrastructure analysis failed: {str(e)}"
-        await ctx.error("Analysis Error", error_msg)
+        await ctx.error(f"Analysis Error: {error_msg}")
         return {"error": error_msg, "status": "failed"}
 
 async def correlate_performance_data(test_run_id: str, ctx: Context, sla_id: Optional[str] = None) -> Dict[str, Any]:
@@ -285,12 +287,12 @@ async def correlate_performance_data(test_run_id: str, ctx: Context, sla_id: Opt
 
         if not performance_file.exists():
             error_msg = "Performance analysis file not found. Run analyze_test_results first."
-            await ctx.error("Missing Performance Analysis", error_msg)
+            await ctx.error(f"Missing Performance Analysis: {error_msg}")
             return {"error": error_msg, "status": "failed"}
             
         if not infrastructure_file.exists():
             error_msg = "Infrastructure analysis file not found. Run analyze_environment_metrics first."
-            await ctx.error("Missing Infrastructure Analysis", error_msg)
+            await ctx.error(f"Missing Infrastructure Analysis: {error_msg}")
             return {"error": error_msg, "status": "failed"}
         
         # Load analysis data
@@ -314,7 +316,6 @@ async def correlate_performance_data(test_run_id: str, ctx: Context, sla_id: Opt
         md_file = analysis_path / 'correlation_analysis.md'
         await write_markdown_output(format_correlation_markdown(correlation_results), md_file)
         
-        await ctx.info(f"Correlation analysis completed", f"Results saved to {output_file}")
         await ctx.set_state("correlation_analysis", json.dumps(correlation_results))
         await ctx.set_state("correlation_analysis_file", str(output_file))
         
@@ -331,7 +332,7 @@ async def correlate_performance_data(test_run_id: str, ctx: Context, sla_id: Opt
         
     except Exception as e:
         error_msg = f"Correlation analysis failed: {str(e)}"
-        await ctx.error("Correlation Error", error_msg)
+        await ctx.error(f"Correlation Error: {error_msg}")
         return {"error": error_msg, "status": "failed"}
 
 async def detect_performance_anomalies(test_run_id: str, sensitivity: str, ctx: Context) -> Dict[str, Any]:
@@ -349,7 +350,7 @@ async def detect_performance_anomalies(test_run_id: str, sensitivity: str, ctx: 
 
         if not blazemeter_results.exists():
             error_msg = "Test results CSV not found for anomaly detection (checked blazemeter/ and jmeter/)"
-            await ctx.error("Missing Test Results", error_msg)
+            await ctx.error(f"Missing Test Results: {error_msg}")
             return {"error": error_msg, "status": "failed"}
         
         anomalies = detect_statistical_anomalies(blazemeter_results, datadog_metrics, sensitivity)
@@ -366,7 +367,6 @@ async def detect_performance_anomalies(test_run_id: str, sensitivity: str, ctx: 
         md_file = artifacts_path / 'anomaly_detection.md'
         write_markdown_output(format_anomalies_markdown(anomalies), md_file)
         
-        await ctx.info(f"Anomaly detection completed", f"Found {len(anomalies.get('anomalies', []))} anomalies")
         await ctx.set_state("anomaly_detection", json.dumps(anomalies))
         await ctx.set_state("anomaly_detection_file", str(output_file))
         
@@ -384,7 +384,7 @@ async def detect_performance_anomalies(test_run_id: str, sensitivity: str, ctx: 
         
     except Exception as e:
         error_msg = f"Anomaly detection failed: {str(e)}"
-        await ctx.error("Anomaly Detection Error", error_msg)
+        await ctx.error(f"Anomaly Detection Error: {error_msg}")
         return {"error": error_msg, "status": "failed"}
 
 async def identify_system_bottlenecks(test_run_id: str, ctx: Context, sla_id: Optional[str] = None) -> Dict[str, Any]:
@@ -403,7 +403,7 @@ async def compare_multiple_runs(test_run_ids: List[str], comparison_type: str, c
     try:
         if len(test_run_ids) > 5:
             error_msg = "Maximum 5 test runs allowed for comparison"
-            await ctx.error("Too Many Runs", error_msg)
+            await ctx.error(f"Too Many Runs: {error_msg}")
             return {"error": error_msg, "status": "failed"}
         
         comparison_results = perform_multi_run_comparison(test_run_ids, comparison_type)
@@ -417,7 +417,6 @@ async def compare_multiple_runs(test_run_ids: List[str], comparison_type: str, c
         md_file = Path(artifacts_base) / f'comparison_{comparison_id}.md'
         write_markdown_output(format_comparison_markdown(comparison_results), md_file)
         
-        await ctx.info(f"Test run comparison completed", f"Compared {len(test_run_ids)} runs")
         await ctx.set_state("comparison_results", json.dumps(comparison_results))
         await ctx.set_state("comparison_file", str(output_file))
         
@@ -433,7 +432,7 @@ async def compare_multiple_runs(test_run_ids: List[str], comparison_type: str, c
         
     except Exception as e:
         error_msg = f"Test run comparison failed: {str(e)}"
-        await ctx.error("Comparison Error", error_msg)
+        await ctx.error(f"Comparison Error: {error_msg}")
         return {"error": error_msg, "status": "failed"}
 
 async def generate_executive_summary(test_run_id: str, include_recommendations: bool, ctx: Context) -> Dict[str, Any]:
@@ -484,7 +483,6 @@ async def generate_executive_summary(test_run_id: str, include_recommendations: 
         md_file = artifacts_path / 'executive_summary.md'
         write_markdown_output(format_executive_markdown(summary), md_file)
         
-        await ctx.info(f"Executive summary generated", f"Summary saved to {output_file}")
         await ctx.set_state("executive_summary", json.dumps(summary))
         await ctx.set_state("executive_summary_file", str(output_file))
         
@@ -500,7 +498,7 @@ async def generate_executive_summary(test_run_id: str, include_recommendations: 
         
     except Exception as e:
         error_msg = f"Executive summary generation failed: {str(e)}"
-        await ctx.error("Summary Generation Error", error_msg)
+        await ctx.error(f"Summary Generation Error: {error_msg}")
         return {"error": error_msg, "status": "failed"}
 
 async def get_current_analysis_status(test_run_id: str, ctx: Context) -> Dict[str, Any]:
@@ -512,7 +510,7 @@ async def get_current_analysis_status(test_run_id: str, ctx: Context) -> Dict[st
         
         if not artifacts_path.exists():
             error_msg = f"Test run not found: {test_run_id}"
-            await ctx.error("Test Run Not Found", error_msg)
+            await ctx.error(f"Test Run Not Found: {error_msg}")
             return {"error": error_msg, "status": "not_found"}
         
         # Check which analysis steps are completed
@@ -539,13 +537,11 @@ async def get_current_analysis_status(test_run_id: str, ctx: Context) -> Dict[st
                 status["completed_analyses"].append(analysis_name)
                 status["available_files"].append(str(full_path))
         
-        await ctx.info(f"Analysis status retrieved", f"Completed: {len(status['completed_analyses'])} analyses")
-        
         return status
         
     except Exception as e:
         error_msg = f"Status check failed: {str(e)}"
-        await ctx.error("Status Check Error", error_msg)
+        await ctx.error(f"Status Check Error: {error_msg}")
         return {"error": error_msg, "status": "failed"}
 
 # -----------------------------------------------
@@ -682,7 +678,7 @@ async def generate_performance_outputs(analysis: Dict, output_path: Path, test_r
         await write_json_output(analysis, json_file)
         output_files['json'] = str(json_file)
     except Exception as e:
-        await ctx.error("JSON Output Error", f"Failed to generate JSON: {str(e)}")
+        await ctx.error(f"JSON Output Error: Failed to generate JSON: {str(e)}")
 
     # CSV Output - Structured data for reporting
     try:
@@ -690,7 +686,7 @@ async def generate_performance_outputs(analysis: Dict, output_path: Path, test_r
         await write_performance_csv(analysis, csv_file)
         output_files['csv'] = str(csv_file)
     except Exception as e:
-        await ctx.error("CSV Output Error", f"Failed to generate CSV: {str(e)}")
+        await ctx.error(f"CSV Output Error: Failed to generate CSV: {str(e)}")
 
     # Markdown Output - Human-readable summary
     try:
@@ -699,7 +695,7 @@ async def generate_performance_outputs(analysis: Dict, output_path: Path, test_r
         await write_markdown_output(markdown_content, markdown_file)
         output_files['markdown'] = str(markdown_file)
     except Exception as e:
-        await ctx.error("Markdown Output Error", f"Failed to generate Markdown: {str(e)}")
+        await ctx.error(f"Markdown Output Error: Failed to generate Markdown: {str(e)}")
 
-    await ctx.info("Output Generation", f"Generated {len(output_files)} of 3 analysis files")
+    await ctx.info(f"Output Generation: Generated {len(output_files)} of 3 analysis files")
     return output_files
