@@ -265,13 +265,12 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
                             cpu_unit_family = unit_info[0].get("family", "").lower()
             except Exception as e:
                 warnings.append(f"Host '{hostname}': API error — {e}; Request params: {params}; Response: {json.dumps(data, indent=2) if 'data' in locals() else 'N/A'}")
-                await ctx.error(f"Host '{hostname}': API error — {e}; Request params: {params}; Response: {json.dumps(data, indent=2) if 'data' in locals() else 'N/A'}")
+                await ctx.error(f"Host '{hostname}': API error — {e}")
                 continue
 
             # If no datapoints at all, skip file
             if not any(series_map.values()):
                 warnings.append(f"Host '{hostname}': no datapoints in the date range; skipping file")
-                await ctx.info(warnings[-1])
                 continue
 
             # Prepare per-host CSV
@@ -338,8 +337,6 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
                 "avg_cpu_util": round(avg_cpu_util, 4),
                 "avg_mem_pct": round(avg_mem_pct, 4),
             })
-
-            await ctx.info(f"Host CSV written: {outcsv}")
 
     summary = {
         "env_name": env_name,
@@ -472,7 +469,6 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
             # If both CPU and Memory usage are empty, skip file
             if not any(cpu_usage_series.values()) and not any(mem_usage_series.values()):
                 warnings.append(f"Service '{s_filter}': no datapoints in the date range; skipping file")
-                await ctx.info(warnings[-1])
                 continue
 
             # Calculate % utilization using dynamic limits
@@ -487,11 +483,9 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
             if not has_cpu_limits:
                 warn_msg = f"Service '{s_filter}': CPU limits not defined in Kubernetes. % utilization marked as -1."
                 warnings.append(warn_msg)
-                await ctx.info(warn_msg)
             if not has_mem_limits:
                 warn_msg = f"Service '{s_filter}': Memory limits not defined in Kubernetes. % utilization marked as -1."
                 warnings.append(warn_msg)
-                await ctx.info(warn_msg)
 
             # Prepare per-service CSV
             fname = f"k8s_metrics_[{_normalize_k8s_filter(s_filter)}].csv"
@@ -569,8 +563,6 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                 aggregate_entry["avg_mem_pct"] = -1  # -1 indicates limits not defined
 
             aggregates.append(aggregate_entry)
-
-            await ctx.info(f"K8s CSV written: {outcsv}")
 
         # -------------------------------------------------------------
         # 2) Pods - Using DYNAMIC limits from Datadog
@@ -666,7 +658,6 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
             # If both CPU and Memory usage are empty, skip file
             if not any(pod_cpu_usage_series.values()) and not any(pod_mem_usage_series.values()):
                 warnings.append(f"Pod '{pod_filter}': no datapoints in the date range; skipping file")
-                await ctx.info(warnings[-1])
                 continue
 
             # Calculate % utilization using dynamic limits
@@ -681,11 +672,9 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
             if not has_cpu_limits:
                 warn_msg = f"Pod '{pod_filter}': CPU limits not defined in Kubernetes. % utilization marked as -1."
                 warnings.append(warn_msg)
-                await ctx.info(warn_msg)
             if not has_mem_limits:
                 warn_msg = f"Pod '{pod_filter}': Memory limits not defined in Kubernetes. % utilization marked as -1."
                 warnings.append(warn_msg)
-                await ctx.info(warn_msg)
 
             # Prepare per-pod CSV
             fname = f"k8s_metrics_[{_normalize_k8s_filter(pod_filter)}].csv"
@@ -763,8 +752,6 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
                 aggregate_entry["avg_mem_pct"] = -1  # -1 indicates limits not defined
 
             aggregates.append(aggregate_entry)
-
-            await ctx.info(f"K8s pod CSV written: {outcsv}")
 
     # Final summary
     summary = {
