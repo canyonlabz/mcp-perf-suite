@@ -91,7 +91,6 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
             
             if jmeter_logs:
                 for jmeter_log_path in jmeter_logs:
-                    await ctx.info(f"Analyzing JMeter log: {jmeter_log_path.name}")
                     jmeter_issues = await analyze_jmeter_log(
                         jmeter_log_path, 
                         test_run_id, 
@@ -137,7 +136,6 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
         # Correlate with performance analysis
         perf_analysis_path = analysis_path / "performance_analysis.json"
         if perf_analysis_path.exists():
-            await ctx.info("Correlating with performance analysis...")
             perf_correlations = await correlate_with_performance_analysis(
                 all_log_issues, 
                 perf_analysis_path,
@@ -151,7 +149,6 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
         # Correlate with infrastructure analysis
         infra_analysis_path = analysis_path / "infrastructure_analysis.json"
         if infra_analysis_path.exists():
-            await ctx.info("Correlating with infrastructure analysis...")
             infra_correlations = await correlate_with_infrastructure_analysis(
                 all_log_issues, 
                 infra_analysis_path,
@@ -234,8 +231,6 @@ async def analyze_jmeter_log(
             - line_number: Line number in log file
             - count: Number of similar occurrences
     """
-    await ctx.info(f"Starting JMeter log analysis for: {log_path}")
-    
     issues = []
     error_patterns = compile_jmeter_error_patterns()
     
@@ -529,8 +524,6 @@ async def analyze_datadog_logs(
             - error_message: The actual error message
             - count: Number of similar occurrences
     """
-    await ctx.info(f"Starting Datadog log analysis in: {logs_path}")
-    
     issues = []
     
     # Find all Datadog log files (logs_*_*.csv pattern)
@@ -540,10 +533,7 @@ async def analyze_datadog_logs(
         await ctx.warning(f"No Datadog log files found in {logs_path}")
         return []
     
-    await ctx.info(f"Found {len(log_files)} Datadog log file(s) to analyze")
-    
     for log_file in log_files:
-        await ctx.info(f"Analyzing Datadog log file: {log_file.name}")
         
         try:
             # Parse filename to extract query_type and environment
@@ -565,8 +555,6 @@ async def analyze_datadog_logs(
                     issue = categorize_datadog_error(row, query_type, env_name, ctx)
                     if issue:
                         issues.append(issue)
-            
-            await ctx.info(f"Processed {row_num} rows from {log_file.name}")
             
         except Exception as e:
             await ctx.error(f"Error processing {log_file.name}: {str(e)}")
@@ -849,8 +837,6 @@ async def correlate_with_performance_analysis(
         with open(analysis_path, 'r') as f:
             perf_data = json.load(f)
         
-        await ctx.info("Correlating log issues with performance analysis...")
-        
         # Extract APIs with SLA violations from performance analysis
         sla_violations = perf_data.get("sla_violations", [])
         
@@ -910,8 +896,6 @@ async def correlate_with_infrastructure_analysis(
     try:
         with open(analysis_path, 'r') as f:
             infra_data = json.load(f)
-        
-        await ctx.info("Correlating log issues with infrastructure analysis...")
         
         # Extract hosts/services with resource issues
         kpi_violations = infra_data.get("kpi_violations", [])
@@ -1069,7 +1053,6 @@ async def generate_log_analysis_outputs(
                 writer.writerow(row)
         
         output_files["csv"] = str(csv_path)
-        await ctx.info(f"CSV output written to: {csv_path}")
         
     except Exception as e:
         await ctx.error(f"Error writing CSV output: {str(e)}")
@@ -1087,7 +1070,6 @@ async def generate_log_analysis_outputs(
             json.dump(summary, f, indent=2, default=str)
         
         output_files["json"] = str(json_path)
-        await ctx.info(f"JSON summary written to: {json_path}")
         
     except Exception as e:
         await ctx.error(f"Error writing JSON output: {str(e)}")
@@ -1110,7 +1092,6 @@ async def generate_log_analysis_outputs(
             f.write(markdown_content)
         
         output_files["markdown"] = str(md_path)
-        await ctx.info(f"Markdown report written to: {md_path}")
         
     except Exception as e:
         await ctx.error(f"Error writing Markdown output: {str(e)}")
