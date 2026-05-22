@@ -91,7 +91,7 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
             
             if jmeter_logs:
                 for jmeter_log_path in jmeter_logs:
-                    ctx.info(f"Analyzing JMeter log: {jmeter_log_path.name}")
+                    await ctx.info(f"Analyzing JMeter log: {jmeter_log_path.name}")
                     jmeter_issues = await analyze_jmeter_log(
                         jmeter_log_path, 
                         test_run_id, 
@@ -103,9 +103,9 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
                     issue for issue in all_log_issues
                     if issue.get("source") == "jmeter"
                 ])
-                ctx.info(f"Found {issues_by_source['jmeter']} JMeter log issues across {len(jmeter_logs)} log file(s)")
+                await ctx.info(f"Found {issues_by_source['jmeter']} JMeter log issues across {len(jmeter_logs)} log file(s)")
             else:
-                ctx.warning(f"No JMeter logs found in: {blazemeter_dir}")
+                await ctx.warning(f"No JMeter logs found in: {blazemeter_dir}")
                 issues_by_source["jmeter"] = 0
         
         # ============================
@@ -115,7 +115,7 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
             datadog_logs_path = artifacts_base / "datadog"
             
             if datadog_logs_path.exists():
-                ctx.info(f"Analyzing Datadog logs in: {datadog_logs_path}")
+                await ctx.info(f"Analyzing Datadog logs in: {datadog_logs_path}")
                 datadog_issues = await analyze_datadog_logs(
                     datadog_logs_path, 
                     test_run_id, 
@@ -124,9 +124,9 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
                 )
                 all_log_issues.extend(datadog_issues)
                 issues_by_source["datadog"] = len(datadog_issues)
-                ctx.info(f"Found {len(datadog_issues)} Datadog log issues")
+                await ctx.info(f"Found {len(datadog_issues)} Datadog log issues")
             else:
-                ctx.warning(f"Datadog logs directory not found: {datadog_logs_path}")
+                await ctx.warning(f"Datadog logs directory not found: {datadog_logs_path}")
                 issues_by_source["datadog"] = 0
         
         # ============================
@@ -137,7 +137,7 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
         # Correlate with performance analysis
         perf_analysis_path = analysis_path / "performance_analysis.json"
         if perf_analysis_path.exists():
-            ctx.info("Correlating with performance analysis...")
+            await ctx.info("Correlating with performance analysis...")
             perf_correlations = await correlate_with_performance_analysis(
                 all_log_issues, 
                 perf_analysis_path,
@@ -145,13 +145,13 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
             )
             correlations["performance"] = perf_correlations
         else:
-            ctx.info("Performance analysis not found, skipping correlation")
+            await ctx.info("Performance analysis not found, skipping correlation")
             correlations["performance"] = {"available": False}
         
         # Correlate with infrastructure analysis
         infra_analysis_path = analysis_path / "infrastructure_analysis.json"
         if infra_analysis_path.exists():
-            ctx.info("Correlating with infrastructure analysis...")
+            await ctx.info("Correlating with infrastructure analysis...")
             infra_correlations = await correlate_with_infrastructure_analysis(
                 all_log_issues, 
                 infra_analysis_path,
@@ -159,7 +159,7 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
             )
             correlations["infrastructure"] = infra_correlations
         else:
-            ctx.info("Infrastructure analysis not found, skipping correlation")
+            await ctx.info("Infrastructure analysis not found, skipping correlation")
             correlations["infrastructure"] = {"available": False}
         
         # ============================
@@ -191,7 +191,7 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
         }
         
     except Exception as e:
-        ctx.error(f"Error during log analysis: {str(e)}")
+        await ctx.error(f"Error during log analysis: {str(e)}")
         return {
             "success": False,
             "test_run_id": test_run_id,
@@ -234,7 +234,7 @@ async def analyze_jmeter_log(
             - line_number: Line number in log file
             - count: Number of similar occurrences
     """
-    ctx.info(f"Starting JMeter log analysis for: {log_path}")
+    await ctx.info(f"Starting JMeter log analysis for: {log_path}")
     
     issues = []
     error_patterns = compile_jmeter_error_patterns()
@@ -270,14 +270,14 @@ async def analyze_jmeter_log(
                         issues.append(issue)
         
         # Group similar errors together
-        grouped_issues = group_errors_by_type_and_api(issues, ctx)
+        grouped_issues = group_errors_by_type_and_api(issues)
         
-        ctx.info(f"JMeter log analysis complete. Found {len(grouped_issues)} unique issue groups.")
+        await ctx.info(f"JMeter log analysis complete. Found {len(grouped_issues)} unique issue groups.")
         
         return grouped_issues
         
     except Exception as e:
-        ctx.error(f"Error reading JMeter log file: {str(e)}")
+        await ctx.error(f"Error reading JMeter log file: {str(e)}")
         return []
 
 
@@ -429,13 +429,12 @@ def extract_api_from_context(line: str, context_lines: List[str]) -> str:
     return "Unknown API"
 
 
-def group_errors_by_type_and_api(issues: List[Dict], ctx: Context) -> List[Dict]:
+def group_errors_by_type_and_api(issues: List[Dict]) -> List[Dict]:
     """
     Group similar errors together by error type and API.
     
     Args:
         issues: List of individual error issues
-        ctx: FastMCP context
     
     Returns:
         List of grouped errors with aggregated counts
@@ -530,7 +529,7 @@ async def analyze_datadog_logs(
             - error_message: The actual error message
             - count: Number of similar occurrences
     """
-    ctx.info(f"Starting Datadog log analysis in: {logs_path}")
+    await ctx.info(f"Starting Datadog log analysis in: {logs_path}")
     
     issues = []
     
@@ -538,13 +537,13 @@ async def analyze_datadog_logs(
     log_files = list(logs_path.glob("logs_*.csv"))
     
     if not log_files:
-        ctx.warning(f"No Datadog log files found in {logs_path}")
+        await ctx.warning(f"No Datadog log files found in {logs_path}")
         return []
     
-    ctx.info(f"Found {len(log_files)} Datadog log file(s) to analyze")
+    await ctx.info(f"Found {len(log_files)} Datadog log file(s) to analyze")
     
     for log_file in log_files:
-        ctx.info(f"Analyzing Datadog log file: {log_file.name}")
+        await ctx.info(f"Analyzing Datadog log file: {log_file.name}")
         
         try:
             # Parse filename to extract query_type and environment
@@ -567,16 +566,16 @@ async def analyze_datadog_logs(
                     if issue:
                         issues.append(issue)
             
-            ctx.info(f"Processed {row_num} rows from {log_file.name}")
+            await ctx.info(f"Processed {row_num} rows from {log_file.name}")
             
         except Exception as e:
-            ctx.error(f"Error processing {log_file.name}: {str(e)}")
+            await ctx.error(f"Error processing {log_file.name}: {str(e)}")
             continue
     
     # Group similar errors
-    grouped_issues = group_datadog_errors(issues, ctx)
+    grouped_issues = group_datadog_errors(issues)
     
-    ctx.info(f"Datadog log analysis complete. Found {len(grouped_issues)} unique issue groups.")
+    await ctx.info(f"Datadog log analysis complete. Found {len(grouped_issues)} unique issue groups.")
     
     return grouped_issues
 
@@ -744,13 +743,12 @@ def extract_api_from_datadog_log(row: Dict[str, str], message: str) -> str:
     return row.get("service", "Unknown API")
 
 
-def group_datadog_errors(issues: List[Dict], ctx: Context) -> List[Dict]:
+def group_datadog_errors(issues: List[Dict]) -> List[Dict]:
     """
     Group similar Datadog errors by error type, service, and API.
     
     Args:
         issues: List of individual Datadog error issues
-        ctx: FastMCP context
     
     Returns:
         List of grouped errors with aggregated counts
@@ -851,7 +849,7 @@ async def correlate_with_performance_analysis(
         with open(analysis_path, 'r') as f:
             perf_data = json.load(f)
         
-        ctx.info("Correlating log issues with performance analysis...")
+        await ctx.info("Correlating log issues with performance analysis...")
         
         # Extract APIs with SLA violations from performance analysis
         sla_violations = perf_data.get("sla_violations", [])
@@ -885,7 +883,7 @@ async def correlate_with_performance_analysis(
         }
         
     except Exception as e:
-        ctx.error(f"Error correlating with performance analysis: {str(e)}")
+        await ctx.error(f"Error correlating with performance analysis: {str(e)}")
         return {"available": False, "error": str(e)}
 
 
@@ -913,7 +911,7 @@ async def correlate_with_infrastructure_analysis(
         with open(analysis_path, 'r') as f:
             infra_data = json.load(f)
         
-        ctx.info("Correlating log issues with infrastructure analysis...")
+        await ctx.info("Correlating log issues with infrastructure analysis...")
         
         # Extract hosts/services with resource issues
         kpi_violations = infra_data.get("kpi_violations", [])
@@ -953,7 +951,7 @@ async def correlate_with_infrastructure_analysis(
         }
         
     except Exception as e:
-        ctx.error(f"Error correlating with infrastructure analysis: {str(e)}")
+        await ctx.error(f"Error correlating with infrastructure analysis: {str(e)}")
         return {"available": False, "error": str(e)}
 
 
@@ -1071,10 +1069,10 @@ async def generate_log_analysis_outputs(
                 writer.writerow(row)
         
         output_files["csv"] = str(csv_path)
-        ctx.info(f"CSV output written to: {csv_path}")
+        await ctx.info(f"CSV output written to: {csv_path}")
         
     except Exception as e:
-        ctx.error(f"Error writing CSV output: {str(e)}")
+        await ctx.error(f"Error writing CSV output: {str(e)}")
     
     # ============================
     # Generate JSON Summary
@@ -1089,10 +1087,10 @@ async def generate_log_analysis_outputs(
             json.dump(summary, f, indent=2, default=str)
         
         output_files["json"] = str(json_path)
-        ctx.info(f"JSON summary written to: {json_path}")
+        await ctx.info(f"JSON summary written to: {json_path}")
         
     except Exception as e:
-        ctx.error(f"Error writing JSON output: {str(e)}")
+        await ctx.error(f"Error writing JSON output: {str(e)}")
     
     # ============================
     # Generate Markdown Report
@@ -1112,10 +1110,10 @@ async def generate_log_analysis_outputs(
             f.write(markdown_content)
         
         output_files["markdown"] = str(md_path)
-        ctx.info(f"Markdown report written to: {md_path}")
+        await ctx.info(f"Markdown report written to: {md_path}")
         
     except Exception as e:
-        ctx.error(f"Error writing Markdown output: {str(e)}")
+        await ctx.error(f"Error writing Markdown output: {str(e)}")
     
     return output_files
 
@@ -1372,7 +1370,7 @@ async def analyze_temporal_error_patterns(
     Returns:
         Dictionary with temporal analysis (placeholder for now)
     """
-    ctx.info("Temporal error pattern analysis called")
+    await ctx.info("Temporal error pattern analysis called")
     return {
         "status": "Future enhancement: Not available yet",
         "description": "Will analyze error distribution over time, identify spikes, and correlate with load phases"
@@ -1396,7 +1394,7 @@ async def detect_error_trends_across_runs(
     Returns:
         Dictionary with trend analysis (placeholder for now)
     """
-    ctx.info("Error trend detection called")
+    await ctx.info("Error trend detection called")
     return {
         "status": "Future enhancement: Not available yet",
         "description": "Will compare error patterns across runs and identify trends"
@@ -1422,7 +1420,7 @@ async def generate_error_recommendations(
     Returns:
         List of recommendation dictionaries (placeholder for now)
     """
-    ctx.info("Error recommendation generation called")
+    await ctx.info("Error recommendation generation called")
     return [
         {
             "status": "Future enhancement: Not available yet",
@@ -1449,7 +1447,7 @@ async def correlate_errors_with_test_phases(
     Returns:
         Dictionary with phase correlation analysis (placeholder for now)
     """
-    ctx.info("Error-phase correlation called")
+    await ctx.info("Error-phase correlation called")
     return {
         "status": "Future enhancement: Not available yet",
         "description": "Will correlate errors with test execution phases"
