@@ -48,7 +48,7 @@ async def perform_infrastructure_analysis(
     
     # Analyze Kubernetes metrics if present
     if k8s_files:
-        await ctx.info("K8s Analysis", f"Processing {len(k8s_files)} Kubernetes metrics files")
+        await ctx.info(f"K8s Analysis: Processing {len(k8s_files)} Kubernetes metrics files")
         k8s_analysis = await analyze_kubernetes_metrics(k8s_files, environments_config, config, ctx)
         analysis_results["detailed_metrics"]["kubernetes"] = k8s_analysis
         analysis_results["environments_analyzed"].extend(k8s_analysis.get("environments", []))
@@ -56,7 +56,7 @@ async def perform_infrastructure_analysis(
     
     # Analyze Host metrics if present  
     if host_files:
-        await ctx.info("Host Analysis", f"Processing {len(host_files)} host metrics files")
+        await ctx.info(f"Host Analysis: Processing {len(host_files)} host metrics files")
         host_analysis = await analyze_host_metrics(host_files, environments_config, config, ctx)
         analysis_results["detailed_metrics"]["hosts"] = host_analysis
         analysis_results["environments_analyzed"].extend(host_analysis.get("environments", []))
@@ -93,7 +93,7 @@ async def analyze_kubernetes_metrics(
             df = pd.read_csv(k8s_file)
             all_k8s_data.append(df)
         except Exception as e:
-            await ctx.error(f"K8s File Error", f"Failed to read {k8s_file}: {str(e)}")
+            await ctx.error(f"K8s File Error: Failed to read {k8s_file}: {str(e)}")
             continue
     
     if not all_k8s_data:
@@ -383,7 +383,7 @@ async def analyze_host_metrics(
             df = pd.read_csv(host_file)
             all_host_data.append(df)
         except Exception as e:
-            await ctx.error(f"Host File Error", f"Failed to read {host_file}: {str(e)}")
+            await ctx.error(f"Host File Error: Failed to read {host_file}: {str(e)}")
             continue
     
     if not all_host_data:
@@ -915,10 +915,10 @@ async def generate_infrastructure_outputs(analysis: Dict, output_path: Path, tes
         await write_markdown_output(markdown_content, markdown_file)
         output_files['markdown'] = str(markdown_file)
         
-        await ctx.info("Infrastructure Output Generation", f"Generated {len(output_files)} analysis files")
+        await ctx.info(f"Infrastructure Output Generation: Generated {len(output_files)} analysis files")
         
     except Exception as e:
-        await ctx.error("Infrastructure Output Generation Error", f"Failed to generate outputs: {str(e)}")
+        await ctx.error(f"Infrastructure Output Generation Error: Failed to generate outputs: {str(e)}")
     
     return output_files
 

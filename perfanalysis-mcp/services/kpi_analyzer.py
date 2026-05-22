@@ -72,15 +72,15 @@ async def analyze_kpi_metrics(
         "analysis_timestamp": datetime.datetime.now().isoformat(),
     }
 
-    await ctx.info("KPI Analysis", f"Processing {len(kpi_files)} KPI metrics file(s)")
+    await ctx.info(f"KPI Analysis: Processing {len(kpi_files)} KPI metrics file(s)")
 
     raw_df = load_kpi_dataframe(kpi_files)
     if raw_df is None or raw_df.empty:
-        await ctx.warning("KPI Analysis", "KPI CSV files found but contained no data")
+        await ctx.warning("KPI Analysis: KPI CSV files found but contained no data")
         return kpi_analysis
 
     if "identifier" not in raw_df.columns:
-        await ctx.warning("KPI Analysis", "KPI CSV missing identifier column — skipping")
+        await ctx.warning("KPI Analysis: KPI CSV missing identifier column — skipping")
         return kpi_analysis
 
     scope_type = detect_kpi_scope(raw_df)
@@ -126,9 +126,8 @@ async def analyze_kpi_metrics(
     kpi_analysis["kpi_insights"] = generate_kpi_insights(kpi_analysis)
 
     await ctx.info(
-        "KPI Analysis Complete",
-        f"Analyzed {len(entities)} {entity_label}(s), "
-        f"{len(categories_seen)} category/categories: {', '.join(sorted(categories_seen))}",
+        f"KPI Analysis Complete: Analyzed {len(entities)} {entity_label}(s), "
+        f"{len(categories_seen)} category/categories: {', '.join(sorted(categories_seen))}"
     )
 
     return kpi_analysis
@@ -595,14 +594,12 @@ async def generate_kpi_outputs(
         output_files["markdown"] = str(md_file)
 
         await ctx.info(
-            "KPI Output Generation",
-            f"Generated {len(output_files)} KPI analysis file(s)",
+            f"KPI Output Generation: Generated {len(output_files)} KPI analysis file(s)"
         )
 
     except Exception as e:
         await ctx.error(
-            "KPI Output Generation Error",
-            f"Failed to generate KPI outputs: {str(e)}",
+            f"KPI Output Generation Error: Failed to generate KPI outputs: {str(e)}"
         )
 
     return output_files
