@@ -315,8 +315,8 @@ async def correlate_performance_data(test_run_id: str, ctx: Context, sla_id: Opt
         await write_markdown_output(format_correlation_markdown(correlation_results), md_file)
         
         await ctx.info(f"Correlation analysis completed", f"Results saved to {output_file}")
-        ctx.set_state("correlation_analysis", json.dumps(correlation_results))
-        ctx.set_state("correlation_analysis_file", str(output_file))
+        await ctx.set_state("correlation_analysis", json.dumps(correlation_results))
+        await ctx.set_state("correlation_analysis_file", str(output_file))
         
         return {
             "status": "success",
@@ -367,8 +367,8 @@ async def detect_performance_anomalies(test_run_id: str, sensitivity: str, ctx: 
         write_markdown_output(format_anomalies_markdown(anomalies), md_file)
         
         await ctx.info(f"Anomaly detection completed", f"Found {len(anomalies.get('anomalies', []))} anomalies")
-        ctx.set_state("anomaly_detection", json.dumps(anomalies))
-        ctx.set_state("anomaly_detection_file", str(output_file))
+        await ctx.set_state("anomaly_detection", json.dumps(anomalies))
+        await ctx.set_state("anomaly_detection_file", str(output_file))
         
         return {
             "status": "success",
@@ -418,8 +418,8 @@ async def compare_multiple_runs(test_run_ids: List[str], comparison_type: str, c
         write_markdown_output(format_comparison_markdown(comparison_results), md_file)
         
         await ctx.info(f"Test run comparison completed", f"Compared {len(test_run_ids)} runs")
-        ctx.set_state("comparison_results", json.dumps(comparison_results))
-        ctx.set_state("comparison_file", str(output_file))
+        await ctx.set_state("comparison_results", json.dumps(comparison_results))
+        await ctx.set_state("comparison_file", str(output_file))
         
         return {
             "status": "success",
@@ -485,8 +485,8 @@ async def generate_executive_summary(test_run_id: str, include_recommendations: 
         write_markdown_output(format_executive_markdown(summary), md_file)
         
         await ctx.info(f"Executive summary generated", f"Summary saved to {output_file}")
-        ctx.set_state("executive_summary", json.dumps(summary))
-        ctx.set_state("executive_summary_file", str(output_file))
+        await ctx.set_state("executive_summary", json.dumps(summary))
+        await ctx.set_state("executive_summary_file", str(output_file))
         
         return {
             "status": "success",
