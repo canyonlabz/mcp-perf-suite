@@ -1,5 +1,5 @@
 # perfanalysis.py
-from fastmcp import FastMCP, Context    # ✅ FastMCP 2.x import
+from fastmcp import FastMCP, Context    # ✅ FastMCP 3.x import
 from typing import Optional, List, Dict, Any
 import json
 
@@ -15,7 +15,7 @@ from services.performance_analyzer import (
 from services.bottleneck_analyzer import analyze_bottlenecks
 from services.log_analyzer import analyze_logs as analyze_logs_impl
 
-mcp = FastMCP(name="perfanalysis")
+mcp = FastMCP("perfanalysis")
 
 @mcp.tool()
 async def analyze_test_results(test_run_id: str, ctx: Context, sla_id: Optional[str] = None) -> Dict[str, Any]:
@@ -69,7 +69,7 @@ async def correlate_test_results(test_run_id: str, ctx: Context, sla_id: Optiona
     """
     return await correlate_performance_data(test_run_id, ctx, sla_id=sla_id)
 
-@mcp.tool(enabled=False)
+@mcp.tool(tags={"disabled"})
 async def detect_anomalies(test_run_id: str, sensitivity: str = "medium", ctx: Context = None) -> Dict[str, Any]:
     """
     Detect statistical anomalies in performance and infrastructure metrics
@@ -122,7 +122,7 @@ async def identify_bottlenecks(test_run_id: str, ctx: Context, baseline_run_id: 
     """
     return await analyze_bottlenecks(test_run_id, ctx, baseline_run_id, sla_id=sla_id)
 
-@mcp.tool(enabled=False)
+@mcp.tool(tags={"disabled"})
 async def compare_test_runs(test_run_ids: List[str], comparison_type: str = "performance", ctx: Context = None) -> Dict[str, Any]:
     """
     Compare multiple test runs for trend analysis (max 5 runs)
@@ -137,7 +137,7 @@ async def compare_test_runs(test_run_ids: List[str], comparison_type: str = "per
     """
     return await compare_multiple_runs(test_run_ids, comparison_type, ctx)
 
-@mcp.tool(enabled=False)
+@mcp.tool(tags={"disabled"})
 async def summary_analysis(test_run_id: str, include_recommendations: bool = True, ctx: Context = None) -> Dict[str, Any]:
     """
     Generate executive summary with AI-powered insights using OpenAI
@@ -198,8 +198,13 @@ async def analyze_logs(test_run_id: str, ctx: Context) -> Dict[str, Any]:
     """
     return await analyze_logs_impl(test_run_id, ctx)
 
+# -----------------------------
+# Disable tools not yet ready for use (v3: tag-based visibility)
+# -----------------------------
+mcp.disable(tags={"disabled"})
+
 if __name__ == "__main__":
     try:
-        mcp.run("stdio")
+        mcp.run(transport="stdio")
     except KeyboardInterrupt:
         print("Shutting down Performance Analysis MCP…")
