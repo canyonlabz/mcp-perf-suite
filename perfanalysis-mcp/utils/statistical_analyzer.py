@@ -123,8 +123,6 @@ async def perform_aggregate_analysis(df: pd.DataFrame, test_run_id: str, config:
         "high_variability_apis": get_high_variability_apis(individual_apis)
     }
     
-    await ctx.info(f"Aggregate analysis completed for test run {test_run_id}")
-
     return {
         "test_run_id": test_run_id,
         "overall_stats": overall_stats,
