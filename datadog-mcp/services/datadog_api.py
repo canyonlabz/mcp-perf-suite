@@ -54,7 +54,7 @@ def _normalize_k8s_filter(raw_filter: str) -> str:
     stripped = raw_filter.replace("*", "")
     return _sanitize_filename(stripped)
 
-def _ensure_ready(ctx: Optional[Context]):
+def _ensure_ready():
     """Ensure required environment variables are set."""
     missing = []
     if not DD_API_KEY:
@@ -63,8 +63,6 @@ def _ensure_ready(ctx: Optional[Context]):
         missing.append("DD_APP_KEY")
     if missing:
         msg = f"Missing environment variable(s): {', '.join(missing)}"
-        if ctx:
-            ctx.error(msg)
         raise RuntimeError(msg)
 
 def _ensure_artifacts_dir(run_id: str) -> str:
@@ -201,7 +199,7 @@ async def collect_host_metrics(env_name: str, start_time: str, end_time: str, ru
           }
         }
     """
-    _ensure_ready(ctx)
+    _ensure_ready()
 
     # Load environment config internally.
     env_config = await load_environment_json(env_name, ctx)
@@ -385,7 +383,7 @@ async def collect_kubernetes_metrics(env_name: str, start_time: str, end_time: s
           }
         }
     """
-    _ensure_ready(ctx)
+    _ensure_ready()
 
     # Load environment config internally.
     env_config = await load_environment_json(env_name, ctx)

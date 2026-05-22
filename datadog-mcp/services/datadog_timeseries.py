@@ -65,7 +65,7 @@ async def collect_kpi_timeseries(
     Returns:
         dict with "files" list and "summary" dict.
     """
-    _ensure_ready(ctx)
+    _ensure_ready()
 
     # 1. Load environment config
     env_config = await load_environment_json(env_name, ctx)
