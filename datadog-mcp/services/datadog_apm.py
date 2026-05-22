@@ -70,7 +70,6 @@ async def _build_apm_query(env_tag: str, query_type: str, ctx: Context, env_conf
     
     # Direct template match
     if query_type in templates:
-        await ctx.info(f"Using predefined APM template for query_type: {query_type}")
         return templates[query_type]
     
     # 3) Custom APM queries from custom_queries.json
@@ -80,8 +79,6 @@ async def _build_apm_query(env_tag: str, query_type: str, ctx: Context, env_conf
     if query_type in apm_queries:
         query_def = apm_queries[query_type]
         query_string = query_def.get("query", "")
-        description = query_def.get("description", query_type)
-        await ctx.info(f"Using custom APM query from custom_queries.json '{query_type}': {description}")
         return query_string
     
     # 4) Service errors (uses env_config.services)
@@ -95,7 +92,6 @@ async def _build_apm_query(env_tag: str, query_type: str, ctx: Context, env_conf
             return templates['all_errors']
         
         service_query_part = ' OR '.join([f"service:{s}" for s in services])
-        await ctx.info(f"Built service_errors APM query for services: {service_query_part}")
         return f"env:{env_tag} ({service_query_part}) status:error"
     
     raise ValueError(f"Unrecognized query_type: {query_type}")
@@ -176,8 +172,6 @@ async def _write_apm_csv(spans: List[dict], csv_path: Path, ctx: Context):
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(spans)
-    
-    await ctx.info(f"Wrote {len(spans)} APM spans to {csv_path}")
 
 def _normalize_timestamp(timestamp: str) -> str:
     """
@@ -291,7 +285,6 @@ async def collect_apm_traces(env_name: str, start_time: str, end_time: str, quer
         query = await _build_apm_query(env_tag, query_type, ctx, env_config, custom_query)
         
         await ctx.info(f"Fetching APM traces for {env_name} from {start_iso} to {end_iso}")
-        await ctx.info(f"Query: {query}")
 
         # API request setup
         url = V2_APM_SPANS_URL
@@ -340,8 +333,6 @@ async def collect_apm_traces(env_name: str, start_time: str, end_time: str, quer
                 if next_cursor:
                     body['data']['attributes']['page']['cursor'] = next_cursor
                 
-                await ctx.info(f"Fetching APM page {page_count}...")
-                
                 try:
                     response = await client.post(url, headers=headers, json=body)
                     response.raise_for_status()
@@ -365,9 +356,7 @@ async def collect_apm_traces(env_name: str, start_time: str, end_time: str, quer
                     traceback.print_exc()
                     break
                 all_spans.extend(page_spans)
-                
-                await ctx.info(f"Page {page_count}: Retrieved {len(page_spans)} spans (total: {len(all_spans)})")
-                
+
                 # Stop if no more pages or hit limit
                 if not next_cursor or len(all_spans) >= apm_page_limit:
                     break
