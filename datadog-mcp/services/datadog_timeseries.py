@@ -260,7 +260,6 @@ async def collect_kpi_timeseries(
                 w.writerow(row)
 
         files.append(outcsv)
-        await ctx.info(f"KPI CSV written: {outcsv}")
 
     # 10. Return summary
     all_entities = set()

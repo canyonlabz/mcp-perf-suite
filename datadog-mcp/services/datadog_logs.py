@@ -64,7 +64,6 @@ async def _build_query(env_tag: str, query_type: str, ctx: Context, env_config: 
     
     # Direct template match, simple queries not needing env config.
     if query_type in templates:
-        await ctx.info(f"Using predefined template for query_type: {query_type}")
         return templates[query_type]
 
     # 3) Custom log queries from custom_queries.json
@@ -74,10 +73,6 @@ async def _build_query(env_tag: str, query_type: str, ctx: Context, env_config: 
     if query_type in log_queries:
         query_def = log_queries[query_type]
         query_string = query_def.get("query", "")
-        description = query_def.get("description", query_type)
-        await ctx.info(
-            f"Using custom log query from custom_queries.json '{query_type}': {description}"
-        )
         return query_string
 
     # -------------------------------------------------
@@ -96,7 +91,6 @@ async def _build_query(env_tag: str, query_type: str, ctx: Context, env_config: 
             return templates['all_errors']  # Fallback to all errors if no services
         
         service_query_part = ' OR '.join([f"service:{s}" for s in services])
-        await ctx.info(f"Built service_errors query for services: {service_query_part}")
         return f"(env:{env_tag}) AND ({service_query_part}) AND (status:error OR level:ERROR)"
     
     # Host errors
@@ -111,7 +105,6 @@ async def _build_query(env_tag: str, query_type: str, ctx: Context, env_config: 
             return templates['all_errors']  # Fallback to all errors if no hosts
         
         host_query_part = ' OR '.join([f"host:{h}" for h in hosts])
-        await ctx.info(f"Built host_errors query for hosts: {host_query_part}")
         return f"(env:{env_tag}) AND ({host_query_part}) AND (status:error OR level:ERROR)"
     
     # Kubernetes errors
@@ -136,7 +129,6 @@ async def _build_query(env_tag: str, query_type: str, ctx: Context, env_config: 
                 k8s_query_parts.append(f"kube_service:{service_filter}")
         
         k8s_query_part = ' OR '.join(k8s_query_parts)
-        await ctx.info(f"Built kubernetes_errors query for services: {k8s_query_part}")
         return f"(env:{env_tag}) AND ({k8s_query_part}) AND (status:error OR level:ERROR)"
     
     raise ValueError(f"Unrecognized query_type: {query_type}")
@@ -339,7 +331,6 @@ async def _post_search_logs(
     async with httpx.AsyncClient(verify=verify_ssl, timeout=timeout_config) as client:
         while len(all_logs) < log_page_limit and page_count < 10:
             page_count += 1
-            await ctx.info(f"POST search — fetching page {page_count}...")
 
             try:
                 response = await client.post(
@@ -478,7 +469,6 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
         query = await _build_query(env_tag, query_type, ctx, env_config, custom_query)
         
         await ctx.info(f"Fetching logs for {env_name} from {start_iso} to {end_iso}")
-        await ctx.info(f"Query: {query}")
 
         # API request setup
         url = V2_LOGS_URL
@@ -508,8 +498,6 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
                 if next_cursor:
                     params['page[cursor]'] = next_cursor
 
-                await ctx.info(f"Fetching page {page_count + 1}...")
-
                 try:
                     response = await client.get(url, headers=headers, params=params)
                     response.raise_for_status()
@@ -538,10 +526,6 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
         search_methods = ["GET"]
 
         if is_custom:
-            await ctx.info(
-                f"Custom query detected (type='{query_type}'). "
-                f"GET returned {get_log_count} log(s). Attempting POST search..."
-            )
             post_search_used = True
             search_methods.append("POST")
 
@@ -564,10 +548,6 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
             elif get_log_count > 0 and post_log_count > 0:
                 all_logs, dedup_count = _deduplicate_logs(all_logs, post_logs)
                 all_logs = all_logs[:log_page_limit]
-                await ctx.info(
-                    f"Merged GET ({get_log_count}) + POST ({post_log_count}) results. "
-                    f"Removed {dedup_count} duplicate(s). Final count: {len(all_logs)}"
-                )
             elif post_log_count == 0:
                 await ctx.info("POST search also returned 0 results.")
 
@@ -592,8 +572,6 @@ async def collect_logs(env_name: str, start_time: str, end_time: str, query_type
         # Write CSV file
         with open(csv_filepath, 'w', encoding='utf-8', newline='') as f:
             f.write(csv_content)
-
-        await ctx.info(f"Saved logs to: {csv_filepath}")
 
         # Summary statistics
         status_counts = {}
