@@ -17,7 +17,7 @@ from services.revision_context_manager import prepare_revision_context as save_r
 from services.report_revision_generator import revise_performance_test_report as generate_revised_report
 
 
-mcp = FastMCP(name="perfreport")
+mcp = FastMCP("perfreport")
 
 
 @mcp.tool
@@ -249,7 +249,7 @@ async def list_chart_types(ctx: Context = None) -> dict:
 
 if __name__ == "__main__":
     try:
-        mcp.run("stdio")
+        mcp.run(transport="stdio")
     except KeyboardInterrupt:
         print("Shutting down Performance Reporting MCP…")
 
