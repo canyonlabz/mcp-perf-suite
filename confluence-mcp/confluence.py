@@ -26,7 +26,7 @@ from services.confluence_api_v2 import (
 from services.artifact_manager import list_available_reports, list_available_charts
 from services.content_parser import markdown_to_confluence_xhtml, replace_chart_placeholders, _flatten_xhtml
 
-mcp = FastMCP(name="confluence")
+mcp = FastMCP("confluence")
 
 # -----------------------------
 # Validation Helper Functions
@@ -803,7 +803,7 @@ async def search_pages(query: str, mode: str, ctx: Context, space_ref: str = Non
 # -----------------------------
 if __name__ == "__main__":
     try:
-        mcp.run("stdio")
+        mcp.run(transport="stdio")
     except KeyboardInterrupt:
         print("Shutting down Confluence MCP...")
 
