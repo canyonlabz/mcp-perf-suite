@@ -44,8 +44,6 @@ async def markdown_to_confluence_xhtml(test_run_id: str, filename: str, ctx: Con
     file_path = Path(markdown_path)
     if not file_path.exists():
         error_msg = f"Markdown file not found: {markdown_path}"
-        if ctx:
-            await ctx.error(error_msg)
         return {"error": error_msg}
     
     # Read markdown content
@@ -54,8 +52,6 @@ async def markdown_to_confluence_xhtml(test_run_id: str, filename: str, ctx: Con
             markdown_content = f.read()
     except Exception as e:
         error_msg = f"Failed to read markdown file: {e}"
-        if ctx:
-            await ctx.error(error_msg)
         return {"error": error_msg}
     
     # Convert markdown to XHTML
@@ -84,8 +80,6 @@ async def markdown_to_confluence_xhtml(test_run_id: str, filename: str, ctx: Con
         
     except Exception as e:
         error_msg = f"Markdown conversion failed: {e}"
-        if ctx:
-            await ctx.error(error_msg)
         return {"error": error_msg}
 
 def _flatten_xhtml(xhtml: str) -> str:

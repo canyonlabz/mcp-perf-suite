@@ -84,7 +84,6 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
         data = await load_report_data(run_id)
         
         if data["status"] == "error":
-            await ctx.error(data["error"])
             return {
                 "run_id": run_id,
                 "error": data["error"],
@@ -118,7 +117,6 @@ async def generate_performance_test_report(run_id: str, ctx: Context, format: st
         template_path = TEMPLATES_PATH / template_name
         
         if not template_path.exists():
-            await ctx.error(f"Template not found: {template_name}")
             return {
                 "run_id": run_id,
                 "error": f"Template not found: {template_name}",

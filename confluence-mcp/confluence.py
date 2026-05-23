@@ -276,7 +276,6 @@ async def create_page(space_ref: str, test_run_id: str, filename: str, mode: str
         # User provided a custom title - validate it
         validation = validate_page_title(title)
         if not validation["valid"]:
-            await ctx.error(f"Title validation failed: {validation['error']}")
             return {
                 "error": validation["error"],
                 "status": "error",
@@ -386,7 +385,6 @@ async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context
     
     if not charts_folder.exists():
         error_msg = f"Charts folder not found: {charts_folder}"
-        await ctx.error(error_msg)
         return {
             "error": error_msg,
             "page_ref": page_ref,
@@ -399,7 +397,6 @@ async def attach_images(page_ref: str, test_run_id: str, mode: str, ctx: Context
     
     if not png_files:
         error_msg = f"No PNG files found in: {charts_folder}"
-        await ctx.warning(error_msg)
         return {
             "page_ref": page_ref,
             "test_run_id": test_run_id,
@@ -577,7 +574,6 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, 
                 await ctx.warning(f"No main XHTML found, using revised: {xhtml_file.name}")
             else:
                 error_msg = f"No XHTML file found in: {reports_folder}"
-                await ctx.error(error_msg)
                 return {"error": error_msg, "status": "error", "page_ref": page_ref, "test_run_id": test_run_id}
         elif len(main_files) > 1:
             # Multiple main files - this shouldn't happen but handle gracefully
@@ -595,7 +591,6 @@ async def update_page(page_ref: str, test_run_id: str, mode: str, ctx: Context, 
             xhtml_content = f.read()
     except Exception as e:
         error_msg = f"Failed to read XHTML file: {e}"
-        await ctx.error(error_msg)
         return {"error": error_msg, "status": "error", "page_ref": page_ref, "test_run_id": test_run_id}
     
     # Load chart schema for heights

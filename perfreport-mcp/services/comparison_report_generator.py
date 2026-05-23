@@ -59,7 +59,6 @@ async def generate_comparison_report(run_id_list: list, ctx: Context, format: st
         # Validate run count
         run_count = len(run_id_list)
         if run_count < 2:
-            await ctx.error("At least 2 test runs are required for comparison report generation.")
             return {
                 "error": "Comparison requires at least 2 test runs",
                 "run_id_list": run_id_list,
@@ -81,7 +80,6 @@ async def generate_comparison_report(run_id_list: list, ctx: Context, format: st
             metadata_path = ARTIFACTS_PATH / run_id / "reports" / f"report_metadata_{run_id}.json"
             
             if not metadata_path.exists():
-                await ctx.error(f"Metadata not found for run {run_id}")
                 error_msg = f"Metadata not found for run {run_id}: {metadata_path}"
                 return {
                     "error": error_msg,
@@ -98,7 +96,6 @@ async def generate_comparison_report(run_id_list: list, ctx: Context, format: st
         template_path = TEMPLATES_PATH / template_name
         
         if not template_path.exists():
-            await ctx.error(f"Comparison template not found: {template_name}")
             return {
                 "error": f"Comparison template not found: {template_name}",
                 "run_id_list": run_id_list,

@@ -81,8 +81,6 @@ async def list_available_reports(test_run_id: Optional[str] = None, ctx: Context
             
             if not report_dir.exists():
                 warning_msg = f"Report directory not found: {report_dir}"
-                if ctx:
-                    await ctx.warning(warning_msg)
                 return {"warning": warning_msg}
             
             for file in report_dir.glob("*.md"):
@@ -119,8 +117,6 @@ async def list_available_reports(test_run_id: Optional[str] = None, ctx: Context
         
         if not comparisons_base.exists():
             warning_msg = f"Comparisons directory not found: {comparisons_base}"
-            if ctx:
-                await ctx.warning(warning_msg)
             return {"warning": warning_msg}
         
         # Iterate through all comparison_id subfolders
@@ -159,13 +155,8 @@ async def list_available_reports(test_run_id: Optional[str] = None, ctx: Context
 
     if not reports:
         error_msg = f"No markdown report files found"
-        if ctx:
-            await ctx.error(error_msg)
         return {"error": error_msg}
 
-    if ctx:
-        await ctx.info(f"Found {len(reports)} reports.")
-    
     return reports
 
 
@@ -206,8 +197,6 @@ async def list_available_charts(test_run_id: Optional[str] = None, ctx: Context 
             comparison_id = None
         else:
             warning_msg = f"Chart directory not found for: {test_run_id}"
-            if ctx:
-                await ctx.warning(warning_msg)
             return {"warning": warning_msg}
         
         for file in chart_dir.glob("*.png"):
@@ -219,8 +208,6 @@ async def list_available_charts(test_run_id: Optional[str] = None, ctx: Context 
         
         if not comparisons_base.exists():
             warning_msg = f"Comparisons directory not found: {comparisons_base}"
-            if ctx:
-                await ctx.warning(warning_msg)
             return {"warning": warning_msg}
         
         for comparison_folder in comparisons_base.iterdir():
@@ -235,12 +222,7 @@ async def list_available_charts(test_run_id: Optional[str] = None, ctx: Context 
     
     if not charts:
         error_msg = f"No PNG chart files found"
-        if ctx:
-            await ctx.error(error_msg)
         return {"error": error_msg}
-    
-    if ctx:
-        await ctx.info(f"Found {len(charts)} charts.")
     
     return charts
 

@@ -54,7 +54,6 @@ async def list_spaces_v1(ctx: Context) -> list:
             "status": item.get("status"),
             "url": f"{base_url}/spaces/{item.get('key')}/overview",
         })
-    await ctx.info(f"Fetched {len(spaces)} spaces from on-prem Confluence.")
     return spaces
 
 async def get_space_details_v1(space_ref: str, ctx: Context) -> dict:
@@ -89,7 +88,6 @@ async def get_space_details_v1(space_ref: str, ctx: Context) -> dict:
         "web_url": base_url + item.get("_links", {}).get("webui", ""),
         "homepage_id": item.get("_expandable", {}).get("homepage"),
     }
-    await ctx.info(f"Fetched details for space {space_ref} (v1).")
     return details
 
 async def list_pages_v1(space_ref: str, ctx: Context) -> list:
@@ -123,7 +121,6 @@ async def list_pages_v1(space_ref: str, ctx: Context) -> list:
             "url": base_url + item.get("_links", {}).get("webui", ""),
         })
     
-    await ctx.info(f"Fetched {len(pages)} pages from space {space_ref} (v1).")
     return pages
 
 async def get_page_by_id_v1(page_ref: str, ctx: Context) -> dict:
@@ -162,7 +159,6 @@ async def get_page_by_id_v1(page_ref: str, ctx: Context) -> dict:
         "url": base_url + item.get("_links", {}).get("webui", ""),
     }
     
-    await ctx.info(f"Fetched metadata for page {page_ref} (v1).")
     return page_data
 
 async def get_page_content_v1(page_ref: str, ctx: Context) -> dict:
@@ -200,7 +196,6 @@ async def get_page_content_v1(page_ref: str, ctx: Context) -> dict:
         "url": base_url + item.get("_links", {}).get("webui", ""),
     }
     
-    await ctx.info(f"Fetched content for page {page_ref} (v1). Content size: {len(content_data['storage_xhtml'])} chars.")
     return content_data
 
 async def create_page_v1(space_ref: str, title: str, storage_xhtml: str, ctx: Context, parent_id: str) -> dict:
@@ -264,11 +259,9 @@ async def create_page_v1(space_ref: str, title: str, storage_xhtml: str, ctx: Co
         
     except httpx.HTTPStatusError as e:
         error_msg = f"Failed to create page: {e.response.status_code} - {e.response.text}"
-        await ctx.error(error_msg)
         return {"error": error_msg, "status": "error"}
     except Exception as e:
         error_msg = f"Failed to create page: {str(e)}"
-        await ctx.error(error_msg)
         return {"error": error_msg, "status": "error"}
 
 async def search_content_v1(query: str, space_key: str = None, ctx: Context = None) -> list:
@@ -348,7 +341,6 @@ async def attach_file_v1(page_ref: str, file_path: str, ctx: Context) -> dict:
     file_path_obj = Path(file_path)
     if not file_path_obj.exists():
         error_msg = f"File not found: {file_path}"
-        await ctx.error(error_msg)
         return {"error": error_msg, "status": "error", "filename": file_path_obj.name}
     
     base_url = CONFLUENCE_V1_BASE_URL
@@ -397,16 +389,13 @@ async def attach_file_v1(page_ref: str, file_path: str, ctx: Context) -> dict:
             return attachment_data
         else:
             error_msg = "No attachment returned in response"
-            await ctx.error(error_msg)
             return {"error": error_msg, "status": "error", "filename": filename}
             
     except httpx.HTTPStatusError as e:
         error_msg = f"Failed to attach file: {e.response.status_code} - {e.response.text}"
-        await ctx.error(error_msg)
         return {"error": error_msg, "status": "error", "filename": filename}
     except Exception as e:
         error_msg = f"Failed to attach file: {str(e)}"
-        await ctx.error(error_msg)
         return {"error": error_msg, "status": "error", "filename": filename}
 
 
@@ -453,11 +442,9 @@ async def update_page_v1(page_ref: str, storage_xhtml: str, ctx: Context) -> dic
         
     except httpx.HTTPStatusError as e:
         error_msg = f"Failed to get current page info: {e.response.status_code} - {e.response.text}"
-        await ctx.error(error_msg)
         return {"error": error_msg, "status": "error", "page_ref": page_ref}
     except Exception as e:
         error_msg = f"Failed to get current page info: {str(e)}"
-        await ctx.error(error_msg)
         return {"error": error_msg, "status": "error", "page_ref": page_ref}
     
     # Now update the page with incremented version
@@ -498,11 +485,9 @@ async def update_page_v1(page_ref: str, storage_xhtml: str, ctx: Context) -> dic
         
     except httpx.HTTPStatusError as e:
         error_msg = f"Failed to update page: {e.response.status_code} - {e.response.text}"
-        await ctx.error(error_msg)
         return {"error": error_msg, "status": "error", "page_ref": page_ref}
     except Exception as e:
         error_msg = f"Failed to update page: {str(e)}"
-        await ctx.error(error_msg)
         return {"error": error_msg, "status": "error", "page_ref": page_ref}
 
 
