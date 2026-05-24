@@ -1,11 +1,9 @@
 # JMeter MCP Server Script Generator
 # This module generates JMeter JMX files based on network capture JSON files.
-from fastmcp import FastMCP, Context  # ✅ FastMCP 2.x import
+from fastmcp import FastMCP, Context        # ✅ FastMCP 3.x import
 from typing import Optional, Dict, Any
 
-mcp = FastMCP(
-    name="jmeter",
-)
+mcp = FastMCP("jmeter")
 
 #from services.spec_parser import list_test_specs, load_browser_steps
 #from services.network_capture import capture_traffic, analyze_traffic
@@ -854,7 +852,7 @@ async def get_jmeter_run_status(test_run_id: str, pid: int, ctx: Context) -> dic
     """
     return get_jmeter_realtime_status(test_run_id, pid)
 
-@mcp.tool(enabled=False)
+@mcp.tool(tags={"deprecated"})
 async def get_jmeter_run_summary(test_run_id: str, ctx: Context) -> dict:
     """
     Analyzes the test run results and provides high-level summary.
@@ -937,10 +935,15 @@ async def analyze_jmeter_log(test_run_id: str, ctx: Context, log_source: str = "
         }
 
 # -----------------------------
+# Visibility: hide deprecated tools
+# -----------------------------
+mcp.disable(tags={"deprecated"})
+
+# -----------------------------
 # JMeter MCP entry point
 # -----------------------------
 if __name__ == "__main__":
     try:
-        mcp.run("stdio")
+        mcp.run(transport="stdio")
     except KeyboardInterrupt:
         print("Shutting down JMeter MCP…")
