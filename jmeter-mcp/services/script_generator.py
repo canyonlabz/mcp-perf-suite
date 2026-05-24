@@ -750,24 +750,22 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 if not entra_cookies_inserted and _entra_is_wsfed_url(original_url, entra_flow):
                     entra_cookies_inserted = True
 
-    # Log correlation summary
-    if excluded_entries > 0:
-        await ctx.info(f"🚫 Excluded {excluded_entries} request(s) from non-essential domains (APM, analytics, etc.)")
-    if extractors_added > 0:
-        if extractor_mode == "first_occurrence":
-            await ctx.info(f"✅ Added {extractors_added} extractor(s) for {len(extracted_variables)} unique variable(s) (first_occurrence mode)")
-        else:
-            await ctx.info(f"✅ Added {extractors_added} extractor(s) for correlation support (all_occurrences mode)")
-    if substitutions_applied > 0:
-        await ctx.info(f"✅ Applied variable substitutions to {substitutions_applied} request(s)")
-    # TODO: Move to return value — orphan UDV substitutions count (orphan_subs_applied)
-    # TODO: Move to return value — static header substitutions count (static_header_subs_applied)
-    if hostname_subs_applied > 0:
-        await ctx.info(f"✅ Applied hostname parameterization to {hostname_subs_applied} request(s)")
-    # TODO: Move to return value — think time elements count (think_time_added)
-    # TODO: Move to return value — PKCE preprocessor inserted flag + pkce_subs_applied count
-    # TODO: Move to return value — EntraID preprocessors inserted flag
-    # TODO: Move to return value — EntraID WS-Fed cookie preprocessor inserted flag
+    # Build generation summary for return value
+    generation_summary = {
+        "excluded_entries": excluded_entries,
+        "extractors_added": extractors_added,
+        "extractor_mode": extractor_mode,
+        "unique_variables_extracted": len(extracted_variables),
+        "substitutions_applied": substitutions_applied,
+        "orphan_subs_applied": orphan_subs_applied,
+        "static_header_subs_applied": static_header_subs_applied,
+        "hostname_subs_applied": hostname_subs_applied,
+        "think_time_added": think_time_added,
+        "pkce_flow_detected": pkce_preprocessor_inserted,
+        "pkce_subs_applied": pkce_subs_applied,
+        "entra_id_detected": entra_state_inserted,
+        "entra_cookies_inserted": entra_cookies_inserted,
+    }
 
     # === Add Listeners (outside the Thread Group) ===
     results_cfg = JMETER_CONFIG.get("results_collector_config", {})
@@ -810,7 +808,8 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
         return {
             "status": "success",
             "jmx_path": jmx_path,
-            "message": f"JMX script generated successfully: {jmx_path}"
+            "message": f"JMX script generated successfully: {jmx_path}",
+            "generation_summary": generation_summary,
         }
 
     except Exception as e:
