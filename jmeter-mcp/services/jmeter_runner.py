@@ -1,6 +1,6 @@
 # services/jmeter_runner.py
 
-from fastmcp import Context  # ✅ FastMCP 2.x import
+from fastmcp import Context  # ✅ FastMCP 3.x import
 import os
 import subprocess
 import uuid
@@ -134,11 +134,10 @@ async def run_jmeter_test(test_run_id, jmx_path, ctx):
         return_code = process.poll()
 
         if return_code is not None:
-            # JMeter already exited – capture output and surface as error
             out, err = process.communicate(timeout=5)
             status = "FAILED_TO_START"
-            ctx.set_state("run_status", status)
-            ctx.set_state("error", err.decode(errors="ignore"))
+            await ctx.set_state("run_status", status)
+            await ctx.set_state("error", err.decode(errors="ignore"))
             return {
                 "run_id": None,
                 "status": status,
@@ -151,11 +150,10 @@ async def run_jmeter_test(test_run_id, jmx_path, ctx):
                 "stderr": err.decode(errors="ignore"),
             }
 
-        # Otherwise we assume it is now running
         status = "RUNNING"
-        ctx.set_state("last_run_id", run_id)
-        ctx.set_state("run_status", status)
-        ctx.set_state("jmeter_pid", process.pid)
+        await ctx.set_state("last_run_id", run_id)
+        await ctx.set_state("run_status", status)
+        await ctx.set_state("jmeter_pid", process.pid)
 
         return {
             "run_id": run_id,
@@ -169,8 +167,8 @@ async def run_jmeter_test(test_run_id, jmx_path, ctx):
             "start_time": time.time()
         }
     except Exception as e:
-        ctx.set_state("run_status", "ERROR")
-        ctx.set_state("error", str(e))
+        await ctx.set_state("run_status", "ERROR")
+        await ctx.set_state("error", str(e))
         return {
             "run_id": None,
             "status": "ERROR",
@@ -194,7 +192,7 @@ async def stop_running_test(test_run_id, ctx):
         proc = subprocess.Popen(stop_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = proc.communicate(timeout=10)
         status = "STOPPED" if proc.returncode == 0 else "ERROR"
-        ctx.set_state("run_status", status)
+        await ctx.set_state("run_status", status)
         return {
             "test_run_id": test_run_id,
             "cmd": " ".join(stop_cmd),
@@ -204,8 +202,8 @@ async def stop_running_test(test_run_id, ctx):
             "stop_time": time.time()
         }
     except Exception as e:
-        ctx.set_state("run_status", "ERROR")
-        ctx.set_state("error", str(e))
+        await ctx.set_state("run_status", "ERROR")
+        await ctx.set_state("error", str(e))
         return {
             "test_run_id": test_run_id,
             "status": "ERROR",
