@@ -37,7 +37,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("sharepoint-mcp")
 
-mcp = FastMCP(name=server_cfg.get("name", "sharepoint-mcp"))
+mcp = FastMCP(server_cfg.get("name", "sharepoint-mcp"))
 
 
 @mcp.tool()
@@ -528,6 +528,6 @@ async def sharepoint_download_file(
 
 if __name__ == "__main__":
     try:
-        mcp.run("stdio")
+        mcp.run(transport="stdio")
     except KeyboardInterrupt:
         print("Shutting down SharePoint MCP…")
