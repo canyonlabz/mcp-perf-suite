@@ -4,7 +4,7 @@ import os
 import re
 import urllib.parse
 from typing import Callable, Optional, Dict, Any, List
-from fastmcp import Context  # ✅ FastMCP 2.x import
+from fastmcp import Context
 
 from utils.config import load_config, load_jmeter_config
 
@@ -312,20 +312,20 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     # Check if the provided JSON file exists and is valid.
     if not json_path or not os.path.isfile(json_path):
         # If the file path is empty or does not exist, print an error message and exit.
-        ctx.error(f"Error: No JSON file provided or file does not exist for given: '{json_path}'")
+        await ctx.error(f"Error: No JSON file provided or file does not exist for given: '{json_path}'")
         raise ValueError(f"No JSON file provided or file does not exist for given: '{json_path}'")
     # Check if the file is a valid JSON file.
     if not json_path.endswith('.json'):
         # If the file is not a JSON file, print an error message and exit.
-        ctx.error(f"Error: File '{json_path}' is not a valid JSON file.")
+        await ctx.error(f"Error: File '{json_path}' is not a valid JSON file.")
         raise ValueError(f"File '{json_path}' is not a valid JSON file.")
     
     # Load the network capture JSON file.
     with open(json_path, "r", encoding="utf-8") as f:
         network_data = json.load(f)
 
-    ctx.info(f"✅ Loaded network capture JSON file: {json_path}")
-    ctx.info(f"Network data contains {len(network_data)} entries.")
+    await ctx.info(f"✅ Loaded network capture JSON file: {json_path}")
+    await ctx.info(f"Network data contains {len(network_data)} entries.")
     
     # === PKCE Flow Detection (Sprint C) ===
     pkce_flow = None
@@ -342,12 +342,12 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     if pkce_result and pkce_result.get("detected"):
         pkce_flow = pkce_result
         method = pkce_result.get("code_challenge_method", "S256")
-        ctx.info(f"🔐 PKCE flow detected (method: {method})")
-        ctx.info(f"   code_challenge found at: {pkce_result.get('authorize_request_url', 'N/A')[:80]}...")
+        await ctx.info(f"🔐 PKCE flow detected (method: {method})")
+        await ctx.info(f"   code_challenge found at: {pkce_result.get('authorize_request_url', 'N/A')[:80]}...")
         if pkce_result.get("code_verifier_value"):
-            ctx.info(f"   code_verifier found at: {pkce_result.get('token_request_url', 'N/A')[:80]}...")
+            await ctx.info(f"   code_verifier found at: {pkce_result.get('token_request_url', 'N/A')[:80]}...")
     else:
-        ctx.info("ℹ️ No PKCE flow detected in network capture")
+        await ctx.info("ℹ️ No PKCE flow detected in network capture")
 
     # === EntraID Flow Detection ===
     entra_flow = None
@@ -359,13 +359,13 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     if entra_result and entra_result.get("detected"):
         entra_flow = entra_result
         ms_host = entra_result.get("microsoft_host", "N/A")
-        ctx.info(f"🔐 EntraID flow detected (host: {ms_host})")
+        await ctx.info(f"🔐 EntraID flow detected (host: {ms_host})")
         if entra_result.get("authorize_request_url"):
-            ctx.info(f"   authorize URL: {entra_result['authorize_request_url'][:80]}...")
+            await ctx.info(f"   authorize URL: {entra_result['authorize_request_url'][:80]}...")
         if entra_result.get("wsfed_request_url"):
-            ctx.info(f"   WS-Fed form at: {entra_result['wsfed_request_url'][:80]}...")
+            await ctx.info(f"   WS-Fed form at: {entra_result['wsfed_request_url'][:80]}...")
     else:
-        ctx.info("ℹ️ No EntraID flow detected in network capture")
+        await ctx.info("ℹ️ No EntraID flow detected in network capture")
 
     # === Load Correlation Data (if available) ===
     # correlation_naming.json: JMeter variable names and extractor configurations
@@ -384,42 +384,42 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     # Load extractor placement config
     extractor_config = JMETER_CONFIG.get("extractor_placement", {})
     extractor_mode = extractor_config.get("mode", "all_occurrences")
-    ctx.info(f"📋 Extractor placement mode: {extractor_mode}")
+    await ctx.info(f"📋 Extractor placement mode: {extractor_mode}")
     
     if correlation_naming:
         extractor_map = _build_extractor_map(correlation_naming)
         var_count = len(correlation_naming.get("variables", []))
         orphan_count = len(correlation_naming.get("orphan_variables", []))
-        ctx.info(f"✅ Loaded correlation naming: {var_count} variables, {orphan_count} orphans")
+        await ctx.info(f"✅ Loaded correlation naming: {var_count} variables, {orphan_count} orphans")
         
         # Build substitution map and extract orphan values if we have correlation_spec
         if correlation_spec:
             variable_name_map = _build_variable_name_map(correlation_naming)
             substitution_map = _build_substitution_map(correlation_spec, variable_name_map)
             total_subs = sum(len(subs) for subs in substitution_map.values())
-            ctx.info(f"✅ Built substitution map: {total_subs} substitutions across {len(substitution_map)} URLs")
+            await ctx.info(f"✅ Built substitution map: {total_subs} substitutions across {len(substitution_map)} URLs")
             
             # Extract orphan values and build UDV variables (Phase D)
             orphan_values = _extract_orphan_values(correlation_spec)
             orphan_udv_vars = _get_orphan_udv_variables(correlation_naming, orphan_values)
             if orphan_udv_vars:
-                ctx.info(f"✅ Extracted {len(orphan_udv_vars)} orphan variable(s) for User Defined Variables")
+                await ctx.info(f"✅ Extracted {len(orphan_udv_vars)} orphan variable(s) for User Defined Variables")
             
             # Build orphan substitution map for replacing values in requests (obs-3)
             orphan_substitution_map = _build_orphan_substitution_map(correlation_naming, orphan_values)
             if orphan_substitution_map:
-                ctx.info(f"✅ Built orphan substitution map: {len(orphan_substitution_map)} value(s) to replace")
+                await ctx.info(f"✅ Built orphan substitution map: {len(orphan_substitution_map)} value(s) to replace")
             
             # Extract static header config for UDV and header substitution
             static_header_udv_vars, static_header_sub_map = _extract_static_header_config(
                 correlation_spec, correlation_naming
             )
             if static_header_udv_vars:
-                ctx.info(f"✅ Detected {len(static_header_udv_vars)} static header(s) for UDV parameterization")
+                await ctx.info(f"✅ Detected {len(static_header_udv_vars)} static header(s) for UDV parameterization")
         else:
-            ctx.info("ℹ️ No correlation_spec.json found - skipping variable substitution")
+            await ctx.info("ℹ️ No correlation_spec.json found - skipping variable substitution")
     else:
-        ctx.info("ℹ️ No correlation_naming.json found - generating JMX without extractors or substitutions")
+        await ctx.info("ℹ️ No correlation_naming.json found - generating JMX without extractors or substitutions")
     
     # === HTTP/2 Pseudo-Header Exclusion ===
     # JMeter uses HTTP/1.1 by default; HTTP/2 pseudo-headers cause errors on non-HTTP/2 backends
@@ -454,15 +454,15 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             )
             
             # Log hostname parameterization info
-            ctx.info(f"✅ Hostname parameterization: {len(unique_hostnames)} unique hostname(s) found")
+            await ctx.info(f"✅ Hostname parameterization: {len(unique_hostnames)} unique hostname(s) found")
             for hostname, var_name in sorted(hostname_var_map.items(), key=lambda x: x[1]):
                 category = _categorize_hostname(hostname, patterns_config)
-                ctx.info(f"   • {hostname} → ${{{var_name}}} ({category})")
-            ctx.info(f"✅ Created environment CSV: {env_csv_relative_path}")
+                await ctx.info(f"   • {hostname} → ${{{var_name}}} ({category})")
+            await ctx.info(f"✅ Created environment CSV: {env_csv_relative_path}")
         else:
-            ctx.info("ℹ️ No hostnames found for parameterization")
+            await ctx.info("ℹ️ No hostnames found for parameterization")
     else:
-        ctx.info("ℹ️ Hostname parameterization disabled")
+        await ctx.info("ℹ️ Hostname parameterization disabled")
     
     # ============================================================
     # === JMeter JMX File Configurations ===
@@ -781,29 +781,29 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
 
     # Log correlation summary
     if excluded_entries > 0:
-        ctx.info(f"🚫 Excluded {excluded_entries} request(s) from non-essential domains (APM, analytics, etc.)")
+        await ctx.info(f"🚫 Excluded {excluded_entries} request(s) from non-essential domains (APM, analytics, etc.)")
     if extractors_added > 0:
         if extractor_mode == "first_occurrence":
-            ctx.info(f"✅ Added {extractors_added} extractor(s) for {len(extracted_variables)} unique variable(s) (first_occurrence mode)")
+            await ctx.info(f"✅ Added {extractors_added} extractor(s) for {len(extracted_variables)} unique variable(s) (first_occurrence mode)")
         else:
-            ctx.info(f"✅ Added {extractors_added} extractor(s) for correlation support (all_occurrences mode)")
+            await ctx.info(f"✅ Added {extractors_added} extractor(s) for correlation support (all_occurrences mode)")
     if substitutions_applied > 0:
-        ctx.info(f"✅ Applied variable substitutions to {substitutions_applied} request(s)")
+        await ctx.info(f"✅ Applied variable substitutions to {substitutions_applied} request(s)")
     if orphan_subs_applied > 0:
-        ctx.info(f"✅ Applied orphan UDV substitutions to {orphan_subs_applied} request(s)")
+        await ctx.info(f"✅ Applied orphan UDV substitutions to {orphan_subs_applied} request(s)")
     if static_header_subs_applied > 0:
-        ctx.info(f"✅ Applied static header substitutions to {static_header_subs_applied} request(s)")
+        await ctx.info(f"✅ Applied static header substitutions to {static_header_subs_applied} request(s)")
     if hostname_subs_applied > 0:
-        ctx.info(f"✅ Applied hostname parameterization to {hostname_subs_applied} request(s)")
+        await ctx.info(f"✅ Applied hostname parameterization to {hostname_subs_applied} request(s)")
     if think_time_added > 0:
-        ctx.info(f"✅ Added {think_time_added} Think Time element(s) between steps")
+        await ctx.info(f"✅ Added {think_time_added} Think Time element(s) between steps")
     if pkce_preprocessor_inserted:
-        ctx.info(f"🔐 Inserted PKCE PreProcessor (code_verifier + code_challenge generation)")
-        ctx.info(f"🔐 Applied PKCE substitutions to {pkce_subs_applied} request(s)")
+        await ctx.info(f"🔐 Inserted PKCE PreProcessor (code_verifier + code_challenge generation)")
+        await ctx.info(f"🔐 Applied PKCE substitutions to {pkce_subs_applied} request(s)")
     if entra_state_inserted:
-        ctx.info("🔐 Inserted EntraID PreProcessors (MSAL state, oauth_nonce, client_request_id)")
+        await ctx.info("🔐 Inserted EntraID PreProcessors (MSAL state, oauth_nonce, client_request_id)")
     if entra_cookies_inserted:
-        ctx.info("🔐 Inserted EntraID WS-Fed cookie PreProcessor (ESTSWCTXFLOWTOKEN, AADSSO)")
+        await ctx.info("🔐 Inserted EntraID WS-Fed cookie PreProcessor (ESTSWCTXFLOWTOKEN, AADSSO)")
 
     # === Add Listeners (outside the Thread Group) ===
     results_cfg = JMETER_CONFIG.get("results_collector_config", {})
@@ -840,7 +840,7 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
 
         if not jmx_path:
             msg = "❌ Failed to generate JMX file."
-            ctx.error(msg)
+            await ctx.error(msg)
             return {
 	        	"status": "error",
 	        	"jmx_path": "",
@@ -848,7 +848,7 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
 	        }
 
         msg = f"JMX script generated successfully: {jmx_path}"
-        ctx.info(msg)
+        await ctx.info(msg)
         return {
             "status": "success",
             "jmx_path": jmx_path,
@@ -857,7 +857,7 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
 
     except Exception as e:
         msg = f"Failed to save JMX script: {e}"
-        ctx.error(msg)
+        await ctx.error(msg)
         return {
             "status": "error",
             "jmx_path": "",
