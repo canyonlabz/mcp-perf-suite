@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("msteams-mcp")
 
-mcp = FastMCP(name=server_cfg.get("name", "msteams-mcp"))
+mcp = FastMCP(server_cfg.get("name", "msteams-mcp"))
 
 
 @mcp.tool()
@@ -486,6 +486,6 @@ async def teams_create_group_chat(
 
 if __name__ == "__main__":
     try:
-        mcp.run("stdio")
+        mcp.run(transport="stdio")
     except KeyboardInterrupt:
         print("Shutting down MS Teams MCP…")
