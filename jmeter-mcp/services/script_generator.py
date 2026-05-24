@@ -311,21 +311,12 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     # === Network Capture File ===
     # Check if the provided JSON file exists and is valid.
     if not json_path or not os.path.isfile(json_path):
-        # If the file path is empty or does not exist, print an error message and exit.
-        await ctx.error(f"Error: No JSON file provided or file does not exist for given: '{json_path}'")
         raise ValueError(f"No JSON file provided or file does not exist for given: '{json_path}'")
-    # Check if the file is a valid JSON file.
     if not json_path.endswith('.json'):
-        # If the file is not a JSON file, print an error message and exit.
-        await ctx.error(f"Error: File '{json_path}' is not a valid JSON file.")
         raise ValueError(f"File '{json_path}' is not a valid JSON file.")
     
-    # Load the network capture JSON file.
     with open(json_path, "r", encoding="utf-8") as f:
         network_data = json.load(f)
-
-    await ctx.info(f"✅ Loaded network capture JSON file: {json_path}")
-    await ctx.info(f"Network data contains {len(network_data)} entries.")
     
     # === PKCE Flow Detection (Sprint C) ===
     pkce_flow = None
@@ -343,11 +334,6 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
         pkce_flow = pkce_result
         method = pkce_result.get("code_challenge_method", "S256")
         await ctx.info(f"🔐 PKCE flow detected (method: {method})")
-        await ctx.info(f"   code_challenge found at: {pkce_result.get('authorize_request_url', 'N/A')[:80]}...")
-        if pkce_result.get("code_verifier_value"):
-            await ctx.info(f"   code_verifier found at: {pkce_result.get('token_request_url', 'N/A')[:80]}...")
-    else:
-        await ctx.info("ℹ️ No PKCE flow detected in network capture")
 
     # === EntraID Flow Detection ===
     entra_flow = None
@@ -360,12 +346,6 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
         entra_flow = entra_result
         ms_host = entra_result.get("microsoft_host", "N/A")
         await ctx.info(f"🔐 EntraID flow detected (host: {ms_host})")
-        if entra_result.get("authorize_request_url"):
-            await ctx.info(f"   authorize URL: {entra_result['authorize_request_url'][:80]}...")
-        if entra_result.get("wsfed_request_url"):
-            await ctx.info(f"   WS-Fed form at: {entra_result['wsfed_request_url'][:80]}...")
-    else:
-        await ctx.info("ℹ️ No EntraID flow detected in network capture")
 
     # === Load Correlation Data (if available) ===
     # correlation_naming.json: JMeter variable names and extractor configurations
@@ -384,7 +364,6 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     # Load extractor placement config
     extractor_config = JMETER_CONFIG.get("extractor_placement", {})
     extractor_mode = extractor_config.get("mode", "all_occurrences")
-    await ctx.info(f"📋 Extractor placement mode: {extractor_mode}")
     
     if correlation_naming:
         extractor_map = _build_extractor_map(correlation_naming)
@@ -453,16 +432,8 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
                 csv_filename
             )
             
-            # Log hostname parameterization info
             await ctx.info(f"✅ Hostname parameterization: {len(unique_hostnames)} unique hostname(s) found")
-            for hostname, var_name in sorted(hostname_var_map.items(), key=lambda x: x[1]):
-                category = _categorize_hostname(hostname, patterns_config)
-                await ctx.info(f"   • {hostname} → ${{{var_name}}} ({category})")
             await ctx.info(f"✅ Created environment CSV: {env_csv_relative_path}")
-        else:
-            await ctx.info("ℹ️ No hostnames found for parameterization")
-    else:
-        await ctx.info("ℹ️ Hostname parameterization disabled")
     
     # ============================================================
     # === JMeter JMX File Configurations ===
@@ -789,21 +760,14 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
             await ctx.info(f"✅ Added {extractors_added} extractor(s) for correlation support (all_occurrences mode)")
     if substitutions_applied > 0:
         await ctx.info(f"✅ Applied variable substitutions to {substitutions_applied} request(s)")
-    if orphan_subs_applied > 0:
-        await ctx.info(f"✅ Applied orphan UDV substitutions to {orphan_subs_applied} request(s)")
-    if static_header_subs_applied > 0:
-        await ctx.info(f"✅ Applied static header substitutions to {static_header_subs_applied} request(s)")
+    # TODO: Move to return value — orphan UDV substitutions count (orphan_subs_applied)
+    # TODO: Move to return value — static header substitutions count (static_header_subs_applied)
     if hostname_subs_applied > 0:
         await ctx.info(f"✅ Applied hostname parameterization to {hostname_subs_applied} request(s)")
-    if think_time_added > 0:
-        await ctx.info(f"✅ Added {think_time_added} Think Time element(s) between steps")
-    if pkce_preprocessor_inserted:
-        await ctx.info(f"🔐 Inserted PKCE PreProcessor (code_verifier + code_challenge generation)")
-        await ctx.info(f"🔐 Applied PKCE substitutions to {pkce_subs_applied} request(s)")
-    if entra_state_inserted:
-        await ctx.info("🔐 Inserted EntraID PreProcessors (MSAL state, oauth_nonce, client_request_id)")
-    if entra_cookies_inserted:
-        await ctx.info("🔐 Inserted EntraID WS-Fed cookie PreProcessor (ESTSWCTXFLOWTOKEN, AADSSO)")
+    # TODO: Move to return value — think time elements count (think_time_added)
+    # TODO: Move to return value — PKCE preprocessor inserted flag + pkce_subs_applied count
+    # TODO: Move to return value — EntraID preprocessors inserted flag
+    # TODO: Move to return value — EntraID WS-Fed cookie preprocessor inserted flag
 
     # === Add Listeners (outside the Thread Group) ===
     results_cfg = JMETER_CONFIG.get("results_collector_config", {})
@@ -834,32 +798,24 @@ async def generate_jmeter_jmx(test_run_id: str, json_path: str, ctx: Context) ->
     # (You can add additional listeners here, e.g., Aggregate Report, Response Time Graph, etc.)
 
     try:
-   	    # Save the complete JMX file to the output directory.
-        # Write to artifacts/<test_run_id>/jmeter/.
         jmx_path = save_jmx_file(test_plan, test_run_id)
 
         if not jmx_path:
-            msg = "❌ Failed to generate JMX file."
-            await ctx.error(msg)
             return {
-	        	"status": "error",
-	        	"jmx_path": "",
-	        	"message": msg
-	        }
+                "status": "error",
+                "jmx_path": "",
+                "message": "Failed to generate JMX file."
+            }
 
-        msg = f"JMX script generated successfully: {jmx_path}"
-        await ctx.info(msg)
         return {
             "status": "success",
             "jmx_path": jmx_path,
-            "message": msg
+            "message": f"JMX script generated successfully: {jmx_path}"
         }
 
     except Exception as e:
-        msg = f"Failed to save JMX script: {e}"
-        await ctx.error(msg)
         return {
             "status": "error",
             "jmx_path": "",
-            "message": msg,
+            "message": f"Failed to save JMX script: {e}",
         }
