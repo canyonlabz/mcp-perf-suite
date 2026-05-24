@@ -15,9 +15,7 @@ from utils.config import load_config
 
 log = logging.getLogger(__name__)
 
-mcp = FastMCP(
-    name="perfmemory",
-)
+mcp = FastMCP("perfmemory")
 
 _config = load_config()
 _embedder = EmbeddingProvider(_config["embedding"])
@@ -949,6 +947,6 @@ async def get_related_issues(
 
 if __name__ == "__main__":
     try:
-        mcp.run("stdio")
+        mcp.run(transport="stdio")
     except KeyboardInterrupt:
         print("Shutting down PerfMemory MCP…")
