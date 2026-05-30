@@ -336,6 +336,9 @@ msteams-mcp/templates/*
 # Ignore the following Microsoft SharePoint local configuration files
 sharepoint-mcp/config.yaml
 
+# Ignore the following PerfPilot Hub (gateway) local configuration files
+gateway-mcp/config.yaml
+
 # Ignore all Playwright output files
 .playwright-mcp/*
 
