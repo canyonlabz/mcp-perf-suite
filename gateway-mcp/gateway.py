@@ -35,15 +35,18 @@ def _server_config(server_dir: str, script: str) -> dict:
     if not venv_python.exists():
         venv_python = server_path / ".venv" / "bin" / "python"
 
-    return {
-        "mcpServers": {
-            "default": {
-                "command": str(venv_python),
-                "args": [script],
-                "cwd": str(server_path),
-            }
-        }
+    server_entry = {
+        "command": str(venv_python),
+        "args": [script],
+        "cwd": str(server_path),
     }
+
+    # Pass SSL cert file to subprocesses if configured (optional)
+    ssl_cert_file = server_cfg.get("ssl_cert_file")
+    if ssl_cert_file:
+        server_entry["env"] = {"SSL_CERT_FILE": ssl_cert_file}
+
+    return {"mcpServers": {"default": server_entry}}
 
 
 # --- Core servers ---
