@@ -6,6 +6,24 @@ Welcome to the **MCP Perf Suite** — a modular collection of MCP servers design
 
 ---
 
+## 🚀 PerfPilot Hub — Super MCP Gateway
+
+**PerfPilot Hub** is the central MCP gateway that gives AI agents a single endpoint into
+the entire performance testing toolchain. Instead of connecting to 9 separate MCP servers,
+connect to one:
+
+> "Connect your AI agent to **PerfPilot Hub** and get the full performance testing
+> toolchain through one MCP endpoint."
+
+- 🔌 **One connection** — 99 tools from 9 servers through a single MCP endpoint
+- 🔒 **Full isolation** — each server runs as its own subprocess with its own venv
+- ⚙️ **Configurable** — enable/disable servers, set transport mode (stdio or http)
+- 🔀 **Backward compatible** — all servers still work standalone
+
+See [gateway-mcp/README.md](gateway-mcp/README.md) for setup instructions.
+
+---
+
 ## 📖 Overview
 
 This repository hosts multiple MCP servers, each designed for a specific role in the performance testing lifecycle:
@@ -126,6 +144,7 @@ mcp-perf-suite/
 ├── confluence-mcp/          # Confluence MCP server (current)
 ├── datadog-mcp/             # Datadog MCP server (current)
 ├── docker/                  # Dockerfiles and Compose files (pgvector + Apache AGE)
+├── gateway-mcp/             # 🛩️ PerfPilot Hub — Super MCP Gateway (NEW)
 ├── jmeter-mcp/              # JMeter MCP server (current)
 ├── msteams-mcp/             # MS Teams notifications MCP (current)
 ├── perfanalysis-mcp/        # LLM-powered test analysis MCP (current)
@@ -145,6 +164,7 @@ All MCP servers use **FastMCP** and **Python 3.12+**. Each server has its own RE
 
 | MCP Server | Folder | README | Prerequisites |
 |------------|--------|--------|---------------|
+| **PerfPilot Hub** | `gateway-mcp/` | [README](gateway-mcp/README.md) | All servers below set up with venvs |
 | JMeter | `jmeter-mcp/` | [README](jmeter-mcp/README.md) | JMeter 5.6+, Playwright MCP (optional) |
 | BlazeMeter | `blazemeter-mcp/` | [README](blazemeter-mcp/README.md) | BlazeMeter API key |
 | Datadog | `datadog-mcp/` | [README](datadog-mcp/README.md) | Datadog API + App keys |
