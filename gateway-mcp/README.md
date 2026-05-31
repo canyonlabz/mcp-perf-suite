@@ -197,9 +197,7 @@ Once PerfPilot Hub is tested, replace all 9 MCP entries in `mcp.json` with one:
 
 | Component | Purpose | Status |
 |-----------|---------|--------|
-| 🚀 **PerfPilot Hub** | MCP Gateway — single endpoint to all perf tools | 🔨 Building |
+| 🚀 **PerfPilot Hub** | MCP Gateway — single endpoint to all perf tools | ✅ Completed |
 | 🤖 **PerfPilot Orchestrator** | A2A Server — external AI Agent communication | 📋 Planned |
-| 🧠 **PerfMemory DB** | PostgreSQL + pgvector + Apache AGE | ✅ Exists |
+| 🧠 **PerfMemory DB** | PostgreSQL + pgvector + Apache AGE | ✅ Completed |
 | 🐳 **Docker Deployment** | Containerized hub + database | 📋 Planned |
-
-
