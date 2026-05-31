@@ -10,6 +10,8 @@ This document summarizes the enhancements and new features added to the MCP Perf
 - [2. JMeter MCP — EntraID Correlation Engine](#2-jmeter-mcp--entraid-correlation-engine)
 - [3. EntraID Debugging Skill](#3-entraid-debugging-skill)
 - [4. SharePoint MCP Server](#4-sharepoint-mcp-server)
+- [5. FastMCP v3 Migration](#5-fastmcp-v3-migration)
+- [6. PerfPilot Hub — Super MCP Gateway](#6-perfpilot-hub--super-mcp-gateway)
 - [Previous Changelogs](#previous-changelogs)
 
 ---
@@ -280,6 +282,120 @@ A companion Teams notification template (`msteams-mcp/templates/default-notifica
 
 ---
 
+## 5. FastMCP v3 Migration
+
+### 5.1 Overview
+
+Upgraded all 9 Python MCP servers from FastMCP v2.x to **FastMCP v3.3.1**. This is a major framework upgrade that enables server composition, proxy mounting, and HTTP transport — laying the foundation for PerfPilot Hub and future Docker deployment.
+
+### 5.2 What Changed
+
+| Aspect | Before (v2) | After (v3.3.1) |
+|--------|-------------|-----------------|
+| Framework version | FastMCP 2.x | FastMCP 3.3.1 |
+| Server launch | `uv run <server>.py` | Direct venv Python: `.venv\Scripts\python.exe <server>.py` |
+| Cursor `mcp.json` | `uv` command with `--directory` args | Direct path to venv Python with `cwd` |
+| Composition support | Not available | `mount()` + `create_proxy()` for gateway composition |
+| Transport | stdio only | stdio + HTTP (streamable) |
+| Tool visibility | All tools always visible | Tag-based visibility (`mcp.disable(tags={"deprecated"})`) |
+
+### 5.3 Servers Upgraded
+
+All 9 Python MCP servers were migrated:
+
+| Server | Package Version |
+|--------|----------------|
+| JMeter MCP | FastMCP 3.3.1 |
+| BlazeMeter MCP | FastMCP 3.3.1 |
+| Datadog MCP | FastMCP 3.3.1 |
+| PerfAnalysis MCP | FastMCP 3.3.1 |
+| PerfReport MCP | FastMCP 3.3.1 |
+| Confluence MCP | FastMCP 3.3.1 |
+| PerfMemory MCP | FastMCP 3.3.1 |
+| MS Teams MCP | FastMCP 3.3.1 |
+| SharePoint MCP | FastMCP 3.3.1 |
+
+### 5.4 Breaking Changes
+
+- **Cursor `mcp.json`** — All entries updated from `uv run` to direct venv Python paths. Users must recreate virtual environments and install dependencies fresh.
+- **`uv.lock` files** — Regenerated for all servers to reflect updated dependency trees.
+- **Deprecated tools** — Servers now use `mcp.disable(tags={"deprecated"})` to hide legacy tools from tool listings while preserving backward compatibility.
+
+### 5.5 Migration Steps for Users
+
+1. Delete all existing `.venv` and `__pycache__` folders
+2. Recreate venvs: `python -m venv .venv` in each server directory
+3. Install dependencies: `.venv\Scripts\pip.exe install -r requirements.txt`
+4. Update `mcp.json` to use direct venv Python paths (see each server's README)
+
+---
+
+## 6. PerfPilot Hub — Super MCP Gateway
+
+### 6.1 Overview
+
+Introduced **PerfPilot Hub** (`gateway-mcp/`) — a single MCP gateway that composes all 9 performance testing MCP servers behind one endpoint. Built on FastMCP v3's `create_proxy()` composition, it spawns each server as an isolated subprocess while presenting a unified tool interface to AI agents.
+
+> "Connect your AI agent to **PerfPilot Hub** and get the full performance testing toolchain through one MCP endpoint."
+
+### 6.2 Architecture
+
+- **One endpoint** — 99 tools from 9 servers accessible through a single MCP connection
+- **Full process isolation** — each server runs as its own subprocess with its own venv via `create_proxy()`
+- **No code changes** — existing servers are completely untouched; PerfPilot Hub is purely additive
+- **Configurable** — enable/disable individual servers via `config.yaml`
+- **Transport-agnostic** — stdio for local Cursor, HTTP for future Docker/A2A deployment
+
+### 6.3 Namespace Mapping
+
+All tools are prefixed with their server namespace:
+
+| Server | Namespace | Example Tool |
+|--------|-----------|--------------|
+| JMeter | `jmeter` | `jmeter_generate_jmeter_script` |
+| BlazeMeter | `blazemeter` | `blazemeter_get_workspaces` |
+| Datadog | `datadog` | `datadog_collect_host_metrics` |
+| PerfAnalysis | `perfanalysis` | `perfanalysis_analyze_test_results` |
+| PerfReport | `perfreport` | `perfreport_create_performance_test_report` |
+| Confluence | `confluence` | `confluence_publish_page` |
+| PerfMemory | `perfmemory` | `perfmemory_store_debug_session` |
+| MS Teams | `msteams` | `msteams_teams_send_message` |
+| SharePoint | `sharepoint` | `sharepoint_sharepoint_upload_file` |
+
+### 6.4 Configuration
+
+Platform-specific config support following the same pattern as all other MCPs:
+
+- `config.yaml` — user's local config (gitignored)
+- `config.windows.yaml` / `config.mac.yaml` — OS-specific overrides (gitignored)
+- `config.example.yaml` — public reference template (committed)
+
+Optional `ssl_cert_file` setting for environments with HTTPS-intercepting proxies (Norton 360, Zscaler, corporate proxies).
+
+### 6.5 Future Ecosystem
+
+| Component | Purpose | Status |
+|-----------|---------|--------|
+| 🛩️ **PerfPilot Hub** | MCP Gateway — single endpoint to all perf tools | ✅ Complete |
+| 🤖 **PerfPilot Orchestrator** | A2A Server — external AI Agent communication | 📋 Planned |
+| 🧠 **PerfMemory DB** | PostgreSQL + pgvector + Apache AGE | ✅ Exists |
+| 🐳 **Docker Deployment** | Containerized hub + database | 📋 Planned |
+
+### 6.6 Files Created
+
+| File | Purpose |
+|------|---------|
+| `gateway-mcp/gateway.py` | FastMCP gateway composing all servers via `create_proxy()` |
+| `gateway-mcp/utils/__init__.py` | Package marker |
+| `gateway-mcp/utils/config.py` | Platform-aware YAML config loader |
+| `gateway-mcp/config.yaml` | Local gateway config (gitignored) |
+| `gateway-mcp/config.example.yaml` | Public config template |
+| `gateway-mcp/requirements.txt` | Single dependency: `fastmcp>=3.3.1,<4` |
+| `gateway-mcp/README.md` | Full setup and usage documentation |
+| `docs/plans/super-mcp-gateway-implementation.md` | Implementation plan |
+
+---
+
 ## Previous Changelogs
 
 | Month | File | Highlights |
@@ -291,4 +407,4 @@ A companion Teams notification template (`msteams-mcp/templates/default-notifica
 
 ---
 
-*Last Updated: May 12, 2026*
+*Last Updated: May 31, 2026*
