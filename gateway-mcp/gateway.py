@@ -115,6 +115,16 @@ if servers_cfg.get("sharepoint", True):
     )
 
 
+# --- Health check endpoint (HTTP transport only) ---
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+
+@gateway.custom_route("/health", methods=["GET"])
+async def health_check(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "healthy", "server": "perfpilot-hub"})
+
+
 if __name__ == "__main__":
     transport = os.environ.get(
         "GATEWAY_TRANSPORT", server_cfg.get("transport", "stdio")
