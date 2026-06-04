@@ -1,0 +1,72 @@
+# =============================================================================
+# .dockerignore — PerfPilot Hub Gateway Docker Build Context Exclusions
+# =============================================================================
+# The build context is the repo root (context: ..). This file excludes
+# directories and files that are not needed inside the Docker image to keep
+# the build fast and the image small.
+# =============================================================================
+
+# Virtual environments (each MCP has its own .venv for local dev)
+**/.venv/
+
+# Test artifacts and results
+artifacts/
+
+# Git metadata
+.git/
+.gitignore
+.gitattributes
+
+# IDE and editor settings
+.vscode/
+.idea/
+.cursor/
+
+# Playwright browser automation output
+.playwright-mcp/
+
+# Documentation (not needed in image)
+docs/
+
+# Streamlit UI (separate application, not part of gateway)
+streamlit-ui/
+
+# Utility scripts (local dev only)
+scripts/
+
+# MS Teams and SharePoint MCPs (not Docker-eligible — require Graph API auth flow)
+msteams-mcp/
+sharepoint-mcp/
+
+# Node modules (if any exist from Streamlit or other tooling)
+node_modules/
+.node_modules/
+
+# Python build artifacts
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.egg-info/
+**/dist/
+**/build/
+
+# Test directories
+**/test/
+**/tests/
+**/.pytest_cache/
+
+# Docker data volumes and local compose state
+docker/data/
+docker/certs/
+docker/.env.gateway
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Miscellaneous local-only files
+*.log
+.env
+.envrc
