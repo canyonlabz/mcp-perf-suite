@@ -1,0 +1,101 @@
+# =============================================================================
+# PerfPilot Hub — Full Stack: Gateway + PerfMemory DB (macOS)
+# =============================================================================
+# Usage:
+#   1. Copy .env.gateway.example to .env.gateway and fill in your values
+#   2. Copy config/*.example.yaml files to their non-example counterparts
+#   3. Run: docker compose -f docker-compose-full-mac.yaml up --build
+#
+# This compose file includes the PerfMemory PostgreSQL database (pgvector + AGE).
+# The gateway waits for the database to be healthy before starting.
+#
+# macOS note: The perfmemory-db service uses explicit user/PGDATA settings
+# to avoid file permission issues with Docker Desktop on macOS.
+# =============================================================================
+
+services:
+  perf-gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gateway
+    container_name: perf-gateway
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.gateway
+    environment:
+      - PERFPILOT_DOCKER=true
+      - GATEWAY_TRANSPORT=http
+      - GATEWAY_PORT=8000
+      # Override POSTGRES_HOST to use the internal Docker network service name
+      - POSTGRES_HOST=perfmemory-db
+      - POSTGRES_PORT=5432
+    volumes:
+      # Artifacts (persisted on host)
+      - ../artifacts:/app/artifacts
+      # Gateway config
+      - ./config/gateway/config.yaml:/app/gateway-mcp/config.yaml:ro
+      # BlazeMeter config
+      - ./config/blazemeter/config.yaml:/app/blazemeter-mcp/config.yaml:ro
+      # Datadog config
+      - ./config/datadog/config.yaml:/app/datadog-mcp/config.yaml:ro
+      - ./config/datadog/environments.json:/app/datadog-mcp/environments.json:ro
+      - ./config/datadog/custom_queries.json:/app/datadog-mcp/custom_queries.json:ro
+      # PerfAnalysis config
+      - ./config/perfanalysis/config.yaml:/app/perfanalysis-mcp/config.yaml:ro
+      - ./config/perfanalysis/slas.yaml:/app/perfanalysis-mcp/slas.yaml:ro
+      # PerfReport config
+      - ./config/perfreport/config.yaml:/app/perfreport-mcp/config.yaml:ro
+      - ./config/perfreport/report_config.yaml:/app/perfreport-mcp/report_config.yaml:ro
+      - ./config/perfreport/chart_schema.yaml:/app/perfreport-mcp/chart_schema.yaml:ro
+      - ./config/perfreport/chart_colors.yaml:/app/perfreport-mcp/chart_colors.yaml:ro
+      # Confluence config
+      - ./config/confluence/config.yaml:/app/confluence-mcp/config.yaml:ro
+      # JMeter config
+      - ./config/jmeter/config.yaml:/app/jmeter-mcp/config.yaml:ro
+      - ./config/jmeter/jmeter_config.yaml:/app/jmeter-mcp/jmeter_config.yaml:ro
+      - ./config/jmeter/correlation_config.yaml:/app/jmeter-mcp/correlation_config.yaml:ro
+      # JMeter properties overrides (optional — appended to jmeter.properties at startup)
+      - ./config/jmeter/jmeter-overrides.properties:/app/jmeter-config/jmeter-overrides.properties:ro
+      # JMeter client certs (optional — place .jks files here, configure via env vars)
+      - ./certs/jmeter/:/app/jmeter-certs/:ro
+      # PerfMemory config
+      - ./config/perfmemory/config.yaml:/app/perfmemory-mcp/config.yaml:ro
+      - ./config/perfmemory/taxonomy.yaml:/app/perfmemory-mcp/taxonomy.yaml:ro
+    depends_on:
+      perfmemory-db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - perf-network
+
+  perfmemory-db:
+    build:
+      context: .
+      dockerfile: Dockerfile.pgvector-age
+    image: perfmem-pgvector-age:latest
+    container_name: perfmem-pgvector-age
+    user: "999:999"
+    env_file:
+      - .env.gateway
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - PGDATA=/var/lib/postgresql/18/docker/pgdata
+    volumes:
+      - ./data/pgvectordb:/var/lib/postgresql/18/docker
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - perf-network
+
+networks:
+  perf-network:
+    driver: bridge
