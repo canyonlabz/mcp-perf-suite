@@ -276,4 +276,5 @@ The `--build` flag forces a fresh image build, picking up any source code change
   (host header injection / authentication bypass)
 - API keys are passed via `.env.gateway` which is gitignored — never commit credentials
 - JKS keystore passwords are passed via environment variables, not baked into the image
-- Config volumes are mounted read-only (`:ro`) into the container
+- Config and cert volumes are mounted read-only (`:ro`) into the container;
+  the artifacts volume is read-write so MCP servers can write test results
