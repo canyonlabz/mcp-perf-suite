@@ -3,13 +3,13 @@
 # This file combines dependencies from all 7 Docker-eligible MCP servers.
 # Version pins use the highest minimum version across all servers to avoid conflicts.
 #
-# Source audit date: 2026-06-03
+# Source audit date: 2026-06-04
 # Servers included: BlazeMeter, Datadog, JMeter, PerfAnalysis, PerfReport, Confluence, PerfMemory
 
 # =============================================================================
 # Core (shared by all servers)
 # =============================================================================
-fastmcp>=3.3.1,<4
+fastmcp>=3.4.0,<4
 httpx>=0.28.1
 python-dotenv>=1.2.1
 PyYAML>=6.0.2
