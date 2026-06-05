@@ -64,6 +64,7 @@ FROM base AS final
 # Copy JMeter + Java from builder stage
 COPY --from=jmeter-layer /opt/jmeter /opt/jmeter
 COPY --from=jmeter-layer /usr/lib/jvm /usr/lib/jvm
+COPY --from=jmeter-layer /etc/java-21-openjdk /etc/java-21-openjdk
 
 ENV JMETER_HOME=/opt/jmeter/apache-jmeter-5.6.3
 ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
