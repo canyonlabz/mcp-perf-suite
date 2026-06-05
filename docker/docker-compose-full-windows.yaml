@@ -15,6 +15,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.gateway
+    image: perfpilot-hub-full:latest
     container_name: perf-gateway
     ports:
       - "8000:8000"
