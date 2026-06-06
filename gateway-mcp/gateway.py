@@ -8,7 +8,7 @@ MCP servers via FastMCP v3's create_proxy() with subprocess isolation.
 Each server runs in its own process with its own venv — no shared
 dependencies, no import collisions.
 
-Supports stdio (local Cursor) and http (future Docker/A2A) transports.
+Supports stdio (local Cursor) and http (Docker/A2A) transports.
 """
 import os
 from pathlib import Path
@@ -19,6 +19,7 @@ from fastmcp.server import create_proxy
 from utils.config import load_config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+IS_DOCKER = os.environ.get("PERFPILOT_DOCKER", "").lower() == "true"
 
 config = load_config()
 server_cfg = config.get("server", {})
@@ -28,23 +29,36 @@ gateway = FastMCP(server_cfg.get("name", "perfpilot-hub"))
 
 
 def _server_config(server_dir: str, script: str) -> dict:
-    """Build an MCP server config dict that uses the server's own venv Python."""
-    server_path = REPO_ROOT / server_dir
-    venv_python = server_path / ".venv" / "Scripts" / "python.exe"
+    """Build an MCP server config dict for create_proxy().
 
-    if not venv_python.exists():
-        venv_python = server_path / ".venv" / "bin" / "python"
+    In Docker mode (PERFPILOT_DOCKER=true): uses system Python and /app/ paths.
+    In local mode: uses each server's own venv Python and repo-relative paths.
+    """
+    if IS_DOCKER:
+        server_path = Path("/app") / server_dir
+        python_cmd = "/usr/local/bin/python"
+    else:
+        server_path = REPO_ROOT / server_dir
+        venv_python = server_path / ".venv" / "Scripts" / "python.exe"
+        if not venv_python.exists():
+            venv_python = server_path / ".venv" / "bin" / "python"
+        python_cmd = str(venv_python)
 
     server_entry = {
-        "command": str(venv_python),
+        "command": python_cmd,
         "args": [script],
         "cwd": str(server_path),
     }
 
+    # In Docker mode, explicitly forward all environment variables to subprocesses.
+    # FastMCP's create_proxy() does not automatically inherit the parent environment.
+    if IS_DOCKER:
+        server_entry["env"] = dict(os.environ)
+
     # Pass SSL cert file to subprocesses if configured (optional)
     ssl_cert_file = server_cfg.get("ssl_cert_file")
     if ssl_cert_file:
-        server_entry["env"] = {"SSL_CERT_FILE": ssl_cert_file}
+        server_entry.setdefault("env", {})["SSL_CERT_FILE"] = ssl_cert_file
 
     return {"mcpServers": {"default": server_entry}}
 
@@ -104,6 +118,16 @@ if servers_cfg.get("sharepoint", True):
         create_proxy(_server_config("sharepoint-mcp", "sharepoint.py")),
         namespace="sharepoint",
     )
+
+
+# --- Health check endpoint (HTTP transport only) ---
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+
+@gateway.custom_route("/health", methods=["GET"])
+async def health_check(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "healthy", "server": "perfpilot-hub"})
 
 
 if __name__ == "__main__":

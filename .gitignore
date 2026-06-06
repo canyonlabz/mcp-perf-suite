@@ -339,6 +339,28 @@ sharepoint-mcp/config.yaml
 # Ignore the following PerfPilot Hub (gateway) local configuration files
 gateway-mcp/config.yaml
 
+# Ignore Docker gateway config files (users copy from .example versions)
+docker/config/gateway/config.yaml
+docker/config/blazemeter/config.yaml
+docker/config/datadog/config.yaml
+docker/config/datadog/environments.json
+docker/config/datadog/custom_queries.json
+docker/config/perfanalysis/config.yaml
+docker/config/perfanalysis/slas.yaml
+docker/config/perfreport/config.yaml
+docker/config/perfreport/report_config.yaml
+docker/config/perfreport/chart_schema.yaml
+docker/config/perfreport/chart_colors.yaml
+docker/config/confluence/config.yaml
+docker/config/jmeter/config.yaml
+docker/config/jmeter/jmeter_config.yaml
+docker/config/jmeter/correlation_config.yaml
+docker/config/jmeter/jmeter-overrides.properties
+docker/config/perfmemory/config.yaml
+docker/config/perfmemory/taxonomy.yaml
+docker/certs/jmeter/*.jks
+docker/.env.gateway
+
 # Ignore all Playwright output files
 .playwright-mcp/*
 
