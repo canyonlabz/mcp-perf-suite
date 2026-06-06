@@ -1,4 +1,4 @@
-fastmcp>=3.4.0,<4
+fastmcp>=3.4.2,<4
 psycopg2-binary>=2.9.11
 pgvector>=0.4.2
 openai>=2.30.0
