@@ -1,38 +1,38 @@
-# PerfPilot Hub — Docker Deployment
+# 🛩️ PerfPilot Hub — Docker Deployment
 
 Run the complete PerfPilot Hub MCP gateway as a single Docker container, exposing all
 7 performance testing MCP servers over HTTP transport.
 
-## What's Included
+## 📦 What's Included
 
 The Docker image bundles:
 
 | Component | Version | Purpose |
 |-----------|---------|---------|
 | Python | 3.12 | MCP server runtime |
-| FastMCP | v3 | MCP framework (subprocess proxy mode) |
+| FastMCP | v3.4.1 | MCP framework (subprocess proxy mode) |
 | JMeter | 5.6.3 | Performance test execution |
-| OpenJDK | 17 | JMeter runtime |
+| OpenJDK | 21 | JMeter runtime |
 | JMeter Plugins | 7 plugins | Custom Thread Groups, Parallel Controller, HTTP/2, WebSocket, etc. |
 
 ### MCP Servers (7 Docker-eligible)
 
 | Server | Tools |
 |--------|-------|
-| BlazeMeter MCP | Test run management, artifact downloads |
-| Datadog MCP | Metrics, logs, APM traces |
-| JMeter MCP | Script generation, correlation, smoke testing |
-| PerfAnalysis MCP | Bottleneck analysis, SLA validation |
-| PerfReport MCP | Report generation, charts |
-| Confluence MCP | Page publishing |
-| PerfMemory MCP | Lessons-learned RAG (requires PostgreSQL) |
+| ⚡ BlazeMeter MCP | Test run management, artifact downloads |
+| 📈 Datadog MCP | Metrics, logs, APM traces |
+| 🧪 JMeter MCP | Script generation, correlation, smoke testing |
+| 🔍 PerfAnalysis MCP | Bottleneck analysis, SLA validation |
+| 📊 PerfReport MCP | Report generation, charts |
+| 📚 Confluence MCP | Page publishing |
+| 🧠 PerfMemory MCP | Lessons-learned RAG (requires PostgreSQL) |
 
 > **Not included:** MS Teams MCP and SharePoint MCP are excluded — they require Microsoft
-> Graph API OAuth flows that are incompatible with headless container operation.
+> Graph API OAuth flows that are incompatible with headless container operation for this version.
 
 ---
 
-## Prerequisites
+## ✅ Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/macOS)
   or [Rancher Desktop](https://rancherdesktop.io/)
@@ -41,9 +41,9 @@ The Docker image bundles:
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
-### 1. Configure Environment Variables
+### 1. ⚙️ Configure Environment Variables
 
 ```bash
 # From the docker/ directory:
@@ -55,7 +55,7 @@ Edit `.env.gateway` and fill in your API credentials. At minimum you'll want:
 - Datadog API/App keys (for infrastructure metrics)
 - OpenAI API key (for PerfMemory embeddings)
 
-### 2. Configure MCP Server Settings
+### 2. 🧩 Configure MCP Server Settings
 
 Each MCP server has configuration files in `docker/config/<server>/`. Copy the
 example files and customize:
@@ -83,7 +83,7 @@ Get-ChildItem -Recurse -Filter "*.example.*" | ForEach-Object {
 
 The real config files (without `.example`) are gitignored — customize freely.
 
-### 3. Build and Run
+### 3. 🐳 Build and Run
 
 **Gateway standalone** (no database):
 
@@ -105,7 +105,7 @@ docker compose -f docker-compose-full-windows.yaml up --build
 docker compose -f docker-compose-full-mac.yaml up --build
 ```
 
-### 4. Connect Cursor
+### 4. 🖱️ Connect Cursor/Claude
 
 Update your Cursor `mcp.json` to use the Docker gateway:
 
@@ -117,9 +117,10 @@ Update your Cursor `mcp.json` to use the Docker gateway:
 }
 ```
 
-This single entry replaces the 9 individual stdio MCP server configurations.
+This single entry replaces the individual stdio MCP server configurations.
+You get 7 of the 9 servers (MS Teams and SharePoint are excluded from Docker).
 
-### 5. Verify
+### 5. 🩺 Verify
 
 ```bash
 # Health check
@@ -129,18 +130,18 @@ curl http://localhost:8000/health
 
 ---
 
-## Compose File Reference
+## 🧭 Compose File Reference
 
 | File | Use Case |
 |------|----------|
-| `docker-compose-gateway-windows.yaml` | Gateway only (Windows) — connect to external DB |
-| `docker-compose-gateway-mac.yaml` | Gateway only (macOS) — connect to external DB |
-| `docker-compose-full-windows.yaml` | Gateway + PostgreSQL (Windows) — self-contained |
-| `docker-compose-full-mac.yaml` | Gateway + PostgreSQL (macOS) — self-contained |
-| `docker-compose-windows.yaml` | PostgreSQL only (existing, for local PerfMemory dev) |
-| `docker-compose-mac.yaml` | PostgreSQL only (existing, for local PerfMemory dev) |
+| 🪟 `docker-compose-gateway-windows.yaml` | Gateway only (Windows) — connect to external DB |
+| 🍎 `docker-compose-gateway-mac.yaml` | Gateway only (macOS) — connect to external DB |
+| 🪟 `docker-compose-full-windows.yaml` | Gateway + PostgreSQL (Windows) — self-contained |
+| 🍎 `docker-compose-full-mac.yaml` | Gateway + PostgreSQL (macOS) — self-contained |
+| 🐘 `docker-compose-windows.yaml` | PostgreSQL only (existing, for local PerfMemory dev) |
+| 🍎 `docker-compose-mac.yaml` | PostgreSQL only (existing, for local PerfMemory dev) |
 
-### Windows vs macOS Differences
+### 🪟 Windows vs 🍎 macOS Differences
 
 The gateway container itself is identical on both platforms. The macOS variants add
 `user: "999:999"` and explicit `PGDATA` to the PostgreSQL service to avoid file
@@ -148,7 +149,7 @@ permission issues with Docker Desktop on macOS.
 
 ---
 
-## Directory Structure
+## 🗂️ Directory Structure
 
 ```
 docker/
@@ -179,9 +180,9 @@ docker/
 
 ---
 
-## JMeter Configuration
+## 🧪 JMeter Configuration
 
-### TLS Client Certificates (JKS)
+### 🔐 TLS Client Certificates (JKS)
 
 For corporate environments that require client certificate authentication:
 
@@ -195,7 +196,7 @@ For corporate environments that require client certificate authentication:
 Both variables must be set together. The entrypoint script configures JMeter's
 `system.properties` with the keystore path and password at container startup.
 
-### JMeter Properties
+### 🛠️ JMeter Properties
 
 To override `jmeter.properties` settings (e.g., `CookieManager.save.cookies=true`):
 
@@ -208,7 +209,7 @@ JMETER_COOKIE_SAVE=true
 Edit `docker/config/jmeter/jmeter-overrides.properties` with any properties you need.
 These are appended to `jmeter.properties` at container startup.
 
-### Bundled JMeter Plugins
+### 🔌 Bundled JMeter Plugins
 
 The image includes these plugins (installed via JMeter Plugin Manager):
 
@@ -232,9 +233,9 @@ docker build -f docker/Dockerfile.gateway \
 
 ---
 
-## Troubleshooting
+## 🧯 Troubleshooting
 
-### Container fails to start
+### 🚫 Container fails to start
 
 Check the logs:
 ```bash
@@ -246,20 +247,20 @@ Common issues:
 - **Port 8000 already in use** — stop other services on that port or change `GATEWAY_PORT`
 - **Health check failing** — the gateway needs ~15 seconds to start all subprocess proxies
 
-### PerfMemory can't connect to database
+### 🧠 PerfMemory can't connect to database
 
 If using the full-stack compose:
 - The gateway waits for PostgreSQL to be healthy before starting (`depends_on` with health check)
 - Ensure `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` are set in `.env.gateway`
 - Check if the `data/pgvectordb` directory has correct permissions (macOS users: use the mac compose variant)
 
-### Cursor can't connect
+### 🔌 Cursor can't connect
 
 - Verify the container is running: `docker ps | grep perf-gateway`
 - Test the health endpoint: `curl http://localhost:8000/health`
 - Check that your `mcp.json` uses `http://localhost:8000/mcp` (not `/health`)
 
-### Rebuilding after code changes
+### ♻️ Rebuilding after code changes
 
 ```bash
 docker compose -f docker-compose-gateway-windows.yaml up --build
@@ -269,7 +270,7 @@ The `--build` flag forces a fresh image build, picking up any source code change
 
 ---
 
-## Security Notes
+## 🔒 Security Notes
 
 - **Starlette >= 1.2.1** is pinned in `requirements.gateway.txt` to mitigate
   [CVE-2026-48710](https://arstechnica.com/information-technology/2026/05/millions-of-ai-agents-imperiled-by-critical-vulnerability-in-open-source-package/)

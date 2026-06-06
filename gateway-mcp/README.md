@@ -20,7 +20,7 @@ subprocess with full process isolation. No shared dependencies, no import confli
 │  Cursor / Claude / AI Agent                             │
 │  (connects to ONE MCP endpoint)                         │
 └───────────────────────────┬─────────────────────────────┘
-                            │ stdio (local) or http (future)
+                            │ stdio (local) or http (docker)
                             ▼
 ┌─────────────────────────────────────────────────────────┐
 │  PerfPilot Hub                                          │
@@ -44,7 +44,7 @@ as it does in standalone mode.
 
 - ✅ Python 3.12+
 - ✅ All 9 MCP servers set up with their own `.venv` and dependencies installed
-- ✅ FastMCP v3.3.1+ installed in the gateway venv
+- ✅ FastMCP v3.4.1+ installed in the gateway venv
 
 ---
 
@@ -200,4 +200,4 @@ Once PerfPilot Hub is tested, replace all 9 MCP entries in `mcp.json` with one:
 | 🚀 **PerfPilot Hub** | MCP Gateway — single endpoint to all perf tools | ✅ Completed |
 | 🤖 **PerfPilot Orchestrator** | A2A Server — external AI Agent communication | 📋 Planned |
 | 🧠 **PerfMemory DB** | PostgreSQL + pgvector + Apache AGE | ✅ Completed |
-| 🐳 **Docker Deployment** | Containerized hub + database | 📋 Planned |
+| 🐳 **Docker Deployment** | Containerized hub + database | ✅ Completed |

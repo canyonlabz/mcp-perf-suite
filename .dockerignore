@@ -68,5 +68,5 @@ Thumbs.db
 
 # Miscellaneous local-only files
 *.log
-.env
+**/.env
 .envrc

@@ -50,10 +50,15 @@ def _server_config(server_dir: str, script: str) -> dict:
         "cwd": str(server_path),
     }
 
+    # In Docker mode, explicitly forward all environment variables to subprocesses.
+    # FastMCP's create_proxy() does not automatically inherit the parent environment.
+    if IS_DOCKER:
+        server_entry["env"] = dict(os.environ)
+
     # Pass SSL cert file to subprocesses if configured (optional)
     ssl_cert_file = server_cfg.get("ssl_cert_file")
     if ssl_cert_file:
-        server_entry["env"] = {"SSL_CERT_FILE": ssl_cert_file}
+        server_entry.setdefault("env", {})["SSL_CERT_FILE"] = ssl_cert_file
 
     return {"mcpServers": {"default": server_entry}}
 
