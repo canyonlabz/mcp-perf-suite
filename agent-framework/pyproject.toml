@@ -1,0 +1,60 @@
+[project]
+name = "agent-framework"
+version = "0.1.0"
+description = "PerfPilot Agents - AG2-based AI agent framework for the MCP Perf Suite"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  # AG2 (AutoGen 2.x) - multi-agent framework, A2A integration, AG-UI integration
+  "ag2>=0.7.0,<1",
+
+  # MCP client - reaches the PerfPilot Hub gateway (perf-gateway:8000)
+  "fastmcp>=3.4.2,<4",
+
+  # FastAPI + ASGI for the A2A server (port 8001) and AG-UI bridge (port 8002)
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+
+  # Starlette pinned for CVE-2026-48710 (BadHost) security fix.
+  # FastAPI depends on Starlette transitively, but we pin explicitly to ensure
+  # the patched version is always installed - same convention as docker/requirements.gateway.txt
+  "starlette>=1.2.1",
+
+  # Database - perfagent_state pool (asyncpg, JSONB-only schema)
+  "asyncpg>=0.30.0",
+
+  # Models / validation
+  "pydantic>=2.10.0",
+
+  # HTTP client - shared by LLM provider adapters (mirrors PerfMemory pattern)
+  "httpx>=0.28.1",
+
+  # LLM provider SDKs (OpenAI client also covers Azure OpenAI via AsyncAzureOpenAI)
+  "openai>=2.30.0",
+
+  # Config and env loading
+  "pyyaml>=6.0.2",
+  "python-dotenv>=1.2.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agents", "utils", "workflows", "frontend"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "agents",
+  "utils",
+  "workflows",
+  "frontend",
+  "config",
+  "sql",
+  "pyproject.toml",
+  "requirements.txt",
+  "README.md",
+  "AGENTS.md",
+  ".env.example",
+]

@@ -1,0 +1,35 @@
+# PerfPilot Agents - Python dependencies
+#
+# Mirror of pyproject.toml dependencies for environments that prefer pip-style
+# requirements files (Docker, virtual envs, CI). Floor versions only; pinning
+# strategy matches the rest of the suite (e.g. perfmemory-mcp/requirements.txt).
+#
+# Starlette pinned to >=1.2.1 to mitigate CVE-2026-48710 (host header injection
+# / authentication bypass) - same pin as docker/requirements.gateway.txt.
+
+# AG2 framework
+ag2>=0.7.0,<1
+
+# MCP client
+fastmcp>=3.4.2,<4
+
+# Web servers (A2A on port 8001, AG-UI on port 8002)
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+starlette>=1.2.1
+
+# Database (perfagent_state pool)
+asyncpg>=0.30.0
+
+# Models / validation
+pydantic>=2.10.0
+
+# HTTP / async
+httpx>=0.28.1
+
+# LLM provider SDKs
+openai>=2.30.0
+
+# Config / utilities
+pyyaml>=6.0.2
+python-dotenv>=1.2.1
