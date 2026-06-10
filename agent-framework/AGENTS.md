@@ -61,6 +61,49 @@ created at the package root in F3.5 and F3.6 respectively.
    `session_id` (required, per UI/IDE/A2A connection), and `task_id`
    (required, per A2A task).
 
+## Per-agent `config.yaml` schema
+
+Each agent folder under `agents/<name>/` has a `config.yaml` file (created in
+F3.7+). The schema below is consumed by `utils/llm_provider.py` and the
+agent loader in `utils/base_agent.py`:
+
+```yaml
+# Per-agent override for the LLM. If this entire block is omitted, the agent
+# falls back to `config/agents.yaml -> default_llm_provider`. Credentials
+# (api_key / endpoint) are NEVER stored here - they come from `.env` and
+# are merged at runtime by `utils/llm_provider.py::merge_env_credentials`.
+llm_provider:
+  provider: openai          # one of: openai | azure_openai | ollama
+  openai_model: gpt-4o-mini # for provider=openai
+  # azure_deployment: gpt-4o      # for provider=azure_openai
+  # ollama_model: llama3.1        # for provider=ollama
+  temperature: 0.2          # 0.1 for analysis/reporting, 0.4+ for creative
+
+# MCP namespace allowlist. Each entry corresponds to a namespace prefix on
+# the gateway-mcp tool catalog (e.g. "blazemeter_*", "datadog_*"). The
+# orchestrator and agent-loader filter the MCP tool catalog through this
+# list so each agent only sees the tools it is supposed to use.
+mcp_tools:
+  allowed_namespaces:
+    - blazemeter
+    - datadog
+
+# Optional A2A discovery metadata. If absent, sensible defaults are derived
+# from the agent name and folder.
+a2a:
+  display_name: "Execution Agent"
+  description: "Runs BlazeMeter test runs end to end."
+  tags: ["execution", "blazemeter"]
+```
+
+The global fallback file `config/agents.yaml` (or `agents.example.yaml`) holds
+the `default_llm_provider` block plus the per-agent enable/disable map. A
+disabled agent is not instantiated at startup and returns `404` on its A2A
+agent card. TLS settings (`ssl_verification: ca_bundle | system | disabled`)
+also live here; the actual CA bundle path comes from `REQUESTS_CA_BUNDLE` or
+`SSL_CERT_FILE` env vars - same convention as `blazemeter-mcp`,
+`datadog-mcp`, and `confluence-mcp`.
+
 ## Where to look first
 
 - **Architecture overview, sequence diagrams, port assignments:** V2 doc

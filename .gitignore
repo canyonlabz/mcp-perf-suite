@@ -361,6 +361,14 @@ docker/config/perfmemory/taxonomy.yaml
 docker/certs/jmeter/*.jks
 docker/.env.gateway
 
+# Ignore the following AG2 Agent Framework local configuration files (operators
+# copy from .example versions). The .env file is already covered by the global
+# `.env` rule above; the explicit entry here makes the agent-framework section
+# self-documenting. The committed template lives at
+# `agent-framework/config/agents.example.yaml`.
+agent-framework/.env
+agent-framework/config/agents.yaml
+
 # Ignore all Playwright output files
 .playwright-mcp/*
 
