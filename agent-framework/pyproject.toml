@@ -20,6 +20,10 @@ dependencies = [
   # the patched version is always installed - same convention as docker/requirements.gateway.txt
   "starlette>=1.2.1",
 
+  # SSE responses for the A2A `tasks/sendSubscribe` endpoint and the AG-UI
+  # event stream (V2 doc Section 14.2 Pattern 2). Idiomatic on top of Starlette.
+  "sse-starlette>=2.1.3",
+
   # Database - perfagent_state pool (asyncpg, JSONB-only schema)
   "asyncpg>=0.30.0",
 
