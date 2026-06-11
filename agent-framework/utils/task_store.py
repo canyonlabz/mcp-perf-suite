@@ -212,3 +212,88 @@ async def delete_task(task_id: UUID) -> bool:
     async with pool.acquire() as conn:
         result = await conn.execute("DELETE FROM agent_tasks WHERE task_id = $1", task_id)
     return result.endswith(" 1")
+
+
+# =============================================================================
+# Run-oriented helpers (PBI 3.6.6) - group tasks by `test_run_id`
+# =============================================================================
+
+@dataclass
+class RunSummary:
+    """Aggregated view of every task that shares the same `test_run_id`."""
+
+    test_run_id: str
+    task_count: int
+    completed_count: int
+    failed_count: int
+    active_count: int
+    cancelled_count: int
+    started_at: datetime
+    last_activity_at: datetime
+    agent_names: list[str] = field(default_factory=list)
+
+
+async def list_runs(*, limit: int = 50, offset: int = 0) -> list[RunSummary]:
+    """Return distinct `test_run_id` values grouped by activity.
+
+    Used by the AG-UI bridge (PBI 3.6.6) to power the browser's "recent
+    runs" list and the "come back tomorrow" UX.
+    """
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                test_run_id,
+                COUNT(*)::INT AS task_count,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)::INT AS completed_count,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)::INT AS failed_count,
+                SUM(CASE WHEN status IN ('pending', 'running') THEN 1 ELSE 0 END)::INT AS active_count,
+                SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END)::INT AS cancelled_count,
+                MIN(submitted_at) AS started_at,
+                MAX(updated_at)   AS last_activity_at,
+                ARRAY_AGG(DISTINCT agent_name ORDER BY agent_name) AS agent_names
+            FROM agent_tasks
+            WHERE test_run_id IS NOT NULL
+            GROUP BY test_run_id
+            ORDER BY MAX(updated_at) DESC
+            LIMIT $1 OFFSET $2
+            """,
+            limit,
+            offset,
+        )
+    return [
+        RunSummary(
+            test_run_id=row["test_run_id"],
+            task_count=row["task_count"],
+            completed_count=row["completed_count"],
+            failed_count=row["failed_count"],
+            active_count=row["active_count"],
+            cancelled_count=row["cancelled_count"],
+            started_at=row["started_at"],
+            last_activity_at=row["last_activity_at"],
+            agent_names=list(row["agent_names"] or []),
+        )
+        for row in rows
+    ]
+
+
+async def list_tasks_for_run(test_run_id: str) -> list[AgentTask]:
+    """Return every task that carries the given `test_run_id`, oldest first."""
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT task_id, session_id, external_session_id, agent_name, status,
+                   test_run_id, payload, result, error, subscriber_endpoints,
+                   submitted_at, started_at, completed_at, updated_at
+            FROM agent_tasks
+            WHERE test_run_id = $1
+            ORDER BY submitted_at ASC
+            """,
+            test_run_id,
+        )
+    return [_row_to_task(r) for r in rows]

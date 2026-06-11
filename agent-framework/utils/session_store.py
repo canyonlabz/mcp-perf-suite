@@ -148,3 +148,51 @@ async def delete_session(session_id: UUID) -> bool:
     async with pool.acquire() as conn:
         result = await conn.execute("DELETE FROM agent_sessions WHERE session_id = $1", session_id)
     return result.endswith(" 1")
+
+
+async def list_sessions(
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    source: Optional[str] = None,
+    include_ended: bool = False,
+) -> list[AgentSession]:
+    """Return recent sessions ordered by `last_activity_at DESC`.
+
+    Used by the AG-UI bridge (PBI 3.6.4) to power the browser's session
+    picker and the "come back tomorrow" UX. Pagination is offset-based for
+    Epic 3 simplicity; cursor pagination can be added in a later Feature.
+
+    Args:
+        limit: Max rows to return. Capped at 200.
+        offset: Skip this many rows.
+        source: Optional filter on the `source` column (e.g. `web_ui`).
+        include_ended: If False (default), excludes rows where `ended_at`
+            is set. Most browser views want only live sessions.
+    """
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+
+    where_parts: list[str] = []
+    args: list[Any] = []
+    if source is not None:
+        args.append(source)
+        where_parts.append(f"source = ${len(args)}")
+    if not include_ended:
+        where_parts.append("ended_at IS NULL")
+    where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+
+    args.extend([limit, offset])
+    query = f"""
+        SELECT session_id, external_session_id, source, user_identity, metadata,
+               started_at, ended_at, last_activity_at
+        FROM agent_sessions
+        {where_clause}
+        ORDER BY last_activity_at DESC
+        LIMIT ${len(args) - 1} OFFSET ${len(args)}
+    """
+
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query, *args)
+    return [_row_to_session(r) for r in rows]
