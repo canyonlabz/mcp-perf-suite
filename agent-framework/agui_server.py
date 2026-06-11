@@ -11,14 +11,19 @@ processes so:
 
 URL conventions:
 
-  /copilotkit                 - Mounted by the CopilotKit Python SDK in
-                                 PBI 3.6.3 (handles chat / runtime forwarding
-                                 from the Next.js CopilotKit runtime).
-  /api/sessions[/{id}]        - Session info (PBI 3.6.4)
-  /api/runs[/{test_run_id}]   - Test-run grouping over agent_tasks (PBI 3.6.6)
-  /api/hitl/{approve,reject}  - HITL CRUD over hitl_approvals (PBI 3.6.5)
-  /api/events                 - AG-UI SSE event stream from task_executor (PBI 3.6.2)
-  /health                     - Liveness probe (this PBI)
+  /copilotkit/                - AG-UI / CopilotKit endpoint, served by AG2's
+                                 native `AGUIStream(agent).build_asgi()`.
+                                 The Next.js CopilotKit React frontend points
+                                 its `runtimeUrl` here. AG2 speaks AG-UI
+                                 natively, so no CopilotKit Python SDK is
+                                 needed in the middle. NOTE: the trailing
+                                 slash is canonical (Starlette `Mount` 307s
+                                 from `/copilotkit` -> `/copilotkit/`).
+  /api/sessions[/{id}]        - Session info
+  /api/runs[/{test_run_id}]   - Test-run grouping over agent_tasks
+  /api/hitl/{approve,reject}  - HITL CRUD over hitl_approvals
+  /api/events                 - AG-UI SSE event stream from task_executor
+  /health                     - Liveness probe
 
 Deliberately NOT prefixed with `/api/perfpilot/*`. The shorter `/api/*`
 prefix matches industry convention; the brand stays in the front-end
@@ -142,7 +147,47 @@ def create_app() -> FastAPI:
     app.add_middleware(SessionMiddleware, default_source="web_ui")
 
     _register_routes(app)
+    _mount_copilotkit(app)
     return app
+
+
+def _mount_copilotkit(app: FastAPI) -> None:
+    """Mount the AG-UI / CopilotKit endpoint at /copilotkit (PBI 3.6.3).
+
+    Uses AG2's built-in `AGUIStream(agent).build_asgi()` so CopilotKit React
+    (F3.6.7) can talk to us directly via the AG-UI protocol. No CopilotKit
+    Python SDK is involved - AG2 ships AG-UI support natively.
+
+    Mount is best-effort: if the agent or AG2 import fails, the rest of
+    the server still boots and the other endpoints (`/api/sessions`,
+    `/api/runs`, `/api/hitl/*`, `/api/events`, `/health`) keep working.
+    A subsequent boot attempt with a valid LLM config will mount cleanly.
+    """
+    try:
+        from autogen.ag_ui import AGUIStream  # noqa: WPS433
+        from utils.copilotkit_stub import build_stub_orchestrator  # noqa: WPS433
+    except Exception:
+        log.exception(
+            "Could not import AG2 / AGUIStream; /copilotkit will be unavailable. "
+            "Install with: pip install \"ag2[ag-ui]==0.13.3\""
+        )
+        return
+
+    try:
+        agent = build_stub_orchestrator()
+    except Exception:
+        log.exception(
+            "Failed to build the stub orchestrator (likely missing/invalid LLM "
+            "credentials in agent-framework/.env); /copilotkit will be unavailable."
+        )
+        return
+
+    try:
+        stream = AGUIStream(agent)
+        app.mount("/copilotkit", stream.build_asgi())
+        log.info("Mounted AG-UI endpoint at /copilotkit (stub orchestrator)")
+    except Exception:
+        log.exception("Could not mount /copilotkit; AG-UI endpoint will be unavailable")
 
 
 # =============================================================================

@@ -7,8 +7,9 @@
 # Starlette pinned to >=1.2.1 to mitigate CVE-2026-48710 (host header injection
 # / authentication bypass) - same pin as docker/requirements.gateway.txt.
 
-# AG2 framework
-ag2>=0.7.0,<1
+# AG2 framework. `[ag-ui]` extra pulls in `ag-ui-protocol` so AG2 can expose
+# the AG-UI endpoint at /copilotkit (consumed by CopilotKit React in F3.6.7).
+ag2[ag-ui]>=0.13.3,<0.14
 
 # MCP client
 fastmcp>=3.4.2,<4

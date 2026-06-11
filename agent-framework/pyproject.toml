@@ -5,8 +5,11 @@ description = "PerfPilot Agents - AG2-based AI agent framework for the MCP Perf 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  # AG2 (AutoGen 2.x) - multi-agent framework, A2A integration, AG-UI integration
-  "ag2>=0.7.0,<1",
+  # AG2 (formerly AutoGen) - multi-agent framework, A2A integration, AG-UI integration.
+  # `[ag-ui]` extra brings in `ag-ui-protocol` so `autogen.ag_ui.AGUIStream(agent).build_asgi()`
+  # can mount on FastAPI - this is the AG-UI endpoint CopilotKit React talks to.
+  # Pinned >=0.13.3,<0.14 for stable AG-UI surface; AG2 v1.0 will move ag_ui out of beta.
+  "ag2[ag-ui]>=0.13.3,<0.14",
 
   # MCP client - reaches the PerfPilot Hub gateway (perf-gateway:8000)
   "fastmcp>=3.4.2,<4",
