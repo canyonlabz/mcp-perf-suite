@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 
 HEADER_SESSION_ID = "X-Session-Id"
 HEADER_EXTERNAL_SESSION_ID = "X-External-Session-Id"
-HEADER_USER_IDENTITY = "X-User-Identity"
+HEADER_USER_ID = "X-User-Id"
 HEADER_SOURCE = "X-Session-Source"
 
 # Paths for which the middleware skips DB work entirely. Liveness probes
@@ -91,14 +91,14 @@ class SessionMiddleware(BaseHTTPMiddleware):
 
         session_id_in = _parse_uuid_header(request.headers.get(HEADER_SESSION_ID))
         external_session_id = (request.headers.get(HEADER_EXTERNAL_SESSION_ID) or "").strip() or None
-        user_identity = (request.headers.get(HEADER_USER_IDENTITY) or "").strip() or None
+        user_id = (request.headers.get(HEADER_USER_ID) or "").strip() or None
         source = (request.headers.get(HEADER_SOURCE) or "").strip() or self.default_source
 
         try:
             session = await self._resolve_session(
                 session_id=session_id_in,
                 external_session_id=external_session_id,
-                user_identity=user_identity,
+                user_id=user_id,
                 source=source,
             )
         except Exception:
@@ -132,7 +132,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
         *,
         session_id: Optional[UUID],
         external_session_id: Optional[str],
-        user_identity: Optional[str],
+        user_id: Optional[str],
         source: str,
     ) -> session_store.AgentSession:
         """Return an existing session (touched) or a freshly created one."""
@@ -152,5 +152,5 @@ class SessionMiddleware(BaseHTTPMiddleware):
         return await session_store.create_session(
             source=source,
             external_session_id=external_session_id,
-            user_identity=user_identity,
+            user_id=user_id,
         )

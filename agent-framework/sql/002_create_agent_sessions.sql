@@ -27,9 +27,12 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     --   'cli'           - operator CLI / direct script
     source               TEXT NOT NULL,
 
-    -- Epic 3: free-text user hint (best-effort; may be NULL).
-    -- Epic 4: ties this to an EntraID principal once auth middleware is on.
-    user_identity        TEXT,
+    -- Epic 3: free-text user hint resolved from the X-User-Id header or a
+    -- server-issued cookie (best-effort; may be NULL).
+    -- Epic 4: ties this to an EntraID principal (the oid claim) once auth
+    -- middleware is on. Column name matches agent_threads.user_id for
+    -- naming consistency across the schema.
+    user_id              TEXT,
 
     -- UI-specific data, client info, browser fingerprint, etc.
     metadata             JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -48,7 +51,7 @@ COMMENT ON TABLE  agent_sessions IS 'PerfPilot Agents internal session per UI/ID
 COMMENT ON COLUMN agent_sessions.session_id          IS 'Internal session identifier (UUID).';
 COMMENT ON COLUMN agent_sessions.external_session_id IS 'Optional SDLC-wide session ID from upstream coordinator; opaque.';
 COMMENT ON COLUMN agent_sessions.source              IS 'Origin of the session: web_ui, cursor, claude, a2a_external, cli.';
-COMMENT ON COLUMN agent_sessions.user_identity       IS 'Epic 3: free-text user hint. Epic 4: EntraID principal.';
+COMMENT ON COLUMN agent_sessions.user_id             IS 'Epic 3: resolved from X-User-Id header or server-issued cookie. Epic 4: EntraID oid claim.';
 COMMENT ON COLUMN agent_sessions.metadata            IS 'Free-form JSONB payload (UI client info, etc.).';
 COMMENT ON COLUMN agent_sessions.last_activity_at    IS 'Last inbound activity; used for inactivity timeout.';
 

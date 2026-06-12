@@ -406,7 +406,7 @@ def _session_to_dict(session: session_store.AgentSession) -> dict:
         "session_id": str(session.session_id),
         "external_session_id": session.external_session_id,
         "source": session.source,
-        "user_identity": session.user_identity,
+        "user_id": session.user_id,
         "metadata": session.metadata,
         "started_at": session.started_at.isoformat() if session.started_at else None,
         "ended_at": session.ended_at.isoformat() if session.ended_at else None,
@@ -455,12 +455,12 @@ def _serialize_decision_response(approval: Optional[hitl_store.HitlApproval]) ->
 def _resolve_decider(request: Request, body_value: Optional[str]) -> Optional[str]:
     """Decide who recorded a HITL decision.
 
-    Precedence: explicit body field > `X-User-Identity` request header >
-    session middleware's `user_identity` (Epic 4 EntraID slot).
+    Precedence: explicit body field > `X-User-Id` request header >
+    session middleware's `user_id` (Epic 4 EntraID slot).
     """
     if body_value:
         return body_value
-    header = request.headers.get("X-User-Identity")
+    header = request.headers.get("X-User-Id")
     if header and header.strip():
         return header.strip()
     return None

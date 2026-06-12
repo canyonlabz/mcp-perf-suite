@@ -40,7 +40,7 @@ class AgentSession:
     started_at: datetime
     last_activity_at: datetime
     external_session_id: Optional[str] = None
-    user_identity: Optional[str] = None
+    user_id: Optional[str] = None
     metadata: dict = field(default_factory=dict)
     ended_at: Optional[datetime] = None
 
@@ -54,7 +54,7 @@ def _row_to_session(row: Any) -> AgentSession:
         session_id=row["session_id"],
         external_session_id=row["external_session_id"],
         source=row["source"],
-        user_identity=row["user_identity"],
+        user_id=row["user_id"],
         metadata=metadata or {},
         started_at=row["started_at"],
         ended_at=row["ended_at"],
@@ -66,7 +66,7 @@ async def create_session(
     source: str,
     *,
     external_session_id: Optional[str] = None,
-    user_identity: Optional[str] = None,
+    user_id: Optional[str] = None,
     metadata: Optional[dict] = None,
 ) -> AgentSession:
     """Insert a new row in `agent_sessions` and return the materialized view.
@@ -75,7 +75,8 @@ async def create_session(
         source: Origin tag, ideally one of `VALID_SOURCES`. Free-text is
             allowed but a warning is logged when an unknown value is used.
         external_session_id: Optional propagated SDLC trace ID.
-        user_identity: Epic 3 free-text user hint (Epic 4: EntraID principal).
+        user_id: Epic 3 resolved user identifier from the X-User-Id header
+            or a server-issued cookie. Epic 4: EntraID oid claim.
         metadata: Arbitrary JSONB payload (UI client info, etc.).
 
     Returns:
@@ -89,14 +90,14 @@ async def create_session(
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            INSERT INTO agent_sessions (external_session_id, source, user_identity, metadata)
+            INSERT INTO agent_sessions (external_session_id, source, user_id, metadata)
             VALUES ($1, $2, $3, $4::jsonb)
-            RETURNING session_id, external_session_id, source, user_identity, metadata,
+            RETURNING session_id, external_session_id, source, user_id, metadata,
                       started_at, ended_at, last_activity_at
             """,
             external_session_id,
             source,
-            user_identity,
+            user_id,
             json.dumps(metadata or {}),
         )
     return _row_to_session(row)
@@ -108,7 +109,7 @@ async def get_session(session_id: UUID) -> Optional[AgentSession]:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            SELECT session_id, external_session_id, source, user_identity, metadata,
+            SELECT session_id, external_session_id, source, user_id, metadata,
                    started_at, ended_at, last_activity_at
             FROM agent_sessions
             WHERE session_id = $1
@@ -184,7 +185,7 @@ async def list_sessions(
 
     args.extend([limit, offset])
     query = f"""
-        SELECT session_id, external_session_id, source, user_identity, metadata,
+        SELECT session_id, external_session_id, source, user_id, metadata,
                started_at, ended_at, last_activity_at
         FROM agent_sessions
         {where_clause}
