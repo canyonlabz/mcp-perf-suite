@@ -5,11 +5,13 @@
 # falls back to this `.example` file (mirrors the PerfMemory taxonomy
 # fallback pattern).
 #
-# Two sections:
+# Sections:
 #   1. default_llm_provider — global fallback used by any agent whose own
 #      `agents/<name>/config.yaml` does not declare an `llm_provider` block.
 #   2. agents — per-agent enable/disable flags. Disabled agents are skipped
 #      by the orchestrator and return 404 on their A2A `agent_card.json`.
+#   3. web_ui — settings for the AG-UI bridge (port 8002): currently the
+#      `perfpilot_user_id` session-cookie tunables.
 
 # =============================================================================
 # Default LLM Provider (global fallback)
@@ -71,3 +73,48 @@ agents:
   analysis-agent:      { enabled: true }
   reporting-agent:     { enabled: true }
   notifications-agent: { enabled: true }
+
+# =============================================================================
+# Web UI — AG-UI bridge tunables (port 8002)
+# =============================================================================
+# Settings consumed by `agui_server.py` and the `SessionMiddleware` on the
+# AG-UI bridge. None of these affect the A2A surface on port 8001 (A2A
+# clients do not use cookies; they authenticate via header / proof-of-knowledge).
+web_ui:
+
+  # `perfpilot_user_id` session cookie. The cookie is the opaque,
+  # server-issued user identifier minted by `utils/user_identity.py` when
+  # no upstream identity is present on the request. See Decision 19 in
+  # `docs/plans/Epic-3-Implementation-Status.md` for the full resolver
+  # chain.
+  #
+  # All keys below are optional — sensible defaults are applied if a key
+  # is missing or the entire `session_cookie:` block is absent.
+  session_cookie:
+
+    # Cookie lifetime in days. Default 365 (one year) so a returning
+    # browser still maps to the same `user_id` and therefore still sees
+    # its own sessions / threads / runs. Lower values force a "fresh you"
+    # more often (useful for kiosk-style shared machines); higher values
+    # are fine too — the cookie is opaque and rotation-safe.
+    max_age_days: 365
+
+    # Send the cookie only over HTTPS. Defaults to false so local dev on
+    # `http://localhost:8002` works. Flip to true for any production
+    # deployment behind TLS (Azure Container Apps, AWS Fargate / ALB,
+    # GCP Cloud Run, on-prem reverse proxy with cert, etc.). The
+    # framework intentionally does NOT auto-detect this — operators
+    # opt in explicitly to avoid silent misconfiguration.
+    secure: false
+
+    # SameSite policy. One of:
+    #   lax    - sent on top-level navigation GETs; blocked on cross-site
+    #            POSTs / fetches. Recommended default for browser-based UIs.
+    #   strict - sent only on same-site requests. Tighter, but breaks any
+    #            future flow where another origin needs to deep-link with
+    #            cookie context.
+    #   none   - sent on every cross-site request. REQUIRES `secure: true`
+    #            per the browser cookie spec; pick this only when the
+    #            React UI is served from a fundamentally different origin
+    #            than the AG-UI bridge AND both are HTTPS.
+    samesite: lax

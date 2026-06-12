@@ -29,7 +29,7 @@ clarity. The user-facing brand is "PerfPilot Agents". Do not rename either.
 | `agents/` | One subfolder per agent, four-file pattern (`agent.py`, `agent_card.json`, `INSTRUCTIONS.md`, `config.yaml`). | ⏭ F3.7 (orchestrator — next), F3.8 (execution-agent vertical slice), F3.9 (stubs), F3.10 (promotions) |
 | `workflows/` | Agent-to-agent Python pipelines (NOT Cursor Skills — both retained, neither replaces the other). | ⏭ F3.11 |
 | `utils/` | Shared agent-layer infrastructure (see breakdown below). | mixed |
-| `config/` | Runtime YAML: `agents.yaml` (global LLM fallback + per-agent enable/disable + TLS settings), `agents.example.yaml` (committed template). | ✅ F3.4; extended in F3.13 |
+| `config/` | Runtime YAML: `agents.yaml` (global LLM fallback + per-agent enable/disable + TLS settings + `web_ui.session_cookie` tunables), `agents.example.yaml` (committed template). | ✅ F3.4; extended in F3.7.0b (cookie block) and F3.13 |
 | `sql/` | DDL for the `perfagent_state` database (seven JSONB-only tables: six from F3.3 plus `agent_threads` from F3.7.0). | ✅ F3.3, extended in F3.7.0 |
 | `pyproject.toml`, `requirements.txt` | Package metadata and dependencies. | ✅ F3.2; bumped in F3.4, F3.5, F3.6 |
 | `.env.example` | Environment template (no real credentials). | ✅ F3.2 |
@@ -41,16 +41,17 @@ clarity. The user-facing brand is "PerfPilot Agents". Do not rename either.
 | `db.py` | `asyncpg` connection-pool helper for `perfagent_state` | ✅ F3.3 |
 | `session_store.py` | CRUD over `agent_sessions` (create / get / touch / end / list) | ✅ F3.3, extended in F3.6.4 (`list_sessions`); column rename `user_identity` -> `user_id` in F3.7-prep |
 | `thread_store.py` | CRUD over `agent_threads` (create / get / get_by_external_thread_id / list_for_user / touch / set_title / archive / delete). Threads are the persistent conversation containers that survive across sessions. | ✅ F3.7.0 |
-| `agents_config.py` | Loads `config/agents.yaml`, caches enable/disable map | ✅ F3.5 |
-| `session_middleware.py` | Resolves `X-Session-Id` / `X-External-Session-Id` request headers, persists rows in `agent_sessions`, attaches IDs to `request.state` | ✅ F3.5 |
-| `task_store.py` | CRUD over `agent_tasks`; `RunSummary` aggregate; `list_runs` / `list_tasks_for_run` | ✅ F3.5, extended in F3.6.6 |
+| `agents_config.py` | Loads `config/agents.yaml`, caches enable/disable map; resolves `web_ui.session_cookie` tunables via `get_session_cookie_config()` | ✅ F3.5; extended in F3.7.0b (cookie config) |
+| `user_identity.py` | Four-step Epic 3 user-identity resolver: upstream-auth placeholder (vendor-agnostic — see Decision 20) → `X-User-Id` header → `perfpilot_user_id` cookie → mint fresh opaque token. Returns `ResolvedUser`; exposes `set_user_id_cookie` for middleware response-side use. | ✅ F3.7.0b |
+| `session_middleware.py` | Resolves `X-Session-Id` / `X-External-Session-Id` request headers, runs the `user_identity.resolve_user_id` chain, persists rows in `agent_sessions`, attaches `session_id` / `external_session_id` / `user_id` to `request.state`, sets the `perfpilot_user_id` cookie when minted | ✅ F3.5; extended in F3.7.0b (user-identity resolver + cookie) |
+| `task_store.py` | CRUD over `agent_tasks`; `RunSummary` aggregate; `list_runs` / `list_tasks_for_run` (both gained an optional `user_id` filter for owner-filtering in F3.7.0b) | ✅ F3.5, extended in F3.6.6 + F3.7.0b |
 | `task_executor.py` | Background runner with in-process pub/sub bus and webhook delivery; currently invokes `_run_stub_agent()` for every agent | 🟡 F3.5 (stub dispatch — F3.7.8 replaces with real AG2 dispatch table) |
-| `hitl_store.py` | CRUD over `hitl_approvals`: `create_prompt`, `record_decision`, `get_pending_for_task`, `list_for_task` | ✅ F3.6.5 |
+| `hitl_store.py` | CRUD over `hitl_approvals`: `create_prompt`, `record_decision`, `get_approval`, `get_pending_for_task`, `list_for_task` | ✅ F3.6.5 |
 | `llm_provider.py` | OpenAI / Azure OpenAI / Ollama abstraction; `to_ag2_config()` returns AG2-compatible `llm_config` dict; TLS via `REQUESTS_CA_BUNDLE` / `SSL_CERT_FILE` | ✅ F3.4 |
 | `copilotkit_stub.py` | **TEMPORARY** stub `ConversableAgent` mounted at `/copilotkit/` for the F3.6 wire. Search for `STUB-F3.6.3`. **Deleted in F3.7.7.** | 🟡 F3.6.3 — slated for deletion |
+| `auth.py` | Ownership guard for multi-user safety: `requires_owner(resource_owner, requesting_user)` raises `HTTPException(401/403)`. Convenience lookups `owner_of_session(session_id)` and `owner_of_task(task_id)` walk to the underlying `agent_sessions.user_id`. | ✅ F3.7.0b (promoted from F3.13 placeholder); Epic 4 layers in claim / role checks on top, vendor-agnostic (Decision 20) |
 | `mcp_client.py` | FastMCP `StreamableHTTP` client setup (called by specialists) | — F3.8 |
 | `base_agent.py` | Shared `ConversableAgent` factory + MCP wiring (if extracted from per-agent code) | — F3.7 / F3.8 |
-| `auth.py` | Epic 4 readiness — default no-op | — F3.13 |
 | `otel.py` | Epic 4 readiness — reads session / task IDs; default no-op | — F3.13 |
 
 ## Conventions

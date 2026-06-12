@@ -76,7 +76,11 @@ async def create_session(
             allowed but a warning is logged when an unknown value is used.
         external_session_id: Optional propagated SDLC trace ID.
         user_id: Epic 3 resolved user identifier from the X-User-Id header
-            or a server-issued cookie. Epic 4: EntraID oid claim.
+            or a server-issued cookie. Epic 4: subject identifier supplied
+            by whichever upstream auth middleware the operator chose
+            (vendor-agnostic; e.g. ACA Easy Auth + EntraID `oid`, AWS ALB
+            + Cognito, GCP IAP, oauth2-proxy). See Decision 20 in the
+            Epic 3 status doc.
         metadata: Arbitrary JSONB payload (UI client info, etc.).
 
     Returns:
@@ -157,6 +161,7 @@ async def list_sessions(
     offset: int = 0,
     source: Optional[str] = None,
     include_ended: bool = False,
+    user_id: Optional[str] = None,
 ) -> list[AgentSession]:
     """Return recent sessions ordered by `last_activity_at DESC`.
 
@@ -170,6 +175,10 @@ async def list_sessions(
         source: Optional filter on the `source` column (e.g. `web_ui`).
         include_ended: If False (default), excludes rows where `ended_at`
             is set. Most browser views want only live sessions.
+        user_id: When provided, restrict to sessions owned by this user.
+            Used by F3.7.0b owner-filtering so Alice never sees Bob's
+            sessions on `GET /api/sessions`. When None (the default) all
+            sessions are returned regardless of owner.
     """
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
@@ -179,6 +188,9 @@ async def list_sessions(
     if source is not None:
         args.append(source)
         where_parts.append(f"source = ${len(args)}")
+    if user_id is not None:
+        args.append(user_id)
+        where_parts.append(f"user_id = ${len(args)}")
     if not include_ended:
         where_parts.append("ended_at IS NULL")
     where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""

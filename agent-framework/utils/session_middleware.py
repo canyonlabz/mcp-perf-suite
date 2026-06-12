@@ -1,4 +1,4 @@
-"""Starlette/FastAPI middleware that materializes the three-ID model.
+"""Starlette/FastAPI middleware that materializes the three-ID model and resolves user identity.
 
 Implements V2 doc Section 4.3:
 
@@ -9,14 +9,23 @@ Implements V2 doc Section 4.3:
 For every inbound request to the A2A server (port 8001) and the AG-UI bridge
 (port 8002), this middleware:
 
-  1. Reads `X-Session-Id` and `X-External-Session-Id` headers if present.
-  2. Resolves or creates the matching `agent_sessions` row.
-  3. Writes both IDs into `request.state` so downstream route handlers can
-     read them without re-doing the work.
-  4. Bumps `last_activity_at` on existing sessions.
+  1. Resolves `user_id` via the four-step chain in `utils.user_identity`
+     (EntraID placeholder -> X-User-Id header -> perfpilot_user_id cookie
+     -> mint fresh). See Decision 19 in
+     `docs/plans/Epic-3-Implementation-Status.md`.
+  2. Reads `X-Session-Id` and `X-External-Session-Id` headers if present.
+  3. Resolves or creates the matching `agent_sessions` row, stamping the
+     resolved `user_id` on creation.
+  4. Writes `session_id`, `external_session_id`, and `user_id` into
+     `request.state` so route handlers can read them without re-doing
+     the work.
+  5. Bumps `last_activity_at` on existing sessions.
+  6. If the user_id was freshly minted (Step 4 of the resolver chain),
+     sets the `perfpilot_user_id` cookie on the outgoing response.
 
 `task_id` is NOT created here. Tasks are minted when route handlers call
-`task_store.create_task()`. The middleware only owns the session layer.
+`task_store.create_task()`. The middleware only owns the session and
+user-identity layers.
 
 Heavy imports (`asyncpg` via `utils.session_store`) are reached only inside
 the dispatch coroutine, so importing this module does not require a running
@@ -34,13 +43,16 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from . import session_store
+from . import session_store, user_identity
 
 log = logging.getLogger(__name__)
 
 HEADER_SESSION_ID = "X-Session-Id"
 HEADER_EXTERNAL_SESSION_ID = "X-External-Session-Id"
-HEADER_USER_ID = "X-User-Id"
+# HEADER_USER_ID is now owned by `utils.user_identity` (single source of truth).
+# Re-exported here for backwards compatibility with anything that still imports
+# it from this module.
+HEADER_USER_ID = user_identity.HEADER_USER_ID
 HEADER_SOURCE = "X-Session-Source"
 
 # Paths for which the middleware skips DB work entirely. Liveness probes
@@ -77,22 +89,46 @@ class SessionMiddleware(BaseHTTPMiddleware):
             the first request.
     """
 
-    def __init__(self, app, *, default_source: str, echo_session_id_header: bool = True):
+    def __init__(
+        self,
+        app,
+        *,
+        default_source: str,
+        echo_session_id_header: bool = True,
+        cookie_secure: bool = user_identity.DEFAULT_COOKIE_SECURE,
+        cookie_samesite: str = user_identity.DEFAULT_COOKIE_SAMESITE,
+        cookie_max_age_days: int = user_identity.DEFAULT_COOKIE_MAX_AGE_DAYS,
+    ):
         super().__init__(app)
         self.default_source = default_source
         self.echo_session_id_header = echo_session_id_header
+        # Cookie tunables for the `perfpilot_user_id` token minted by the
+        # user-identity resolver. The AG-UI bridge wires these from
+        # `agents.yaml -> web_ui.session_cookie:` via
+        # `utils.agents_config.get_session_cookie_config()`. Defaults here
+        # match the helper defaults in `user_identity.set_user_id_cookie`
+        # so the middleware is usable standalone (tests, dev scripts).
+        self.cookie_secure = cookie_secure
+        self.cookie_samesite = cookie_samesite
+        self.cookie_max_age_days = cookie_max_age_days
 
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
         if any(path == p or path.startswith(p + "/") for p in SKIP_PATHS):
             request.state.session_id = None
             request.state.external_session_id = None
+            request.state.user_id = None
             return await call_next(request)
 
         session_id_in = _parse_uuid_header(request.headers.get(HEADER_SESSION_ID))
         external_session_id = (request.headers.get(HEADER_EXTERNAL_SESSION_ID) or "").strip() or None
-        user_id = (request.headers.get(HEADER_USER_ID) or "").strip() or None
         source = (request.headers.get(HEADER_SOURCE) or "").strip() or self.default_source
+
+        # Resolve user_id via the four-step chain (Decision 19). Always
+        # returns a non-empty value; `needs_cookie_set` tells us whether
+        # we need to write the cookie on the way back out.
+        resolved = user_identity.resolve_user_id(request)
+        user_id = resolved.user_id
 
         try:
             session = await self._resolve_session(
@@ -105,7 +141,9 @@ class SessionMiddleware(BaseHTTPMiddleware):
             # DB unavailable, schema not provisioned, etc. Don't kill the
             # request - log and continue with no session attached. Route
             # handlers that absolutely require a session can guard on
-            # request.state.session_id is None.
+            # request.state.session_id is None. We still attach the
+            # resolved user_id (and set the cookie if minted) so downstream
+            # error pages get consistent identity attribution.
             log.exception(
                 "SessionMiddleware: failed to resolve session (path=%s, in_session_id=%s). "
                 "Continuing without session context.",
@@ -114,10 +152,24 @@ class SessionMiddleware(BaseHTTPMiddleware):
             )
             request.state.session_id = None
             request.state.external_session_id = external_session_id
-            return await call_next(request)
+            request.state.user_id = user_id
+            response = await call_next(request)
+            if resolved.needs_cookie_set:
+                user_identity.set_user_id_cookie(
+                    response,
+                    user_id,
+                    secure=self.cookie_secure,
+                    samesite=self.cookie_samesite,
+                    max_age_days=self.cookie_max_age_days,
+                )
+            return response
 
         request.state.session_id = session.session_id
         request.state.external_session_id = session.external_session_id
+        # `session.user_id` is what got persisted (may differ from `user_id`
+        # only on re-used sessions where the row was created by an earlier
+        # request -- in which case the persisted owner is canonical).
+        request.state.user_id = session.user_id or user_id
 
         response = await call_next(request)
 
@@ -125,6 +177,14 @@ class SessionMiddleware(BaseHTTPMiddleware):
             response.headers[HEADER_SESSION_ID] = str(session.session_id)
             if session.external_session_id:
                 response.headers[HEADER_EXTERNAL_SESSION_ID] = session.external_session_id
+        if resolved.needs_cookie_set:
+            user_identity.set_user_id_cookie(
+                response,
+                user_id,
+                secure=self.cookie_secure,
+                samesite=self.cookie_samesite,
+                max_age_days=self.cookie_max_age_days,
+            )
         return response
 
     async def _resolve_session(

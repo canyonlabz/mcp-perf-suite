@@ -233,38 +233,61 @@ class RunSummary:
     agent_names: list[str] = field(default_factory=list)
 
 
-async def list_runs(*, limit: int = 50, offset: int = 0) -> list[RunSummary]:
+async def list_runs(
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    user_id: Optional[str] = None,
+) -> list[RunSummary]:
     """Return distinct `test_run_id` values grouped by activity.
 
     Used by the AG-UI bridge (PBI 3.6.6) to power the browser's "recent
     runs" list and the "come back tomorrow" UX.
+
+    Args:
+        limit: Page size, clamped to [1, 200].
+        offset: Page offset, clamped to >= 0.
+        user_id: When provided, restrict the result to runs whose tasks
+            belong to sessions owned by this `user_id`. Used by F3.7.0b
+            owner-filtering so Alice never sees Bob's runs. When None
+            (the default) all runs are returned, regardless of owner --
+            kept for tests and internal callers; route handlers should
+            always supply a `user_id`.
     """
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
 
+    base_sql = """
+        SELECT
+            t.test_run_id,
+            COUNT(*)::INT AS task_count,
+            SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END)::INT AS completed_count,
+            SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END)::INT AS failed_count,
+            SUM(CASE WHEN t.status IN ('pending', 'running') THEN 1 ELSE 0 END)::INT AS active_count,
+            SUM(CASE WHEN t.status = 'cancelled' THEN 1 ELSE 0 END)::INT AS cancelled_count,
+            MIN(t.submitted_at) AS started_at,
+            MAX(t.updated_at)   AS last_activity_at,
+            ARRAY_AGG(DISTINCT t.agent_name ORDER BY t.agent_name) AS agent_names
+        FROM agent_tasks t
+        {join_clause}
+        WHERE t.test_run_id IS NOT NULL
+          {extra_where}
+        GROUP BY t.test_run_id
+        ORDER BY MAX(t.updated_at) DESC
+        LIMIT $1 OFFSET $2
+    """
+
     pool = await db.get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT
-                test_run_id,
-                COUNT(*)::INT AS task_count,
-                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)::INT AS completed_count,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)::INT AS failed_count,
-                SUM(CASE WHEN status IN ('pending', 'running') THEN 1 ELSE 0 END)::INT AS active_count,
-                SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END)::INT AS cancelled_count,
-                MIN(submitted_at) AS started_at,
-                MAX(updated_at)   AS last_activity_at,
-                ARRAY_AGG(DISTINCT agent_name ORDER BY agent_name) AS agent_names
-            FROM agent_tasks
-            WHERE test_run_id IS NOT NULL
-            GROUP BY test_run_id
-            ORDER BY MAX(updated_at) DESC
-            LIMIT $1 OFFSET $2
-            """,
-            limit,
-            offset,
-        )
+        if user_id is None:
+            sql = base_sql.format(join_clause="", extra_where="")
+            rows = await conn.fetch(sql, limit, offset)
+        else:
+            sql = base_sql.format(
+                join_clause="JOIN agent_sessions s ON s.session_id = t.session_id",
+                extra_where="AND s.user_id = $3",
+            )
+            rows = await conn.fetch(sql, limit, offset, user_id)
     return [
         RunSummary(
             test_run_id=row["test_run_id"],
@@ -281,19 +304,47 @@ async def list_runs(*, limit: int = 50, offset: int = 0) -> list[RunSummary]:
     ]
 
 
-async def list_tasks_for_run(test_run_id: str) -> list[AgentTask]:
-    """Return every task that carries the given `test_run_id`, oldest first."""
+async def list_tasks_for_run(
+    test_run_id: str,
+    *,
+    user_id: Optional[str] = None,
+) -> list[AgentTask]:
+    """Return every task that carries the given `test_run_id`, oldest first.
+
+    Args:
+        test_run_id: The test_run_id to filter on.
+        user_id: When provided, also require that each task's session is
+            owned by this `user_id`. Used by F3.7.0b owner-filtering on
+            `GET /api/runs/{test_run_id}`. When None (the default) no
+            owner filter is applied.
+    """
     pool = await db.get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT task_id, session_id, external_session_id, agent_name, status,
-                   test_run_id, payload, result, error, subscriber_endpoints,
-                   submitted_at, started_at, completed_at, updated_at
-            FROM agent_tasks
-            WHERE test_run_id = $1
-            ORDER BY submitted_at ASC
-            """,
-            test_run_id,
-        )
+        if user_id is None:
+            rows = await conn.fetch(
+                """
+                SELECT task_id, session_id, external_session_id, agent_name, status,
+                       test_run_id, payload, result, error, subscriber_endpoints,
+                       submitted_at, started_at, completed_at, updated_at
+                FROM agent_tasks
+                WHERE test_run_id = $1
+                ORDER BY submitted_at ASC
+                """,
+                test_run_id,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT t.task_id, t.session_id, t.external_session_id, t.agent_name, t.status,
+                       t.test_run_id, t.payload, t.result, t.error, t.subscriber_endpoints,
+                       t.submitted_at, t.started_at, t.completed_at, t.updated_at
+                FROM agent_tasks t
+                JOIN agent_sessions s ON s.session_id = t.session_id
+                WHERE t.test_run_id = $1
+                  AND s.user_id = $2
+                ORDER BY t.submitted_at ASC
+                """,
+                test_run_id,
+                user_id,
+            )
     return [_row_to_task(r) for r in rows]

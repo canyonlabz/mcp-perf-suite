@@ -62,7 +62,15 @@ from sse_starlette.sse import EventSourceResponse
 
 from pydantic import BaseModel, Field
 
-from utils import db, hitl_store, session_store, task_executor, task_store
+from utils import (
+    agents_config,
+    auth,
+    db,
+    hitl_store,
+    session_store,
+    task_executor,
+    task_store,
+)
 from utils.session_middleware import SessionMiddleware
 
 log = logging.getLogger(__name__)
@@ -143,8 +151,22 @@ def create_app() -> FastAPI:
         expose_headers=["X-Session-Id", "X-External-Session-Id"],
     )
 
-    # Session middleware after CORS so preflight requests are not minted as sessions.
-    app.add_middleware(SessionMiddleware, default_source="web_ui")
+    # Session middleware after CORS so preflight requests are not minted as
+    # sessions. Cookie tunables come from `agents.yaml -> web_ui.session_cookie`
+    # via `utils.agents_config.get_session_cookie_config()`, which always
+    # returns a populated config (defaults fill in any missing keys).
+    cookie_cfg = agents_config.get_session_cookie_config(FRAMEWORK_DIR)
+    log.info(
+        "AG-UI session-cookie config: max_age_days=%d secure=%s samesite=%s",
+        cookie_cfg.max_age_days, cookie_cfg.secure, cookie_cfg.samesite,
+    )
+    app.add_middleware(
+        SessionMiddleware,
+        default_source="web_ui",
+        cookie_secure=cookie_cfg.secure,
+        cookie_samesite=cookie_cfg.samesite,
+        cookie_max_age_days=cookie_cfg.max_age_days,
+    )
 
     _register_routes(app)
     _mount_copilotkit(app)
@@ -231,6 +253,17 @@ def _register_routes(app: FastAPI) -> None:
         if existing is None:
             raise HTTPException(status_code=404, detail="Task not found")
 
+        # PBI 3.7.0b owner-filtering: only the task's owner can subscribe to
+        # its event stream. A subscriber that doesn't own the task would
+        # otherwise see the task's payload + result via the snapshot event,
+        # which is the same data the /api/runs/{id} endpoint protects.
+        owner = await auth.owner_of_session(existing.session_id)
+        auth.requires_owner(
+            resource_owner=owner,
+            requesting_user=getattr(request.state, "user_id", None),
+            resource_kind="task event stream",
+        )
+
         async def _stream():
             yield {
                 "event": "snapshot",
@@ -257,20 +290,28 @@ def _register_routes(app: FastAPI) -> None:
 
         return EventSourceResponse(_stream())
 
-    # -- Sessions (PBI 3.6.4) ----------------------------------------------------
+    # -- Sessions (PBI 3.6.4 + PBI 3.7.0b owner-filtering) ------------------------
     @app.get("/api/sessions", tags=["sessions"])
     async def list_sessions_route(
+        request: Request,
         limit: int = 50,
         offset: int = 0,
         source: Optional[str] = None,
         include_ended: bool = False,
     ) -> dict:
-        """Return recent sessions for the browser session picker."""
+        """Return recent sessions owned by the requesting user.
+
+        Owner-filtered in PBI 3.7.0b: only sessions whose `user_id` matches
+        `request.state.user_id` are returned. The Web UI session picker is
+        per-user; Alice never sees Bob's sessions.
+        """
+        requesting_user = getattr(request.state, "user_id", None)
         sessions = await session_store.list_sessions(
             limit=limit,
             offset=offset,
             source=source,
             include_ended=include_ended,
+            user_id=requesting_user,
         )
         return {
             "sessions": [_session_to_dict(s) for s in sessions],
@@ -285,6 +326,13 @@ def _register_routes(app: FastAPI) -> None:
         Browsers hit this on first page load to learn their `session_id`
         without needing to send a header. Combined with the `X-Session-Id`
         echo on the response, this is how the React UI bootstraps.
+
+        Not owner-filtered: by definition the session is the requesting
+        user's own (the middleware either created it for them or matched
+        their own X-Session-Id). The middleware re-uses an existing
+        session row when its `session_id` arrives via header -- and we
+        still 403 if that row turns out to belong to another user, so a
+        client can't hijack someone else's session by spoofing its ID.
         """
         session_id = getattr(request.state, "session_id", None)
         if session_id is None:
@@ -295,10 +343,15 @@ def _register_routes(app: FastAPI) -> None:
         session = await session_store.get_session(session_id)
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
+        auth.requires_owner(
+            resource_owner=session.user_id,
+            requesting_user=getattr(request.state, "user_id", None),
+            resource_kind="session",
+        )
         return _session_to_dict(session)
 
     @app.get("/api/sessions/{session_id}", tags=["sessions"])
-    async def get_session_route(session_id: str) -> dict:
+    async def get_session_route(session_id: str, request: Request) -> dict:
         try:
             uuid_value = UUID(session_id)
         except ValueError as exc:
@@ -306,13 +359,28 @@ def _register_routes(app: FastAPI) -> None:
         session = await session_store.get_session(uuid_value)
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
+        auth.requires_owner(
+            resource_owner=session.user_id,
+            requesting_user=getattr(request.state, "user_id", None),
+            resource_kind="session",
+        )
         return _session_to_dict(session)
 
-    # -- Test runs (PBI 3.6.6) ---------------------------------------------------
+    # -- Test runs (PBI 3.6.6 + PBI 3.7.0b owner-filtering) -----------------------
     @app.get("/api/runs", tags=["runs"])
-    async def list_runs_route(limit: int = 50, offset: int = 0) -> dict:
-        """Return recent test runs grouped by `test_run_id`."""
-        runs = await task_store.list_runs(limit=limit, offset=offset)
+    async def list_runs_route(request: Request, limit: int = 50, offset: int = 0) -> dict:
+        """Return recent test runs owned by the requesting user.
+
+        Owner-filtered in PBI 3.7.0b: a run "belongs to" a user when at
+        least one of its tasks lives in a session owned by that user.
+        Implemented in `task_store.list_runs(user_id=...)` via a JOIN.
+        """
+        requesting_user = getattr(request.state, "user_id", None)
+        runs = await task_store.list_runs(
+            limit=limit,
+            offset=offset,
+            user_id=requesting_user,
+        )
         return {
             "runs": [_run_summary_to_dict(r) for r in runs],
             "limit": limit,
@@ -320,9 +388,19 @@ def _register_routes(app: FastAPI) -> None:
         }
 
     @app.get("/api/runs/{test_run_id}", tags=["runs"])
-    async def get_run_route(test_run_id: str) -> dict:
-        """Return every task associated with a single `test_run_id`."""
-        tasks = await task_store.list_tasks_for_run(test_run_id)
+    async def get_run_route(test_run_id: str, request: Request) -> dict:
+        """Return every task associated with a single `test_run_id`.
+
+        Owner-filtered: 404 when the user has no tasks under this run,
+        which is indistinguishable from "this run does not exist." We
+        deliberately avoid 403 here so callers cannot probe for the
+        existence of other users' runs by trying random test_run_ids.
+        """
+        requesting_user = getattr(request.state, "user_id", None)
+        tasks = await task_store.list_tasks_for_run(
+            test_run_id,
+            user_id=requesting_user,
+        )
         if not tasks:
             raise HTTPException(status_code=404, detail="No tasks found for this test_run_id")
         return {
@@ -331,14 +409,27 @@ def _register_routes(app: FastAPI) -> None:
             "tasks": [_task_to_snapshot_payload(t) for t in tasks],
         }
 
-    # -- HITL approvals (PBI 3.6.5) ----------------------------------------------
+    # -- HITL approvals (PBI 3.6.5 + PBI 3.7.0b owner-filtering) -----------------
     @app.post("/api/hitl/prompts", tags=["hitl"], status_code=201)
     async def create_hitl_prompt(body: HitlPromptCreate) -> dict:
         """Open a new HITL prompt for a task.
 
-        Typically called by an agent (server-side) rather than the browser,
-        but exposed here for symmetry and so the smoke test can exercise
-        the full lifecycle without an agent in the loop.
+        Typically called by an agent (server-side trusted code path) rather
+        than the browser. Exposed here for symmetry and so the smoke test
+        can exercise the full lifecycle without an agent in the loop.
+
+        Owner-filtering: EXEMPT in PBI 3.7.0b. The agent is server-side
+        trusted code creating a prompt on behalf of a task it is already
+        running. Validating ownership here would require resolving the
+        task's session and matching against the requesting user, which is
+        not appropriate for server-side callers that don't have a user_id.
+
+        Future hardening (housekeeping item H5 in the status doc): swap
+        this exemption for service-principal-only auth in Epic 4, so
+        end-users cannot self-create approval requests under forged
+        identities. The /approve and /reject endpoints below already
+        protect the *decision* side via `requires_owner` (the security
+        boundary that actually matters: forging an approval).
         """
         try:
             task_uuid = UUID(body.task_id)
@@ -348,11 +439,32 @@ def _register_routes(app: FastAPI) -> None:
         return _approval_to_dict(approval)
 
     @app.get("/api/hitl/tasks/{task_id}", tags=["hitl"])
-    async def list_hitl_for_task(task_id: str) -> dict:
+    async def list_hitl_for_task(task_id: str, request: Request) -> dict:
+        """List HITL approvals for a task, restricted to the task's owner.
+
+        Owner-filtered: the requesting user must own the underlying task's
+        session. Otherwise 403 -- same answer they'd get for any other
+        user's task, so the read surface doesn't leak existence.
+        """
         try:
             task_uuid = UUID(task_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Malformed task_id") from exc
+
+        task_owner = await auth.owner_of_task(task_uuid)
+        if task_owner is None:
+            # Distinguish "no such task" from "task exists but not yours"
+            # at the *load* layer: if the task doesn't exist at all, return
+            # 404 instead of leaking via 403.
+            existing_task = await task_store.get_task(task_uuid)
+            if existing_task is None:
+                raise HTTPException(status_code=404, detail="Task not found")
+        auth.requires_owner(
+            resource_owner=task_owner,
+            requesting_user=getattr(request.state, "user_id", None),
+            resource_kind="HITL task",
+        )
+
         approvals = await hitl_store.list_for_task(task_uuid)
         return {
             "task_id": task_id,
@@ -361,6 +473,8 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.post("/api/hitl/approve", tags=["hitl"])
     async def approve_hitl(body: HitlDecision, request: Request) -> dict:
+        """Approve a pending HITL prompt. Owner-filtered."""
+        await _enforce_hitl_owner(body.approval_id, request)
         return _serialize_decision_response(
             await hitl_store.record_decision(
                 body.approval_id,
@@ -371,6 +485,8 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.post("/api/hitl/reject", tags=["hitl"])
     async def reject_hitl(body: HitlDecision, request: Request) -> dict:
+        """Reject a pending HITL prompt with optional feedback. Owner-filtered."""
+        await _enforce_hitl_owner(body.approval_id, request)
         return _serialize_decision_response(
             await hitl_store.record_decision(
                 body.approval_id,
@@ -455,15 +571,45 @@ def _serialize_decision_response(approval: Optional[hitl_store.HitlApproval]) ->
 def _resolve_decider(request: Request, body_value: Optional[str]) -> Optional[str]:
     """Decide who recorded a HITL decision.
 
-    Precedence: explicit body field > `X-User-Id` request header >
-    session middleware's `user_id` (Epic 4 EntraID slot).
+    Precedence: explicit body field > middleware-resolved `user_id`
+    (which itself follows the four-step chain in `utils.user_identity`).
     """
     if body_value:
         return body_value
-    header = request.headers.get("X-User-Id")
-    if header and header.strip():
-        return header.strip()
+    state_user = getattr(request.state, "user_id", None)
+    if state_user:
+        return state_user
     return None
+
+
+async def _enforce_hitl_owner(approval_id: int, request: Request) -> None:
+    """Raise 403/404 unless the requesting user owns the HITL approval.
+
+    "Owns" walks `hitl_approvals -> agent_tasks -> agent_sessions ->
+    user_id`. The flow:
+
+      1. Look up the approval row; 404 if absent (no ownership leak --
+         a wrong approval_id and an unowned approval_id both 404 if you
+         don't already know which is which).
+      2. Resolve the owner of the approval's task.
+      3. `auth.requires_owner` enforces equality with `request.state.user_id`.
+
+    Called by both /approve and /reject so the security check is identical.
+    """
+    approval = await hitl_store.get_approval(approval_id)
+    if approval is None:
+        # Don't leak "this approval id has been decided by someone else"
+        # via a 403. 404 covers both "never existed" and "already terminal."
+        raise HTTPException(
+            status_code=404,
+            detail="No pending HITL approval found for that id (already decided or absent).",
+        )
+    owner = await auth.owner_of_task(approval.task_id)
+    auth.requires_owner(
+        resource_owner=owner,
+        requesting_user=getattr(request.state, "user_id", None),
+        resource_kind="HITL approval",
+    )
 
 
 # =============================================================================
