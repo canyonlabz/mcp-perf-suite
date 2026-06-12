@@ -17,20 +17,40 @@ clarity. The user-facing brand is "PerfPilot Agents". Do not rename either.
 
 ## Folder map
 
-| Path | Purpose | Filled by |
-|---|---|---|
-| `agents/` | One subfolder per agent, four-file pattern (`agent.py`, `agent_card.json`, `INSTRUCTIONS.md`, `config.yaml`) | F3.7 (orchestrator), F3.8 (execution-agent vertical slice), F3.9 (stubs), F3.10 (promotions) |
-| `frontend/agui_adapter.py` | FastAPI ASGI app for the AG-UI / CopilotKit bridge (port 8002) | F3.6 |
-| `frontend/ui-react/` | Next.js 14 + CopilotKit React skeleton | F3.6 |
-| `workflows/` | Agent-to-agent Python pipelines (NOT Cursor Skills - both retained, neither replaces the other) | F3.11 |
-| `utils/` | Shared agent-layer infrastructure: base agent factory, MCP client, LLM provider, DB pool, session/task stores, HITL helpers, auth/OTel slots | F3.2 (base + mcp_client), F3.3 (db, session_store), F3.4 (llm_provider), F3.13 (auth, otel) |
-| `config/` | Runtime YAML (`agents.yaml` for global LLM fallback + agent enable/disable, `mcp.yaml` for namespace registry) | F3.4 (agents.yaml), F3.13 (extended) |
-| `sql/` | DDL for the `perfagent_state` database (six JSONB-only tables) | F3.3 |
-| `pyproject.toml`, `requirements.txt` | Package metadata and dependencies | F3.2 |
-| `.env.example` | Environment template (no real credentials) | F3.2 |
+> **Status legend:** ✅ implemented · 🟡 partial · ⏭ planned · — not yet started.
+> Running progress for every Epic 3 feature lives in
+> [`../docs/plans/Epic-3-Implementation-Status.md`](../docs/plans/Epic-3-Implementation-Status.md).
+> Read that file first when picking up work in a new conversation.
 
-`a2a_server.py` (port 8001) and `agui_server.py` (port 8002) entrypoints are
-created at the package root in F3.5 and F3.6 respectively.
+| Path | Purpose | Status / Filled by |
+|---|---|---|
+| `a2a_server.py` | FastAPI entrypoint for the A2A surface (port 8001). Path-based routing of all agents under `/agents/{name}/...`. | ✅ F3.5 |
+| `agui_server.py` | FastAPI entrypoint for the AG-UI / CopilotKit bridge (port 8002). Mounts AG2's `AGUIStream(agent).build_asgi()` at `/copilotkit/`. | ✅ F3.6 (backend) |
+| `agents/` | One subfolder per agent, four-file pattern (`agent.py`, `agent_card.json`, `INSTRUCTIONS.md`, `config.yaml`). | ⏭ F3.7 (orchestrator — next), F3.8 (execution-agent vertical slice), F3.9 (stubs), F3.10 (promotions) |
+| `workflows/` | Agent-to-agent Python pipelines (NOT Cursor Skills — both retained, neither replaces the other). | ⏭ F3.11 |
+| `utils/` | Shared agent-layer infrastructure (see breakdown below). | mixed |
+| `config/` | Runtime YAML: `agents.yaml` (global LLM fallback + per-agent enable/disable + TLS settings), `agents.example.yaml` (committed template). | ✅ F3.4; extended in F3.13 |
+| `sql/` | DDL for the `perfagent_state` database (six JSONB-only tables). | ✅ F3.3 |
+| `pyproject.toml`, `requirements.txt` | Package metadata and dependencies. | ✅ F3.2; bumped in F3.4, F3.5, F3.6 |
+| `.env.example` | Environment template (no real credentials). | ✅ F3.2 |
+
+### `utils/` module map
+
+| Module | Purpose | Status / Filled by |
+|---|---|---|
+| `db.py` | `asyncpg` connection-pool helper for `perfagent_state` | ✅ F3.3 |
+| `session_store.py` | CRUD over `agent_sessions` (create / get / touch / end / list) | ✅ F3.3, extended in F3.6.4 (`list_sessions`) |
+| `agents_config.py` | Loads `config/agents.yaml`, caches enable/disable map | ✅ F3.5 |
+| `session_middleware.py` | Resolves `X-Session-Id` / `X-External-Session-Id` request headers, persists rows in `agent_sessions`, attaches IDs to `request.state` | ✅ F3.5 |
+| `task_store.py` | CRUD over `agent_tasks`; `RunSummary` aggregate; `list_runs` / `list_tasks_for_run` | ✅ F3.5, extended in F3.6.6 |
+| `task_executor.py` | Background runner with in-process pub/sub bus and webhook delivery; currently invokes `_run_stub_agent()` for every agent | 🟡 F3.5 (stub dispatch — F3.7.8 replaces with real AG2 dispatch table) |
+| `hitl_store.py` | CRUD over `hitl_approvals`: `create_prompt`, `record_decision`, `get_pending_for_task`, `list_for_task` | ✅ F3.6.5 |
+| `llm_provider.py` | OpenAI / Azure OpenAI / Ollama abstraction; `to_ag2_config()` returns AG2-compatible `llm_config` dict; TLS via `REQUESTS_CA_BUNDLE` / `SSL_CERT_FILE` | ✅ F3.4 |
+| `copilotkit_stub.py` | **TEMPORARY** stub `ConversableAgent` mounted at `/copilotkit/` for the F3.6 wire. Search for `STUB-F3.6.3`. **Deleted in F3.7.7.** | 🟡 F3.6.3 — slated for deletion |
+| `mcp_client.py` | FastMCP `StreamableHTTP` client setup (called by specialists) | — F3.8 |
+| `base_agent.py` | Shared `ConversableAgent` factory + MCP wiring (if extracted from per-agent code) | — F3.7 / F3.8 |
+| `auth.py` | Epic 4 readiness — default no-op | — F3.13 |
+| `otel.py` | Epic 4 readiness — reads session / task IDs; default no-op | — F3.13 |
 
 ## Conventions
 
@@ -106,13 +126,18 @@ also live here; the actual CA bundle path comes from `REQUESTS_CA_BUNDLE` or
 
 ## Where to look first
 
+- **Implementation progress (Epic 3 features 3.1–3.14, decisions log,
+  next-PBI plan):**
+  [../docs/plans/Epic-3-Implementation-Status.md](../docs/plans/Epic-3-Implementation-Status.md)
 - **Architecture overview, sequence diagrams, port assignments:** V2 doc
   Sections 4 and 5
 - **Endpoint inventories:**
-  - A2A on port 8001 (protocol-standard paths, no `/api/perfpilot/*` prefix):
-    V2 doc Section 9.2
-  - AG-UI on port 8002 (`/api/perfpilot/*` prefix, `/api/perfpilot/chat`):
-    V2 doc Section 10.2
+  - A2A on port 8001 (protocol-standard paths): V2 doc Section 9.2
+  - AG-UI on port 8002 (browser-friendly `/api/*` prefix; `/copilotkit/`
+    served by AG2's native `AGUIStream(agent).build_asgi()`):
+    V2 doc Section 10 — see also Decision 4 / Decision 6 in the status doc
+    for the rationale behind dropping the `/api/perfpilot/*` prefix and
+    skipping the CopilotKit Python SDK
 - **Database schema (six tables):** V2 doc Section 12.3
 - **LLM provider pattern to mirror:**
   [../perfmemory-mcp/services/embeddings.py](../perfmemory-mcp/services/embeddings.py)
