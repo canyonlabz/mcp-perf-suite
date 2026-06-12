@@ -30,7 +30,7 @@ clarity. The user-facing brand is "PerfPilot Agents". Do not rename either.
 | `workflows/` | Agent-to-agent Python pipelines (NOT Cursor Skills — both retained, neither replaces the other). | ⏭ F3.11 |
 | `utils/` | Shared agent-layer infrastructure (see breakdown below). | mixed |
 | `config/` | Runtime YAML: `agents.yaml` (global LLM fallback + per-agent enable/disable + TLS settings), `agents.example.yaml` (committed template). | ✅ F3.4; extended in F3.13 |
-| `sql/` | DDL for the `perfagent_state` database (six JSONB-only tables). | ✅ F3.3 |
+| `sql/` | DDL for the `perfagent_state` database (seven JSONB-only tables: six from F3.3 plus `agent_threads` from F3.7.0). | ✅ F3.3, extended in F3.7.0 |
 | `pyproject.toml`, `requirements.txt` | Package metadata and dependencies. | ✅ F3.2; bumped in F3.4, F3.5, F3.6 |
 | `.env.example` | Environment template (no real credentials). | ✅ F3.2 |
 
@@ -39,7 +39,8 @@ clarity. The user-facing brand is "PerfPilot Agents". Do not rename either.
 | Module | Purpose | Status / Filled by |
 |---|---|---|
 | `db.py` | `asyncpg` connection-pool helper for `perfagent_state` | ✅ F3.3 |
-| `session_store.py` | CRUD over `agent_sessions` (create / get / touch / end / list) | ✅ F3.3, extended in F3.6.4 (`list_sessions`) |
+| `session_store.py` | CRUD over `agent_sessions` (create / get / touch / end / list) | ✅ F3.3, extended in F3.6.4 (`list_sessions`); column rename `user_identity` -> `user_id` in F3.7-prep |
+| `thread_store.py` | CRUD over `agent_threads` (create / get / get_by_external_thread_id / list_for_user / touch / set_title / archive / delete). Threads are the persistent conversation containers that survive across sessions. | ✅ F3.7.0 |
 | `agents_config.py` | Loads `config/agents.yaml`, caches enable/disable map | ✅ F3.5 |
 | `session_middleware.py` | Resolves `X-Session-Id` / `X-External-Session-Id` request headers, persists rows in `agent_sessions`, attaches IDs to `request.state` | ✅ F3.5 |
 | `task_store.py` | CRUD over `agent_tasks`; `RunSummary` aggregate; `list_runs` / `list_tasks_for_run` | ✅ F3.5, extended in F3.6.6 |

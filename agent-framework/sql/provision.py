@@ -42,8 +42,9 @@ from dotenv import load_dotenv
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s")
 log = logging.getLogger("provision")
 
-# File order; the per-table scripts (002 - 007) all run against the
-# perfagent_state database after CREATE DATABASE.
+# File order; the per-table scripts (002 - 008) all run against the
+# perfagent_state database after CREATE DATABASE. F3.3 landed 002 - 007;
+# F3.7.0 added 008 (agent_threads, the persistent conversation container).
 PER_TABLE_SQL_FILES = (
     "002_create_agent_sessions.sql",
     "003_create_agent_tasks.sql",
@@ -51,6 +52,7 @@ PER_TABLE_SQL_FILES = (
     "005_create_conversation_messages.sql",
     "006_create_tool_call_traces.sql",
     "007_create_hitl_approvals.sql",
+    "008_create_agent_threads.sql",
 )
 
 TARGET_DB_NAME = "perfagent_state"
@@ -170,7 +172,7 @@ def _apply_table_sql(sql_dir: Path, settings: dict[str, str]) -> None:
 
 
 def _verify_schema(settings: dict[str, str]) -> bool:
-    """Confirm all six tables exist in the perfagent_state database."""
+    """Confirm all seven tables exist in the perfagent_state database."""
     expected_tables = (
         "agent_sessions",
         "agent_tasks",
@@ -178,6 +180,7 @@ def _verify_schema(settings: dict[str, str]) -> bool:
         "conversation_messages",
         "tool_call_traces",
         "hitl_approvals",
+        "agent_threads",
     )
     with _connect(TARGET_DB_NAME, settings) as conn:
         with conn.cursor() as cur:
