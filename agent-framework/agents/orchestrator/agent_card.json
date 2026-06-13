@@ -1,10 +1,10 @@
 {
   "name": "orchestrator",
   "display_name": "PerfPilot Orchestrator",
-  "description": "Coordinator agent for the PerfPilot performance-testing pipeline. Routes user requests to specialist agents (script, execution, monitoring, analysis, reporting, notifications), supervises long-running tasks, and brokers human-in-the-loop approvals. The four skills enumerated below are the orchestrator's public contract; their underlying tool implementations are being wired incrementally on the `ag2-agent-framework` branch (top-level `status` flips from `in_development` to `available` once every skill is operational). Until a given skill's tool ships, requests that would invoke it are answered with a graceful 'not yet wired' message that points the caller at the A2A direct surface as an alternative. See `agent-framework/agents/orchestrator/INSTRUCTIONS.md` for the runtime system prompt and `agent-framework/AGENTS.md` for framework conventions.",
+  "description": "Coordinator agent for the PerfPilot performance-testing pipeline. Routes user requests to specialist agents (script, execution, monitoring, analysis, reporting, notifications), supervises long-running tasks, and brokers human-in-the-loop approvals. All four skills enumerated below are now operational: the orchestrator can discover enabled specialists, delegate tasks to them via the local A2A surface, poll their status, and open blocking Human-in-the-Loop approval prompts. Specialist agents themselves are still being scaffolded (most run as documented stubs today); the orchestrator handles that gracefully by surfacing the stub status to the caller honestly. See `agent-framework/agents/orchestrator/INSTRUCTIONS.md` for the runtime system prompt and `agent-framework/AGENTS.md` for framework conventions.",
   "url": "/agents/orchestrator",
-  "version": "0.2.0",
-  "status": "in_development",
+  "version": "0.3.0",
+  "status": "available",
   "tags": [
     "orchestrator",
     "routing",
@@ -84,6 +84,6 @@
       "request_human_approval": "3.7.6"
     },
     "task_executor_wired_at": "3.7.8",
-    "status_flips_to_available_at": "3.7.6"
+    "status_flipped_to_available_at": "3.7.6"
   }
 }

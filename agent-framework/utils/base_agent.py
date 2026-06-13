@@ -63,6 +63,58 @@ def resolve_agent_config_path(agent_folder: Path) -> Path | None:
     return None
 
 
+def synthesize_stub_card(agent_name: str, framework_version: str = "0.1.0") -> dict:
+    """Return a truthful stub `agent_card.json` for an agent with no on-disk card.
+
+    V2 doc §7.4 requires stub cards to advertise empty `skills[]` and a
+    clear `status: "stub"` rather than promising capabilities the agent
+    does not yet have. Used by:
+
+    - `a2a_server._register_routes` when serving `/.well-known/agent.json`
+      for an enabled agent whose folder has not yet been scaffolded with
+      a real `agent_card.json` (most specialists today).
+    - `agents/orchestrator/agent.py::list_available_specialists()` when
+      enumerating the catalog for the orchestrator's discovery tool.
+    """
+    return {
+        "name": agent_name,
+        "description": (
+            f"PerfPilot {agent_name} (Epic 3 stub). Real capabilities ship in a later "
+            "Feature; this card is published only so external A2A clients can discover "
+            "the agent today."
+        ),
+        "url": f"/agents/{agent_name}",
+        "version": framework_version,
+        "status": "stub",
+        "skills": [],
+        "tags": ["stub", "epic-3"],
+        "capabilities": {
+            "streaming": True,
+            "long_running_tasks": True,
+            "webhook_subscribers": True,
+        },
+    }
+
+
+def read_agent_card(
+    agent_folder: Path,
+    *,
+    fallback_framework_version: str = "0.1.0",
+) -> dict:
+    """Return an agent's `agent_card.json`, synthesizing a stub when missing.
+
+    The on-disk card (when present) is loaded with `utf-8-sig` so a
+    Windows-emitted BOM is transparently stripped. When the card is
+    absent, `synthesize_stub_card(agent_folder.name)` provides a truthful
+    placeholder.
+    """
+    card_path = agent_folder / "agent_card.json"
+    if card_path.exists():
+        with open(card_path, "r", encoding="utf-8-sig") as f:
+            return json.load(f)
+    return synthesize_stub_card(agent_folder.name, framework_version=fallback_framework_version)
+
+
 @dataclass
 class AgentDefinition:
     """Materialized view of an agent's four-file pattern.

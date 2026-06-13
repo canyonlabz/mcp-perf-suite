@@ -65,11 +65,13 @@ from pydantic import BaseModel, Field
 from utils import (
     agents_config,
     auth,
+    conversation_store,
     db,
     hitl_store,
     session_store,
     task_executor,
     task_store,
+    thread_store,
 )
 from utils.session_middleware import SessionMiddleware
 
@@ -174,29 +176,41 @@ def create_app() -> FastAPI:
 
 
 def _mount_copilotkit(app: FastAPI) -> None:
-    """Mount the AG-UI / CopilotKit endpoint at /copilotkit (PBI 3.6.3).
+    """Mount the AG-UI / CopilotKit endpoint at /copilotkit (PBI 3.6.3, 3.7.7).
 
-    Uses AG2's built-in `AGUIStream(agent).build_asgi()` so CopilotKit React
-    (F3.6.7) can talk to us directly via the AG-UI protocol. No CopilotKit
-    Python SDK is involved - AG2 ships AG-UI support natively.
+    Uses AG2's built-in `AGUIStream(agent).dispatch()` so CopilotKit React
+    can talk to us directly via the AG-UI protocol. No CopilotKit Python
+    SDK is involved -- AG2 ships AG-UI support natively.
+
+    PBI 3.7.7 upgrades:
+      - Stub orchestrator replaced with the real one
+        (`agents.orchestrator.agent.build_orchestrator`).
+      - DB-as-source-of-truth message history (Decision 14): the endpoint
+        loads `conversation_messages WHERE thread_id = ?` and overrides
+        `RunAgentInput.messages` so AG2 sees the full transcript rather
+        than relying on whatever the browser sent. New user + assistant
+        turns are persisted around the dispatch so a refreshed browser
+        (or a new device) resumes the conversation seamlessly.
+      - Owner-checked thread auto-creation: if the thread does not yet
+        exist, the endpoint creates it for the current user; if it
+        exists but belongs to another user, the endpoint refuses (403).
 
     Mount is best-effort: if the agent or AG2 import fails, the rest of
-    the server still boots and the other endpoints (`/api/sessions`,
-    `/api/runs`, `/api/hitl/*`, `/api/events`, `/health`) keep working.
-    A subsequent boot attempt with a valid LLM config will mount cleanly.
+    the server still boots and the other endpoints keep working. A
+    subsequent boot attempt with a valid LLM config will mount cleanly.
     """
     try:
         from autogen.ag_ui import AGUIStream  # noqa: WPS433
-        from utils.copilotkit_stub import build_stub_orchestrator  # noqa: WPS433
+        from agents.orchestrator.agent import build_orchestrator  # noqa: WPS433
     except Exception:
         log.exception(
-            "Could not import AG2 / AGUIStream; /copilotkit will be unavailable. "
-            "Install with: pip install \"ag2[ag-ui]==0.13.3\""
+            "Could not import AG2 / AGUIStream / orchestrator; /copilotkit will be "
+            "unavailable. Install with: pip install \"ag2[ag-ui]==0.13.3\""
         )
         return
 
     try:
-        agent = build_stub_orchestrator()
+        agent = build_orchestrator()
     except Exception:
         log.exception(
             "Failed to build the stub orchestrator (likely missing/invalid LLM "
@@ -206,10 +220,251 @@ def _mount_copilotkit(app: FastAPI) -> None:
 
     try:
         stream = AGUIStream(agent)
-        app.mount("/copilotkit", stream.build_asgi())
-        log.info("Mounted AG-UI endpoint at /copilotkit (stub orchestrator)")
+        endpoint_cls = _build_history_aware_copilotkit_endpoint(stream)
+        app.mount("/copilotkit", endpoint_cls)
+        log.info(
+            "Mounted AG-UI endpoint at /copilotkit (real orchestrator, "
+            "DB-loaded history per Decision 14)"
+        )
     except Exception:
         log.exception("Could not mount /copilotkit; AG-UI endpoint will be unavailable")
+
+
+def _build_history_aware_copilotkit_endpoint(stream: Any) -> Any:
+    """Return an ASGI HTTPEndpoint that wraps AGUIStream.dispatch() with DB history.
+
+    The endpoint reproduces the shape of AG2's
+    `build_asgi(AGUIStream)` (`StreamingResponse(stream.dispatch(...))`),
+    but interleaves three persistence steps around the dispatch:
+
+      1. Before dispatch: load prior `conversation_messages` for
+         `RunAgentInput.thread_id`, persist the newest user message,
+         and replace `RunAgentInput.messages` with full history.
+      2. During dispatch: pass every chunk through to the client AND
+         parse SSE `data:` lines to accumulate any TEXT_MESSAGE_CONTENT
+         deltas the orchestrator emits.
+      3. After dispatch: persist the accumulated assistant text and
+         `touch_thread` so the sidebar re-orders.
+
+    All persistence failures are logged and swallowed -- they must never
+    break the in-flight SSE stream from the user's point of view.
+    """
+    from ag_ui.core import RunAgentInput, AssistantMessage, UserMessage, SystemMessage, ToolMessage
+    from starlette.endpoints import HTTPEndpoint
+    from starlette.responses import StreamingResponse
+
+    class HistoryAwareCopilotKitEndpoint(HTTPEndpoint):
+        async def post(self, request: Request) -> StreamingResponse:
+            raw_body = await request.body()
+            try:
+                incoming = RunAgentInput.model_validate_json(raw_body)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Invalid RunAgentInput: {exc}") from exc
+
+            requesting_user = getattr(request.state, "user_id", None)
+            if requesting_user is None:
+                raise HTTPException(
+                    status_code=401,
+                    detail="No user identity resolved on this request.",
+                )
+
+            thread_id = incoming.thread_id
+            # Resolve / create the thread, owner-checked.
+            existing_thread = await thread_store.get_thread(thread_id) if thread_id else None
+            if existing_thread is None and thread_id:
+                # First time we have seen this thread_id (browser-generated). Create it
+                # for the current user. CopilotKit's React component is responsible for
+                # generating stable threadIds per conversation -- the server simply
+                # honors the first one it sees as a Web UI thread owned by this user.
+                existing_thread = await thread_store.create_thread(
+                    source="web_ui",
+                    thread_id=thread_id,
+                    user_id=requesting_user,
+                    title=None,
+                    metadata={"created_by": "agui_server._mount_copilotkit"},
+                )
+            elif existing_thread is not None:
+                # Refuse if the thread exists but belongs to someone else.
+                _require_thread_owner(existing_thread, request, "thread")
+
+            # Load prior conversation history from DB (the source of truth per
+            # Decision 14). The browser-supplied `incoming.messages` is treated
+            # as the bootstrap (new thread) or the newest user turn (existing
+            # thread) -- never authoritative.
+            prior_history_ag_ui: list = []
+            if existing_thread is not None:
+                try:
+                    rows = await conversation_store.list_for_thread(
+                        thread_id, limit=200, ascending=True,
+                    )
+                    prior_history_ag_ui = [_db_row_to_ag_ui_message(r) for r in rows]
+                    prior_history_ag_ui = [m for m in prior_history_ag_ui if m is not None]
+                except Exception:
+                    log.exception(
+                        "/copilotkit: failed to load history for thread %s; "
+                        "proceeding with browser-supplied messages only",
+                        thread_id,
+                    )
+
+            # Persist the newest user message before dispatch, so even if the
+            # LLM call fails (network blip, rate limit) the transcript still
+            # carries the question.
+            new_user_text = _extract_newest_user_text(incoming.messages)
+            if existing_thread is not None and new_user_text:
+                try:
+                    await conversation_store.append_message(
+                        thread_id,
+                        agent_name="user",
+                        role="user",
+                        content={"text": new_user_text, "source": "copilotkit"},
+                    )
+                except Exception:
+                    log.exception(
+                        "/copilotkit: failed to persist user message for thread %s",
+                        thread_id,
+                    )
+
+            # Inject history before the browser's messages. AG2 sees the full
+            # transcript; the browser remains authoritative for the newest turn
+            # only (a sanity check; we just persisted it ourselves).
+            combined_messages = prior_history_ag_ui + list(incoming.messages or [])
+            modified = incoming.model_copy(update={"messages": combined_messages})
+
+            async def _streaming_with_persistence():
+                accumulated_text: list[str] = []
+                # AG2's dispatch yields SSE-encoded strings already (one
+                # `event: ...\ndata: ...\n\n` block per chunk). We pass each
+                # through to the client AND parse the data line to capture
+                # assistant text on the side.
+                async for chunk in stream.dispatch(
+                    modified,
+                    accept=request.headers.get("accept"),
+                ):
+                    if isinstance(chunk, bytes):
+                        chunk = chunk.decode("utf-8", errors="ignore")
+                    yield chunk
+                    _capture_assistant_text_from_sse_chunk(chunk, accumulated_text)
+
+                if existing_thread is not None and accumulated_text:
+                    full_text = "".join(accumulated_text)
+                    try:
+                        await conversation_store.append_message(
+                            thread_id,
+                            agent_name="orchestrator",
+                            role="assistant",
+                            content={"text": full_text, "source": "copilotkit"},
+                        )
+                        await thread_store.touch_thread(thread_id)
+                    except Exception:
+                        log.exception(
+                            "/copilotkit: failed to persist assistant reply for thread %s",
+                            thread_id,
+                        )
+
+            return StreamingResponse(
+                _streaming_with_persistence(),
+                media_type="text/event-stream",
+            )
+
+    return HistoryAwareCopilotKitEndpoint
+
+
+def _db_row_to_ag_ui_message(row: Any) -> Any:
+    """Convert a `conversation_messages` row to an AG-UI message instance.
+
+    Returns None for malformed rows (unknown role / unrenderable content)
+    so the caller can filter them out cleanly.
+    """
+    from ag_ui.core import AssistantMessage, SystemMessage, UserMessage, ToolMessage
+
+    role = getattr(row, "role", None)
+    content = getattr(row, "content", None)
+    text = _coerce_text_from_db_content(content)
+    msg_id = f"db-{getattr(row, 'id', '')}"
+    try:
+        if role == "user":
+            return UserMessage(id=msg_id, role="user", content=text)
+        if role == "assistant":
+            return AssistantMessage(id=msg_id, role="assistant", content=text)
+        if role == "system":
+            return SystemMessage(id=msg_id, role="system", content=text)
+        if role == "tool":
+            # ToolMessage requires a `tool_call_id`; the rows we persist on
+            # the conversational path don't carry one, so omit role==tool
+            # rows from replay until 3.7.6 tool-call tracking lands.
+            return None
+    except Exception:
+        log.exception("_db_row_to_ag_ui_message: failed to materialize row %s", msg_id)
+    return None
+
+
+def _coerce_text_from_db_content(content: Any) -> str:
+    """Extract a renderable string from a JSONB conversation_messages.content."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        if isinstance(content.get("text"), str):
+            return content["text"]
+        if isinstance(content.get("content"), str):
+            return content["content"]
+        return json.dumps(content)
+    return str(content)
+
+
+def _extract_newest_user_text(messages: Optional[list]) -> Optional[str]:
+    """Pull the newest user-role message's textual content from a list of AG-UI messages."""
+    if not messages:
+        return None
+    for msg in reversed(messages):
+        if getattr(msg, "role", None) != "user":
+            continue
+        content = getattr(msg, "content", None)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list) and content:
+            for item in content:
+                text = getattr(item, "text", None)
+                if isinstance(text, str) and text.strip():
+                    return text
+        return None
+    return None
+
+
+def _capture_assistant_text_from_sse_chunk(chunk: str, accumulator: list) -> None:
+    """Parse one SSE chunk emitted by AGUIStream and append any text delta.
+
+    AG-UI text streams arrive as TEXT_MESSAGE_CONTENT events with a
+    `delta` field. The chunk format is the standard SSE shape:
+
+        data: {"type": "TEXT_MESSAGE_CONTENT", "delta": "...", ...}
+
+    Anything that fails to parse is silently ignored -- the chunk is
+    still passed through to the client; only our local accumulator
+    misses a delta.
+    """
+    for raw_line in chunk.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if not payload:
+            continue
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        # AG-UI events use ALLCAPS_SNAKE for `type` (e.g.
+        # TEXT_MESSAGE_CONTENT). Be tolerant of either casing in case
+        # a future AG-UI version changes.
+        event_type = str(data.get("type", "")).upper()
+        if event_type == "TEXT_MESSAGE_CONTENT":
+            delta = data.get("delta")
+            if isinstance(delta, str):
+                accumulator.append(delta)
 
 
 # =============================================================================
@@ -225,6 +480,35 @@ class HitlDecision(BaseModel):
     approval_id: int
     feedback: Optional[str] = None
     decided_by: Optional[str] = None
+
+
+# -- PBI 3.7.6b: thread-management request shapes --
+# Threads on this surface are always Web UI threads (`source='web_ui'`,
+# `user_id` set, `external_thread_id` left NULL). A2A threads are
+# created by the A2A executor (PBI 3.7.8) and are never visible here
+# per Decision 16 (two ownership flavours, never both NULL).
+
+class ThreadCreate(BaseModel):
+    """Body for POST /api/threads."""
+
+    title: Optional[str] = None
+    metadata: dict = Field(default_factory=dict)
+    # Optional caller-supplied stable ID (CopilotKit `threadId`). When
+    # omitted the DB DEFAULT mints a fresh UUID hex.
+    thread_id: Optional[str] = None
+
+
+class ThreadUpdate(BaseModel):
+    """Body for PATCH /api/threads/{thread_id}.
+
+    All fields optional. Empty body = no-op (returns the current row).
+    `status` must be one of `thread_store.VALID_STATUSES` when supplied.
+    Use the DELETE endpoint to soft-delete -- the PATCH endpoint refuses
+    `status='deleted'` so deletion is always an explicit verb.
+    """
+
+    title: Optional[str] = None
+    status: Optional[str] = None
 
 
 # =============================================================================
@@ -496,6 +780,171 @@ def _register_routes(app: FastAPI) -> None:
             )
         )
 
+    # -- Threads (PBI 3.7.6b) -----------------------------------------------------
+    # ChatGPT-style persistent conversation containers. Each thread is owned
+    # by one Web UI / IDE / CLI user; an A2A-originated thread (`user_id`
+    # NULL, `external_thread_id` set) is never visible on this surface --
+    # the two ownership worlds are intentionally disjoint per Decision 16.
+    #
+    # Endpoints:
+    #   POST   /api/threads                 - create owned by current user
+    #   GET    /api/threads                 - list threads owned by current user
+    #   GET    /api/threads/{thread_id}     - fetch single (owner-checked)
+    #   PATCH  /api/threads/{thread_id}     - rename / archive (owner-checked)
+    #   DELETE /api/threads/{thread_id}     - soft-delete (owner-checked)
+    #   GET    /api/threads/{tid}/messages  - conversation transcript
+    #
+    # All owner checks use the established `auth.requires_owner` helper.
+    # Existence-vs-permission disambiguation: an unowned thread is reported
+    # as 404 (matches the runs convention) so callers cannot probe other
+    # users' thread_ids by trial-and-error.
+
+    @app.post("/api/threads", tags=["threads"], status_code=201)
+    async def create_thread_route(body: ThreadCreate, request: Request) -> dict:
+        """Create a new Web UI thread owned by the current user."""
+        requesting_user = getattr(request.state, "user_id", None)
+        if requesting_user is None:
+            raise HTTPException(
+                status_code=401,
+                detail="No user identity resolved on this request.",
+            )
+        thread = await thread_store.create_thread(
+            source="web_ui",
+            thread_id=body.thread_id,
+            user_id=requesting_user,
+            title=body.title,
+            metadata=body.metadata,
+        )
+        return _thread_to_dict(thread)
+
+    @app.get("/api/threads", tags=["threads"])
+    async def list_threads_route(
+        request: Request,
+        limit: int = 50,
+        offset: int = 0,
+        include_archived: bool = False,
+    ) -> dict:
+        """List threads owned by the current user, freshest first.
+
+        Owner-filtered at the SQL layer via `thread_store.list_for_user`
+        -- Alice never sees Bob's threads even if she tries paginating
+        deep. Set `include_archived=true` to surface archived alongside
+        active (deleted threads are never returned by this helper).
+        """
+        requesting_user = getattr(request.state, "user_id", None)
+        if requesting_user is None:
+            raise HTTPException(
+                status_code=401,
+                detail="No user identity resolved on this request.",
+            )
+        if include_archived:
+            threads = await thread_store.list_for_user(
+                requesting_user, limit=limit, offset=offset,
+                status=None, include_archived=True,
+            )
+        else:
+            threads = await thread_store.list_for_user(
+                requesting_user, limit=limit, offset=offset, status="active",
+            )
+        return {
+            "threads": [_thread_to_dict(t) for t in threads],
+            "limit": limit,
+            "offset": offset,
+        }
+
+    @app.get("/api/threads/{thread_id}", tags=["threads"])
+    async def get_thread_route(thread_id: str, request: Request) -> dict:
+        thread = await thread_store.get_thread(thread_id)
+        if thread is None:
+            raise HTTPException(status_code=404, detail="Thread not found")
+        _require_thread_owner(thread, request, "thread")
+        return _thread_to_dict(thread)
+
+    @app.patch("/api/threads/{thread_id}", tags=["threads"])
+    async def update_thread_route(
+        thread_id: str,
+        body: ThreadUpdate,
+        request: Request,
+    ) -> dict:
+        """Rename and/or change status. Empty body = no-op fetch.
+
+        Soft-delete is intentionally NOT exposed here -- use DELETE for
+        that so deletion is always an explicit verb. PATCH with
+        `status='deleted'` returns 400.
+        """
+        thread = await thread_store.get_thread(thread_id)
+        if thread is None:
+            raise HTTPException(status_code=404, detail="Thread not found")
+        _require_thread_owner(thread, request, "thread")
+
+        if body.status is not None and body.status not in ("active", "archived"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "PATCH /api/threads accepts status='active' or 'archived'. "
+                    "To delete, use DELETE /api/threads/{thread_id}."
+                ),
+            )
+
+        updated = thread
+        if body.title is not None:
+            renamed = await thread_store.set_title(thread_id, body.title)
+            if renamed is not None:
+                updated = renamed
+        if body.status is not None and body.status != updated.status:
+            transitioned = await thread_store.set_status(thread_id, body.status)
+            if transitioned is not None:
+                updated = transitioned
+        return _thread_to_dict(updated)
+
+    @app.delete("/api/threads/{thread_id}", tags=["threads"])
+    async def delete_thread_route(thread_id: str, request: Request) -> dict:
+        """Soft-delete a thread (status -> 'deleted').
+
+        Messages are retained (`conversation_messages` rows untouched) for
+        auditability. Use `hard_delete` via a maintenance script for
+        unrecoverable removal.
+        """
+        thread = await thread_store.get_thread(thread_id)
+        if thread is None:
+            raise HTTPException(status_code=404, detail="Thread not found")
+        _require_thread_owner(thread, request, "thread")
+        result = await thread_store.soft_delete_thread(thread_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Thread not found")
+        return _thread_to_dict(result)
+
+    @app.get("/api/threads/{thread_id}/messages", tags=["threads"])
+    async def list_thread_messages_route(
+        thread_id: str,
+        request: Request,
+        limit: int = 200,
+        offset: int = 0,
+        ascending: bool = True,
+    ) -> dict:
+        """Return paginated conversation messages for a thread.
+
+        Authorization: thread must exist AND be owned by the requesting
+        user. The messages table itself has no owner column -- ownership
+        flows transitively from the parent thread.
+        """
+        thread = await thread_store.get_thread(thread_id)
+        if thread is None:
+            raise HTTPException(status_code=404, detail="Thread not found")
+        _require_thread_owner(thread, request, "thread messages")
+
+        messages = await conversation_store.list_for_thread(
+            thread_id, limit=limit, offset=offset, ascending=ascending,
+        )
+        total = await conversation_store.count_for_thread(thread_id)
+        return {
+            "thread_id": thread_id,
+            "messages": [_message_to_dict(m) for m in messages],
+            "limit": limit,
+            "offset": offset,
+            "total": total,
+        }
+
     # Subsequent PBIs (3.6.3) plug additional routers in here.
 
 
@@ -543,6 +992,65 @@ def _run_summary_to_dict(run: task_store.RunSummary) -> dict:
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "last_activity_at": run.last_activity_at.isoformat() if run.last_activity_at else None,
     }
+
+
+def _thread_to_dict(thread: thread_store.AgentThread) -> dict:
+    """Browser-friendly view of an `agent_threads` row (PBI 3.7.6b).
+
+    The `external_thread_id` is always None on this surface (Web UI
+    threads never carry one per Decision 16) -- it is included in the
+    payload for shape symmetry with the A2A executor's response in PBI
+    3.7.8, where the same field will be populated.
+    """
+    return {
+        "thread_id": thread.thread_id,
+        "user_id": thread.user_id,
+        "external_thread_id": thread.external_thread_id,
+        "source": thread.source,
+        "title": thread.title,
+        "status": thread.status,
+        "metadata": thread.metadata,
+        "created_at": thread.created_at.isoformat() if thread.created_at else None,
+        "updated_at": thread.updated_at.isoformat() if thread.updated_at else None,
+        "last_message_at": thread.last_message_at.isoformat() if thread.last_message_at else None,
+    }
+
+
+def _message_to_dict(message: conversation_store.ConversationMessage) -> dict:
+    """Browser-friendly view of a `conversation_messages` row (PBI 3.7.6b)."""
+    return {
+        "id": message.id,
+        "thread_id": message.thread_id,
+        "agent_name": message.agent_name,
+        "role": message.role,
+        "content": message.content,
+        "created_at": message.created_at.isoformat() if message.created_at else None,
+    }
+
+
+def _require_thread_owner(
+    thread: thread_store.AgentThread,
+    request: Request,
+    resource_kind: str = "thread",
+) -> None:
+    """403 / 404 unless `request.state.user_id` owns `thread`.
+
+    A Web UI thread carries `user_id` and `external_thread_id IS NULL`.
+    The check is straightforward `auth.requires_owner` on `user_id`.
+
+    If a thread arrives without a `user_id` (A2A-originated -- the
+    `user_id` column is NULL and `external_thread_id` is set), this
+    surface refuses to expose it: return 404 rather than 403 so probing
+    other-world thread_ids does not leak existence. This matches the
+    `/api/runs` pattern.
+    """
+    if thread.user_id is None:
+        raise HTTPException(status_code=404, detail=f"{resource_kind.capitalize()} not found")
+    auth.requires_owner(
+        resource_owner=thread.user_id,
+        requesting_user=getattr(request.state, "user_id", None),
+        resource_kind=resource_kind,
+    )
 
 
 def _approval_to_dict(approval: hitl_store.HitlApproval) -> dict:
