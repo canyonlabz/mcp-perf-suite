@@ -2,9 +2,16 @@
 
 This module provides the framework-level convention for how an agent's
 four-file pattern (`agent.py`, `agent_card.json`, `INSTRUCTIONS.md`,
-`config.yaml`) is loaded from disk. Each specialist agent's `agent.py` calls
-into `create_agent()` and supplies agent-specific behavior on top of the
-shared factory.
+plus *one of* `config.yaml` / `config.example.yaml`) is loaded from disk.
+Each specialist agent's `agent.py` calls into `create_agent()` and supplies
+agent-specific behavior on top of the shared factory.
+
+Per-agent config files follow the same `<file>.yaml` / `<file>.example.yaml`
+override-vs-template split that the MCP servers and the global
+`agent-framework/config/agents.yaml` already use. The loader walks
+`CANDIDATE_CONFIG_FILES` (`config.yaml` -> `config.example.yaml`) in
+priority order so operator-side overrides win without ever being committed.
+See `resolve_agent_config_path()` for the helper.
 
 Status:
     F3.2 (this commit) - public API skeleton, four-file loading, name
@@ -28,7 +35,32 @@ import yaml
 
 log = logging.getLogger(__name__)
 
-REQUIRED_AGENT_FILES = ("agent.py", "agent_card.json", "INSTRUCTIONS.md", "config.yaml")
+# The four-file pattern (V2 §7.1). `config.yaml` is special: the loader
+# accepts either the operator-side override (`config.yaml`, gitignored)
+# or the committed default (`config.example.yaml`). At least one of the
+# two must exist. The other three are required as-is.
+REQUIRED_AGENT_FILES = ("agent.py", "agent_card.json", "INSTRUCTIONS.md")
+
+# Per-agent config-file candidates, in priority order. The first one that
+# exists on disk is used. Mirrors the same pattern that the MCP servers
+# in this repo follow (`config.yaml` -> `config.example.yaml`) and that
+# the global `agent-framework/config/agents.yaml` / `agents.example.yaml`
+# pair uses in `utils/llm_provider.py::load_agents_yaml`.
+CANDIDATE_CONFIG_FILES = ("config.yaml", "config.example.yaml")
+
+
+def resolve_agent_config_path(agent_folder: Path) -> Path | None:
+    """Return the first existing per-agent config file under `agent_folder`.
+
+    Walks `CANDIDATE_CONFIG_FILES` in priority order so an operator-side
+    `config.yaml` (gitignored) wins over the committed `config.example.yaml`
+    fallback. Returns None when neither candidate exists.
+    """
+    for candidate in CANDIDATE_CONFIG_FILES:
+        path = agent_folder / candidate
+        if path.exists():
+            return path
+    return None
 
 
 @dataclass
@@ -74,19 +106,30 @@ def load_agent_definition(agent_folder: Path) -> AgentDefinition:
                 f"Required file missing for agent '{name}': {candidate}"
             )
 
-    config_path = agent_folder / "config.yaml"
+    config_path = resolve_agent_config_path(agent_folder)
+    if config_path is None:
+        raise FileNotFoundError(
+            f"Required config file missing for agent '{name}': expected one of "
+            f"{CANDIDATE_CONFIG_FILES} under {agent_folder}"
+        )
+
     instructions_path = agent_folder / "INSTRUCTIONS.md"
     agent_card_path = agent_folder / "agent_card.json"
 
-    with open(config_path, "r", encoding="utf-8") as f:
+    # Use utf-8-sig so any BOM (commonly emitted by Windows editors / tools)
+    # is transparently stripped before the parser sees it. PyYAML and the
+    # stdlib json module both reject a leading BOM otherwise.
+    with open(config_path, "r", encoding="utf-8-sig") as f:
         config = yaml.safe_load(f) or {}
     if not isinstance(config, dict):
-        raise ValueError(f"Agent '{name}' config.yaml must be a YAML mapping")
+        raise ValueError(
+            f"Agent '{name}' config file at {config_path.name} must be a YAML mapping"
+        )
 
-    with open(instructions_path, "r", encoding="utf-8") as f:
+    with open(instructions_path, "r", encoding="utf-8-sig") as f:
         instructions = f.read()
 
-    with open(agent_card_path, "r", encoding="utf-8") as f:
+    with open(agent_card_path, "r", encoding="utf-8-sig") as f:
         try:
             agent_card = json.load(f)
         except json.JSONDecodeError as exc:
@@ -126,7 +169,11 @@ def discover_agents(agents_root: Path) -> list[AgentDefinition]:
     for child in sorted(agents_root.iterdir()):
         if not child.is_dir():
             continue
-        if not all((child / required).exists() for required in REQUIRED_AGENT_FILES):
+        all_required_present = all(
+            (child / required).exists() for required in REQUIRED_AGENT_FILES
+        )
+        has_config = resolve_agent_config_path(child) is not None
+        if not (all_required_present and has_config):
             log.debug("Skipping incomplete agent folder: %s", child)
             continue
         try:
@@ -162,7 +209,7 @@ def create_agent(definition: AgentDefinition, **overrides: Any) -> Any:
         return {
             "agent_name": definition.name,
             "status": "disabled",
-            "reason": "config.yaml has enabled: false",
+            "reason": "agent config has enabled: false",
         }
 
     log.warning(

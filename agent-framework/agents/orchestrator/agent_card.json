@@ -1,0 +1,29 @@
+{
+  "name": "orchestrator",
+  "display_name": "PerfPilot Orchestrator",
+  "description": "Coordinator agent for the PerfPilot performance-testing pipeline. Routes user requests to specialist agents (execution, script, monitoring, analysis, reporting, notifications), supervises long-running tasks, and brokers human-in-the-loop approvals. PBI 3.7.1 scaffold: conversational surface is live; delegation tools (list_available_specialists / delegate_to_specialist / check_task_status / request_human_approval) ship in PBIs 3.7.3-3.7.6, after which `status` flips to `available` and `skills[]` enumerates the real capabilities. See `agent_framework/agents/orchestrator/INSTRUCTIONS.md` for the agent's runtime system prompt.",
+  "url": "/agents/orchestrator",
+  "version": "0.1.0",
+  "status": "in_development",
+  "skills": [],
+  "tags": [
+    "orchestrator",
+    "routing",
+    "hitl",
+    "epic-3"
+  ],
+  "capabilities": {
+    "streaming": true,
+    "long_running_tasks": true,
+    "webhook_subscribers": true,
+    "human_in_the_loop": true
+  },
+  "metadata": {
+    "epic": "3",
+    "feature": "3.7",
+    "pbi_scaffolded_at": "3.7.1",
+    "real_skills_filled_at": "3.7.2",
+    "tools_added_at": ["3.7.3", "3.7.4", "3.7.5", "3.7.6"],
+    "task_executor_wired_at": "3.7.8"
+  }
+}

@@ -1,0 +1,90 @@
+# Orchestrator — Per-Agent Configuration (PBI 3.7.1)
+# ---------------------------------------------------
+# **This is the committed, public-facing reference file.** Mirrors the
+# same `config.yaml` / `config.example.yaml` split that the MCP servers
+# under this repo already use (and that `agent-framework/config/agents.yaml`
+# uses for the global-fallback LLM block). The agent factory in
+# `agents/orchestrator/agent.py` (and the framework-level loader in
+# `utils/base_agent.py`) walk the candidates in priority order:
+#
+#   1. `agents/orchestrator/config.yaml`         (gitignored, operator override)
+#   2. `agents/orchestrator/config.example.yaml` (this file — committed default)
+#
+# Operators / engineers copy this file to `config.yaml` and customize
+# without polluting git. The example stays unmodified in the branch so
+# smoke tests and fresh clones always have a working default.
+#
+# Consumed by `agents/orchestrator/agent.py::build_orchestrator()` at
+# startup. See `agent-framework/AGENTS.md` -> "Per-agent `config.yaml`
+# schema" for the full schema reference and the candidate-resolution
+# convention.
+#
+# Sections:
+#   1. llm_provider     - per-agent LLM override (commented out -> use
+#                         the global default from
+#                         `agent-framework/config/agents.yaml`)
+#   2. mcp_tools        - namespace allowlist (placeholder until F3.8
+#                         when MCP integration begins per Decision 12)
+#   3. retries          - call-level retry budget (consumed when delegation
+#                         tools land in PBIs 3.7.4 / 3.7.5)
+#   4. timeout_seconds  - per-tool soft timeout
+#   5. a2a              - A2A discovery metadata override
+
+# =============================================================================
+# 1. LLM provider override
+# =============================================================================
+# Leaving this block commented out means the orchestrator uses
+# `agents.yaml -> default_llm_provider` (in `agents.example.yaml` today
+# that is `openai / gpt-4o-mini / temperature 0.2`). Operators can
+# uncomment + customize without code changes.
+#
+# Example (mirrors V2 doc Section 11.2):
+#
+# llm_provider:
+#   provider: azure_openai
+#   azure_deployment: gpt-4o
+#   temperature: 0.2          # 0.1 for deterministic routing, 0.3+ for chatty conversational style
+
+# =============================================================================
+# 2. MCP namespace allowlist
+# =============================================================================
+# The orchestrator routes to all specialists, so it nominally needs visibility
+# into every MCP namespace. Wildcard for now; tightened (or replaced by
+# delegation through the specialists themselves) in F3.8 per Decision 12
+# ("Defer MCP integration to F3.8"). For PBI 3.7.1 this block is purely
+# declarative -- no MCP client is constructed yet.
+mcp_tools:
+  allowed_namespaces:
+    - "*"
+
+# =============================================================================
+# 3. Retries
+# =============================================================================
+# How many times the orchestrator retries a transient failure when calling
+# its own delegation tools (`delegate_to_specialist`, `check_task_status`).
+# Lands in PBIs 3.7.4 / 3.7.5; declared here so the tunable already exists
+# in the four-file scaffold.
+retries: 2
+
+# =============================================================================
+# 4. Timeouts
+# =============================================================================
+# Soft timeout for any single tool call the orchestrator makes against
+# its own A2A surface (port 8001). Long-running specialist work is
+# polled via `check_task_status`; this timeout governs the call to start
+# / status-check, not the duration of the underlying load test.
+timeout_seconds: 60
+
+# =============================================================================
+# 5. A2A discovery metadata
+# =============================================================================
+# Overrides for the `agent_card.json` fields used by external A2A
+# clients. When absent, sensible defaults are derived from the agent's
+# folder name + agent_card.json contents.
+a2a:
+  display_name: "PerfPilot Orchestrator"
+  description: "Coordinator agent for the PerfPilot performance-testing pipeline."
+  tags:
+    - orchestrator
+    - routing
+    - hitl

@@ -364,10 +364,15 @@ docker/.env.gateway
 # Ignore the following AG2 Agent Framework local configuration files (operators
 # copy from .example versions). The .env file is already covered by the global
 # `.env` rule above; the explicit entry here makes the agent-framework section
-# self-documenting. The committed template lives at
-# `agent-framework/config/agents.example.yaml`.
+# self-documenting. The committed templates live at:
+#   - `agent-framework/config/agents.example.yaml`            (global)
+#   - `agent-framework/agents/<agent-name>/config.example.yaml` (per-agent)
+# Each operator-side `config.yaml` is a local override; the loader (see
+# `utils/base_agent.py::CANDIDATE_CONFIG_FILES`) walks both candidates in
+# priority order and uses whichever exists.
 agent-framework/.env
 agent-framework/config/agents.yaml
+agent-framework/agents/*/config.yaml
 
 # Dev-only destructive helper for re-DDL'ing perfagent_state during the
 # architecture-build phase. Kept out of the published repo because it can

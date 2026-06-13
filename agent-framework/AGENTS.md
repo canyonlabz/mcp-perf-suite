@@ -26,7 +26,7 @@ clarity. The user-facing brand is "PerfPilot Agents". Do not rename either.
 |---|---|---|
 | `a2a_server.py` | FastAPI entrypoint for the A2A surface (port 8001). Path-based routing of all agents under `/agents/{name}/...`. | ✅ F3.5 |
 | `agui_server.py` | FastAPI entrypoint for the AG-UI / CopilotKit bridge (port 8002). Mounts AG2's `AGUIStream(agent).build_asgi()` at `/copilotkit/`. | ✅ F3.6 (backend) |
-| `agents/` | One subfolder per agent, four-file pattern (`agent.py`, `agent_card.json`, `INSTRUCTIONS.md`, `config.yaml`). | ⏭ F3.7 (orchestrator — next), F3.8 (execution-agent vertical slice), F3.9 (stubs), F3.10 (promotions) |
+| `agents/` | One subfolder per agent, four-file pattern (`agent.py`, `agent_card.json`, `INSTRUCTIONS.md`, plus one of `config.yaml` / `config.example.yaml`). See "Per-agent `config.yaml` schema" below for the candidate-resolution convention. | 🟡 F3.7.1 (orchestrator scaffolded — `status: in_development`); F3.7.2 fills in the real INSTRUCTIONS.md + skills; F3.7.3-3.7.6 add tools; F3.8 (execution-agent vertical slice); F3.9 (stubs); F3.10 (promotions) |
 | `workflows/` | Agent-to-agent Python pipelines (NOT Cursor Skills — both retained, neither replaces the other). | ⏭ F3.11 |
 | `utils/` | Shared agent-layer infrastructure (see breakdown below). | mixed |
 | `config/` | Runtime YAML: `agents.yaml` (global LLM fallback + per-agent enable/disable + TLS settings + `web_ui.session_cookie` tunables), `agents.example.yaml` (committed template). | ✅ F3.4; extended in F3.7.0b (cookie block) and F3.13 |
@@ -51,7 +51,7 @@ clarity. The user-facing brand is "PerfPilot Agents". Do not rename either.
 | `copilotkit_stub.py` | **TEMPORARY** stub `ConversableAgent` mounted at `/copilotkit/` for the F3.6 wire. Search for `STUB-F3.6.3`. **Deleted in F3.7.7.** | 🟡 F3.6.3 — slated for deletion |
 | `auth.py` | Ownership guard for multi-user safety: `requires_owner(resource_owner, requesting_user)` raises `HTTPException(401/403)`. Convenience lookups `owner_of_session(session_id)` and `owner_of_task(task_id)` walk to the underlying `agent_sessions.user_id`. | ✅ F3.7.0b (promoted from F3.13 placeholder); Epic 4 layers in claim / role checks on top, vendor-agnostic (Decision 20) |
 | `mcp_client.py` | FastMCP `StreamableHTTP` client setup (called by specialists) | — F3.8 |
-| `base_agent.py` | Shared `ConversableAgent` factory + MCP wiring (if extracted from per-agent code) | — F3.7 / F3.8 |
+| `base_agent.py` | Shared agent-folder loader: `CANDIDATE_CONFIG_FILES = ("config.yaml", "config.example.yaml")`, `resolve_agent_config_path(agent_folder)`, `load_agent_definition(agent_folder)`, `discover_agents(agents_root)`, placeholder `create_agent(definition)`. All file reads use `encoding="utf-8-sig"` for Windows BOM tolerance. Real `ConversableAgent` factory + MCP wiring still slated for F3.8 when extracted from per-agent code. | 🟡 F3.2 (skeleton); 🟡 F3.7.1 (candidate-resolution + BOM-tolerant reads); F3.8 (real factory) |
 | `otel.py` | Epic 4 readiness — reads session / task IDs; default no-op | — F3.13 |
 
 ## Conventions
@@ -65,7 +65,14 @@ clarity. The user-facing brand is "PerfPilot Agents". Do not rename either.
    imported inside functions, not at module top, so structural smoke tests run
    without a fully populated virtualenv.
 4. **Four-file pattern.** Every agent folder under `agents/` has exactly:
-   `agent.py`, `agent_card.json`, `INSTRUCTIONS.md`, `config.yaml`. No exceptions.
+   `agent.py`, `agent_card.json`, `INSTRUCTIONS.md`, and **one of**
+   `config.yaml` (operator-side override, gitignored) or `config.example.yaml`
+   (committed default). The loader (`utils/base_agent.resolve_agent_config_path`)
+   walks the candidate list in that priority order — so a local `config.yaml`
+   wins, otherwise the committed example is used. Same `<file>.yaml` /
+   `<file>.example.yaml` split that the global
+   `agent-framework/config/agents.yaml` and the MCP servers in this repo
+   already use. No exceptions.
 5. **MCP-mediated I/O.** Agents reach external systems only through MCP tools
    served by `gateway-mcp`. No direct vendor SDK calls from agent code.
    Exception: the script-agent's call to the Microsoft Playwright MCP is also
@@ -85,9 +92,26 @@ clarity. The user-facing brand is "PerfPilot Agents". Do not rename either.
 
 ## Per-agent `config.yaml` schema
 
-Each agent folder under `agents/<name>/` has a `config.yaml` file (created in
-F3.7+). The schema below is consumed by `utils/llm_provider.py` and the
-agent loader in `utils/base_agent.py`:
+Each agent folder under `agents/<name>/` has a per-agent config file
+(created in F3.7+). The loader in `utils/base_agent.py` walks two
+candidates in priority order — same convention every MCP server in this
+repo uses:
+
+| Filename | Tracked in git? | Purpose |
+|---|---|---|
+| `config.yaml`         | ❌ (`.gitignore`'d via `agent-framework/agents/*/config.yaml`) | Operator-side override. Loaded first if present. |
+| `config.example.yaml` | ✅ (committed)                                                 | Public default. Loaded as fallback. Smoke tests + fresh clones rely on this. |
+
+Operators / engineers copy `config.example.yaml` → `config.yaml` and edit
+the copy. The example file stays unmodified in the branch so smoke tests
+have a deterministic baseline.
+
+Files are read with `encoding='utf-8-sig'` so any UTF-8 BOM emitted by
+Windows editors / tools is transparently stripped before YAML / JSON
+parsing.
+
+The schema below is consumed by `utils/llm_provider.py` and the agent
+loader in `utils/base_agent.py`:
 
 ```yaml
 # Per-agent override for the LLM. If this entire block is omitted, the agent
