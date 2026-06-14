@@ -1,0 +1,36 @@
+{
+  "name": "execution-agent",
+  "display_name": "PerfPilot Execution Agent",
+  "description": "Specialist agent for performance-test execution and post-test artifact extraction in the PerfPilot Agents framework. Owns three agent tools (vendor-agnostic by name; BlazeMeter-only today): `start_performance_test` kicks off a run against a pre-existing test definition; `wait_for_completion` polls the underlying load-testing tool until the run is terminal; `extract_test_run_artifacts` runs the canonical 6-step extractor recipe (results -> artifacts path -> session processing -> public report -> aggregate CSV -> JMeter log analysis) and returns a structured JSON describing what landed under `artifacts/{test_run_id}/blazemeter/`. The orchestrator opens any required Human-in-the-Loop gates before delegating to this agent; this agent never opens HITL prompts itself. Future features will add JMX upload (gated on the JMeter upload MCP tool) and multi-vendor execution (Gatling / Locust / k6) behind the same agent-tool names. See `agent-framework/agents/execution-agent/INSTRUCTIONS.md` for the runtime system prompt and `agent-framework/AGENTS.md` for framework conventions.",
+  "url": "/agents/execution-agent",
+  "version": "0.1.0",
+  "status": "in_development",
+  "tags": [
+    "execution",
+    "blazemeter",
+    "extraction",
+    "epic-3"
+  ],
+  "capabilities": {
+    "streaming": true,
+    "long_running_tasks": true,
+    "webhook_subscribers": true,
+    "human_in_the_loop": false
+  },
+  "skills": [],
+  "metadata": {
+    "epic": "3",
+    "feature": "3.8",
+    "pbi_scaffolded_at": "3.8.1",
+    "skills_contract_defined_at": "3.8.7",
+    "tools_added_at": {
+      "start_performance_test":        "3.8.3",
+      "wait_for_completion":           "3.8.4",
+      "extract_test_run_artifacts":    "3.8.5"
+    },
+    "task_executor_wired_at": "3.8.6",
+    "status_flips_to_available_at": "3.8.7",
+    "mcp_namespaces_today": ["blazemeter", "jmeter"],
+    "future_vendor_expansion": "Same agent-tool names will plug into Gatling / Locust / k6 MCPs in a later feature, selected by a per-test vendor config. The agent-tool contract is stable; only internal MCP wiring changes."
+  }
+}
