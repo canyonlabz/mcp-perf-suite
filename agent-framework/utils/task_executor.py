@@ -25,6 +25,16 @@ implemented here:
          orchestrator's four registered tools (PBIs 3.7.3-3.7.6) are
          available; tool calls back into the local A2A surface use the
          `PERFPILOT_A2A_BASE_URL` env var.
+       - `"execution-agent"` (PBI 3.8.6): runs `_run_execution_agent()`,
+         which reads the task payload's `tool` field as an EXPLICIT
+         dispatch key (no LLM loop) and routes to one of the three F3.8
+         agent tools (`start_performance_test`, `wait_for_completion`,
+         `extract_test_run_artifacts`). The `action` field is echoed
+         into the result envelope for audit; tool-side failures surface
+         as `tool_result.ok = False` rather than raising. Closes the
+         F3.7 -> F3.8 contract: when the orchestrator delegates to
+         `execution-agent` via `delegate_to_specialist`, the task now
+         performs real work instead of the stub 3-phase sleep.
        - Any other agent name: keeps the F3.5 stub workflow
          (`pending -> running -> completed` with a 3-second simulated
          runtime). Specialists ship in F3.9+ and will replace their stub
@@ -180,12 +190,25 @@ async def execute_task(task_id: UUID) -> None:
 # at seven agents total a registry pattern would over-engineer it.
 
 ORCHESTRATOR_AGENT_NAME = "orchestrator"
+EXECUTION_AGENT_NAME = "execution-agent"
+
+# F3.8 execution-agent tool surface (INSTRUCTIONS.md §3). Kept here as a
+# tuple of authoritative names; `_run_execution_agent` validates incoming
+# `payload.tool` against this list. When PBI 3.8.7 flips the agent card
+# to `available`, the same names land in `agent_card.json::skills[]`.
+EXECUTION_AGENT_TOOL_NAMES: tuple[str, ...] = (
+    "start_performance_test",
+    "wait_for_completion",
+    "extract_test_run_artifacts",
+)
 
 
 async def _dispatch_agent(task: task_store.AgentTask, common: dict) -> dict:
     """Route to the right runtime based on `task.agent_name`."""
     if task.agent_name == ORCHESTRATOR_AGENT_NAME:
         return await _run_orchestrator(task, common)
+    if task.agent_name == EXECUTION_AGENT_NAME:
+        return await _run_execution_agent(task, common)
     return await _run_stub_agent(task, common)
 
 
@@ -388,6 +411,232 @@ def _extract_user_message_from_payload(payload: Any) -> Optional[str]:
     if public:
         return json.dumps(public)
     return None
+
+
+# =============================================================================
+# Execution-agent dispatch (PBI 3.8.6)
+# =============================================================================
+# Loads `agents/execution-agent/agent.py` via `importlib.util` because the
+# folder name is hyphenated and `from agents.execution-agent.agent import ...`
+# is a Python syntax error. The module is cached on first load to avoid
+# re-paying the `fastmcp` / `autogen` import cost on every task. PBI 3.7's
+# orchestrator uses the normal `from agents.orchestrator.agent import ...`
+# path; future hyphenated specialists (e.g. `script-agent`, `analysis-agent`)
+# will reuse this same pattern.
+
+_execution_agent_module: Optional[Any] = None
+_execution_agent_module_lock = asyncio.Lock()
+
+
+async def _load_execution_agent_module() -> Any:
+    """Return the loaded `agents/execution-agent/agent.py` module (cached).
+
+    Thread-safe under asyncio: the first concurrent loader wins; subsequent
+    callers wait on the lock and see the cached module. Subsequent calls
+    after the cache is populated return the cached value without touching
+    the lock.
+    """
+    global _execution_agent_module
+    if _execution_agent_module is not None:
+        return _execution_agent_module
+
+    async with _execution_agent_module_lock:
+        if _execution_agent_module is not None:
+            return _execution_agent_module
+
+        import importlib.util
+        import sys
+        from pathlib import Path
+
+        module_path = (
+            Path(__file__).resolve().parent.parent
+            / "agents"
+            / "execution-agent"
+            / "agent.py"
+        )
+        if not module_path.exists():
+            raise FileNotFoundError(
+                f"Execution-agent module not found at {module_path}"
+            )
+
+        spec = importlib.util.spec_from_file_location(
+            "agents_execution_agent_dynamic", str(module_path)
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(
+                f"Could not build import spec for {module_path}"
+            )
+
+        module = importlib.util.module_from_spec(spec)
+        # Register in sys.modules BEFORE exec_module so the module's own
+        # internal imports (e.g. `from utils.mcp_client import MCPClient`)
+        # resolve against the framework package layout.
+        sys.modules["agents_execution_agent_dynamic"] = module
+        spec.loader.exec_module(module)
+        _execution_agent_module = module
+        return module
+
+
+async def _run_execution_agent(task: task_store.AgentTask, common: dict) -> dict:
+    """Dispatch the task payload's `tool` to the matching execution-agent function.
+
+    Payload contract (INSTRUCTIONS.md §5)::
+
+        {
+          "tool":        "start_performance_test" | "wait_for_completion" | "extract_test_run_artifacts",
+          "action":      "fresh_run" | "retest" | "poll" | "extract" | "full_pipeline" | ...,
+          "args":        { ...tool-specific kwargs... },
+          "test_run_id": "<PerfPilot artifact-folder key>"
+        }
+
+    Unlike `_run_orchestrator`, NO LLM loop is involved -- the `tool`
+    field is the explicit dispatch key read directly here. The `action`
+    field is a free-form course-of-action label echoed into the result
+    envelope for audit / traceability (e.g. distinguishing a "fresh_run"
+    from a "retest" that reuses an existing run_id). `test_run_id` is
+    the PerfPilot artifact-folder key that travels through the whole
+    pipeline (NOT the BlazeMeter run_id, which the tools mint themselves).
+
+    Return envelope (always the same shape, success or failure)::
+
+        {
+          "agent":       "execution-agent",
+          "tool":        "<echoed from payload, or None>",
+          "action":      "<echoed from payload, or None>",
+          "test_run_id": "<echoed from payload, or None>",
+          "tool_result": <dict returned by the agent tool, OR a structured error>
+        }
+
+    `tool_result` semantics:
+      - On valid dispatch + successful tool execution: the tool's own
+        documented return shape (see INSTRUCTIONS.md §3.1 / §3.2 / §6).
+      - On invalid payload (missing `tool`, unknown `tool`, malformed
+        `args`): a `{"ok": False, "error": {"type": ..., "message": ...}}`
+        dict mirroring the agent-tool error convention.
+      - On unexpected tool exception: this function re-raises so
+        `execute_task` marks the task as `failed`. The agent tools are
+        documented to NEVER raise for tool-side failures, so reaching the
+        re-raise path indicates a real programmer error.
+    """
+    payload = task.payload if isinstance(task.payload, dict) else {}
+    tool = payload.get("tool")
+    action = payload.get("action")
+    test_run_id = payload.get("test_run_id")
+    args_raw = payload.get("args")
+    args = args_raw if isinstance(args_raw, dict) else None
+
+    envelope: dict = {
+        "agent": EXECUTION_AGENT_NAME,
+        "tool": tool,
+        "action": action,
+        "test_run_id": test_run_id,
+    }
+
+    # ---- Payload validation -------------------------------------------
+    if not isinstance(tool, str) or not tool:
+        envelope["tool_result"] = {
+            "ok": False,
+            "error": {
+                "type": "InvalidPayload",
+                "message": (
+                    "Payload is missing required field 'tool' (must be one "
+                    f"of {list(EXECUTION_AGENT_TOOL_NAMES)})."
+                ),
+            },
+        }
+        return envelope
+
+    if tool not in EXECUTION_AGENT_TOOL_NAMES:
+        envelope["tool_result"] = {
+            "ok": False,
+            "error": {
+                "type": "UnknownTool",
+                "message": (
+                    f"Unknown tool {tool!r}. Valid tools: "
+                    f"{list(EXECUTION_AGENT_TOOL_NAMES)}."
+                ),
+            },
+        }
+        return envelope
+
+    if args_raw is not None and args is None:
+        envelope["tool_result"] = {
+            "ok": False,
+            "error": {
+                "type": "InvalidPayload",
+                "message": (
+                    "Payload field 'args' must be a dict (or omitted); got "
+                    f"{type(args_raw).__name__}."
+                ),
+            },
+        }
+        return envelope
+
+    args = args or {}
+
+    # ---- Module load + function resolution ----------------------------
+    await _broadcast(
+        task.task_id,
+        TaskEvent(status="running", progress="loading_execution_agent", **common),
+    )
+    try:
+        module = await _load_execution_agent_module()
+    except Exception as exc:
+        log.exception("execution-agent module load failed for task %s", task.task_id)
+        envelope["tool_result"] = {
+            "ok": False,
+            "error": {
+                "type": type(exc).__name__,
+                "message": f"Failed to load execution-agent module: {exc}",
+            },
+        }
+        return envelope
+
+    fn = getattr(module, tool, None)
+    if not callable(fn):
+        # Defends against drift between EXECUTION_AGENT_TOOL_NAMES and the
+        # actual module (e.g., someone renames a function but forgets the
+        # tuple). The orchestrator-side `list_available_specialists` would
+        # still advertise the agent as available, so we want a clean error
+        # surface rather than an AttributeError.
+        envelope["tool_result"] = {
+            "ok": False,
+            "error": {
+                "type": "InternalError",
+                "message": (
+                    f"Tool {tool!r} is listed in EXECUTION_AGENT_TOOL_NAMES "
+                    "but is not callable on the execution-agent module."
+                ),
+            },
+        }
+        return envelope
+
+    # ---- Dispatch -----------------------------------------------------
+    await _broadcast(
+        task.task_id,
+        TaskEvent(status="running", progress=f"dispatching_tool:{tool}", **common),
+    )
+    try:
+        tool_result = await fn(**args)
+    except TypeError as exc:
+        # `fn(**args)` raised TypeError -- argument mismatch. Surface as a
+        # structured error rather than re-raising; the tool itself never
+        # crashed, the dispatch did.
+        envelope["tool_result"] = {
+            "ok": False,
+            "error": {
+                "type": "InvalidArgs",
+                "message": f"Tool {tool!r} rejected args {args!r}: {exc}",
+            },
+        }
+        return envelope
+
+    await _broadcast(
+        task.task_id,
+        TaskEvent(status="running", progress=f"tool_complete:{tool}", **common),
+    )
+    envelope["tool_result"] = tool_result
+    return envelope
 
 
 # =============================================================================
