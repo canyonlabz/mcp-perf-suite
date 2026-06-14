@@ -26,7 +26,7 @@
     "tools_added_at": {
       "start_performance_test":        "3.8.3 (wired)",
       "wait_for_completion":           "3.8.4 (wired)",
-      "extract_test_run_artifacts":    "3.8.5"
+      "extract_test_run_artifacts":    "3.8.5 (wired)"
     },
     "task_executor_wired_at": "3.8.6",
     "status_flips_to_available_at": "3.8.7",

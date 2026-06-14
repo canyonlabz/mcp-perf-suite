@@ -246,8 +246,8 @@ def _register_tools(agent: Any) -> None:
     functions; AG2 awaits the coroutine when `register_for_execution()`
     invokes it.
 
-    PBIs 3.8.3 / 3.8.4 wire `start_performance_test` and
-    `wait_for_completion`. PBI 3.8.5 will add `extract_test_run_artifacts`.
+    PBIs 3.8.3 / 3.8.4 / 3.8.5 wire `start_performance_test`,
+    `wait_for_completion`, and `extract_test_run_artifacts` respectively.
     """
     agent.register_for_llm(
         name="start_performance_test",
@@ -283,6 +283,25 @@ def _register_tools(agent: Any) -> None:
         ),
     )(wait_for_completion)
     agent.register_for_execution()(wait_for_completion)
+
+    agent.register_for_llm(
+        name="extract_test_run_artifacts",
+        description=(
+            "Execute the 6-step BlazeMeter extractor recipe (see INSTRUCTIONS.md "
+            "§4) against a completed run and return the canonical Return Format "
+            "JSON. Steps 1-3 (get_run_results / get_artifacts_path / "
+            "process_session_artifacts) are CRITICAL: any failure short-circuits "
+            "the recipe and returns status='failed'. Steps 4-6 "
+            "(get_public_report / get_aggregate_report / analyze_jmeter_log) are "
+            "IMPORTANT: failures are recorded but the recipe continues, returning "
+            "status='partial' if any IMPORTANT step failed. All BlazeMeter MCP "
+            "tools retry up to 3x with back-off on transient errors; "
+            "jmeter_analyze_jmeter_log is code-based and NEVER retries per "
+            "project rule. Filesystem is NEVER touched -- validation block is "
+            "derived from MCP response payloads only. NEVER raises."
+        ),
+    )(extract_test_run_artifacts)
+    agent.register_for_execution()(extract_test_run_artifacts)
 
 
 # =============================================================================
@@ -763,3 +782,656 @@ async def _wait_for_completion_with_client(
             }
 
         await asyncio.sleep(min(poll_interval_seconds, remaining))
+
+
+# =============================================================================
+# Tool 3 (PBI 3.8.5): extract_test_run_artifacts
+# =============================================================================
+
+# Retry budget for BlazeMeter MCP calls (API-based; safe to retry per
+# `mcp-error-handling` rule). The recipe's API-based steps are 1, 2, 3, 4, 5;
+# Step 3 has its own built-in retry inside the MCP, but we still retry the
+# transport-level call on exception. Step 6 (`jmeter_analyze_jmeter_log`) is
+# code-based and NEVER retries per the same rule.
+_BLAZEMETER_STEP_MAX_ATTEMPTS = 3
+_BLAZEMETER_STEP_RETRY_DELAY_SECONDS = 5.0  # Per project rule: 5-10s between retries
+
+# Step labels (used as keys in the canonical Return Format JSON's `steps`
+# block AND in `_mark_remaining_steps_skipped` for short-circuit aborts).
+# Order is significant: matches the §4 recipe order in INSTRUCTIONS.md.
+_RECIPE_STEPS: tuple[str, ...] = (
+    "get_run_results",
+    "get_artifacts_path",
+    "process_session_artifacts",
+    "get_public_report",
+    "get_aggregate_report",
+    "analyze_jmeter_log",
+)
+_CRITICAL_STEPS: frozenset[str] = frozenset(
+    {"get_run_results", "get_artifacts_path", "process_session_artifacts"}
+)
+
+# Parse helpers for `blazemeter_get_run_results` (which returns a formatted
+# multi-line STRING -- see blazemeter-mcp/services/blazemeter_api.py
+# `get_results_summary`). The patterns anchor on labels rather than position
+# to survive minor formatting tweaks.
+_START_TIME_PATTERN = re.compile(r"^\s*Start Time:\s*(.+?)\s*$", re.MULTILINE)
+_END_TIME_PATTERN = re.compile(r"^\s*End Time:\s*(.+?)\s*$", re.MULTILINE)
+_SESSION_ID_PATTERN = re.compile(r"^\s*Session ID:\s*(\[.*?\])\s*$", re.MULTILINE)
+
+
+async def extract_test_run_artifacts(
+    test_run_id: Annotated[
+        str,
+        "PerfPilot artifact-folder key for the completed run. Equals the "
+        "BlazeMeter `run_id` minted by `start_performance_test`; the two "
+        "values are 1:1.",
+    ],
+    test_name: Annotated[
+        Optional[str],
+        "Optional human-friendly label for the run. Logged in the return "
+        "JSON's `notes` field for downstream context; not part of the "
+        "canonical schema and may be None.",
+    ] = None,
+) -> dict:
+    """Execute the 6-step BlazeMeter extractor recipe over MCP tools.
+
+    Returns the canonical Return Format JSON documented in
+    `INSTRUCTIONS.md` §6, populated step-by-step from the responses of
+    six underlying MCP tools:
+
+      Step 1 (CRITICAL): `blazemeter_get_run_results(run_id=test_run_id)`
+        -> captures `start_time`, `end_time`, `sessionsId`.
+      Step 2 (CRITICAL): `blazemeter_get_artifacts_path()`
+        -> captures `mcp_artifacts_base_path` (DIAGNOSTIC ONLY; the agent
+        never reads or writes this path).
+      Step 3 (CRITICAL): `blazemeter_process_session_artifacts(run_id, sessions_id)`
+        -> downloads/extracts/combines per-load-generator artifacts.
+      Step 4 (IMPORTANT): `blazemeter_get_public_report(run_id)`
+        -> captures `public_url` for the reporting-agent's Confluence link.
+      Step 5 (IMPORTANT): `blazemeter_get_aggregate_report(run_id)`
+        -> writes the aggregate CSV consumed by analysis-agent's SLA pass.
+      Step 6 (IMPORTANT): `jmeter_analyze_jmeter_log(test_run_id, log_source="blazemeter")`
+        -> writes error-analysis files for analysis-agent's attribution pass.
+
+    **Severity model (INSTRUCTIONS.md §7.1):**
+      - Any CRITICAL step failing short-circuits the recipe and returns
+        `status: "failed"`; remaining steps are marked `"skipped"`.
+      - IMPORTANT step failures are recorded on the step but the recipe
+        continues. If any IMPORTANT step fails (and all CRITICAL steps
+        succeeded), the final `status` is `"partial"`.
+      - All six steps succeeding yields `status: "success"`.
+
+    **Retry policy (project `mcp-error-handling` rule):**
+      - BlazeMeter MCP tools (Steps 1-5): retry up to 3 times on
+        exception with 5-second back-off between attempts.
+      - JMeter MCP tool (Step 6): NEVER retries (code-based MCP).
+
+    **Filesystem invariant:** The agent never inspects the filesystem.
+    The Step 7 `validation` block is derived from MCP response payloads
+    alone; expected-file-presence reflects each step's reported status,
+    not on-disk reality.
+
+    Args:
+        test_run_id: PerfPilot artifact-folder key (equals BlazeMeter
+            `run_id`). Stripped of surrounding whitespace; empty string
+            short-circuits to a failed extraction.
+        test_name: Optional informational label, logged in `notes`.
+
+    Returns:
+        The canonical Return Format JSON dict (see INSTRUCTIONS.md §6).
+        Always returns a dict; NEVER raises for tool-side failures.
+    """
+    test_run_id = (test_run_id or "").strip()
+    if not test_run_id:
+        result = _new_extraction_result("")
+        for step in _RECIPE_STEPS:
+            result["steps"][step]["status"] = "skipped"
+        result["status"] = "failed"
+        result["notes"] = "test_run_id must be a non-empty string"
+        return result
+
+    from utils.mcp_client import MCPClient, build_client_config
+
+    config = build_client_config(["blazemeter", "jmeter"])
+    try:
+        async with MCPClient(config) as client:
+            return await _extract_test_run_artifacts_with_client(
+                test_run_id, test_name, client
+            )
+    except Exception as e:
+        result = _new_extraction_result(test_run_id)
+        for step in _RECIPE_STEPS:
+            result["steps"][step]["status"] = "skipped"
+        result["status"] = "failed"
+        result["notes"] = (
+            f"MCPClient setup failed: {type(e).__name__}: {_truncate(e, 240)}"
+        )
+        return result
+
+
+async def _extract_test_run_artifacts_with_client(
+    test_run_id: str,
+    test_name: Optional[str],
+    client: Any,
+    *,
+    _retry_delay_seconds: float = _BLAZEMETER_STEP_RETRY_DELAY_SECONDS,
+) -> dict:
+    """Inner implementation: 6-step recipe over a caller-provided MCP client.
+
+    Exposed (underscored) so smoke tests can inject `_FakeMCPClient` and
+    drive each step with scripted responses without standing up a real
+    gateway-mcp + BlazeMeter API.
+
+    Args:
+        test_run_id: Pre-validated (non-empty, stripped) artifact-folder key.
+        test_name: Optional human-friendly label; logged in `notes`.
+        client: Any object exposing async `call_tool(name, args)`. Caller
+            owns the lifecycle.
+        _retry_delay_seconds: Sleep between BlazeMeter MCP retries.
+            Defaults to 5s per project rule; smoke tests override to 0
+            for sub-second wall budgets.
+
+    Returns:
+        The canonical Return Format JSON dict (see INSTRUCTIONS.md §6).
+    """
+    result = _new_extraction_result(test_run_id)
+    notes: list[str] = []
+    if test_name:
+        notes.append(f"test_name={test_name!r}")
+
+    # ---- Step 1 (CRITICAL): get_run_results -----------------------------
+    step1 = await _call_blazemeter_with_retries(
+        client,
+        "blazemeter_get_run_results",
+        {"run_id": test_run_id},
+        retry_delay_seconds=_retry_delay_seconds,
+    )
+    if not step1["ok"]:
+        result["steps"]["get_run_results"] = {
+            "status": "failed",
+            "error": step1["error"],
+        }
+        notes.append(f"Step 1 (get_run_results) failed: {step1['error']}")
+        return _finalize_critical_failure(result, notes, after_step="get_run_results")
+
+    parsed = _parse_get_run_results(step1["raw"])
+    result["start_time"] = parsed["start_time"]
+    result["end_time"] = parsed["end_time"]
+    sessions_id = parsed["sessions_id"]
+    if parsed.get("warnings"):
+        notes.extend(parsed["warnings"])
+
+    if not sessions_id:
+        result["steps"]["get_run_results"] = {
+            "status": "failed",
+            "error": "Response contained no sessions_id; cannot run Step 3",
+        }
+        notes.append(
+            "Step 1 (get_run_results) succeeded but returned no sessions_id; "
+            "Step 3 requires at least one load-generator session ID."
+        )
+        return _finalize_critical_failure(result, notes, after_step="get_run_results")
+
+    result["steps"]["get_run_results"] = {"status": "success", "error": None}
+
+    # ---- Step 2 (CRITICAL): get_artifacts_path --------------------------
+    step2 = await _call_blazemeter_with_retries(
+        client,
+        "blazemeter_get_artifacts_path",
+        {},
+        retry_delay_seconds=_retry_delay_seconds,
+    )
+    if not step2["ok"]:
+        result["steps"]["get_artifacts_path"] = {
+            "status": "failed",
+            "error": step2["error"],
+        }
+        notes.append(f"Step 2 (get_artifacts_path) failed: {step2['error']}")
+        return _finalize_critical_failure(result, notes, after_step="get_artifacts_path")
+
+    base_path = _normalize_artifacts_base(step2["raw"])
+    if not base_path:
+        result["steps"]["get_artifacts_path"] = {
+            "status": "failed",
+            "error": (
+                "blazemeter_get_artifacts_path returned an empty or invalid "
+                f"path string: {step2['raw']!r}"
+            ),
+        }
+        notes.append("Step 2 (get_artifacts_path) returned empty/invalid path")
+        return _finalize_critical_failure(result, notes, after_step="get_artifacts_path")
+
+    result["mcp_artifacts_base_path"] = base_path
+    result["artifacts_path"] = f"{base_path.rstrip('/')}/{test_run_id}/blazemeter/"
+    result["steps"]["get_artifacts_path"] = {"status": "success", "error": None}
+
+    # ---- Step 3 (CRITICAL): process_session_artifacts -------------------
+    # NOTE: status="partial" from the MCP is a SOFT success at this layer
+    # -- the spec (INSTRUCTIONS.md line 377) allows the step to surface as
+    # "partial" while still gating CRITICAL pass-through.
+    step3 = await _call_blazemeter_with_retries(
+        client,
+        "blazemeter_process_session_artifacts",
+        {"run_id": test_run_id, "sessions_id": sessions_id},
+        retry_delay_seconds=_retry_delay_seconds,
+    )
+    if not step3["ok"]:
+        result["steps"]["process_session_artifacts"] = {
+            "status": "failed",
+            "retries": 0,
+            "error": step3["error"],
+        }
+        notes.append(f"Step 3 (process_session_artifacts) failed: {step3['error']}")
+        return _finalize_critical_failure(result, notes, after_step="process_session_artifacts")
+
+    s3_payload = step3["raw"]
+    if isinstance(s3_payload, dict):
+        s3_status = s3_payload.get("status", "unknown")
+    else:
+        s3_status = "unknown"
+
+    if s3_status == "success":
+        result["steps"]["process_session_artifacts"] = {
+            "status": "success",
+            "retries": 0,
+            "error": None,
+        }
+    elif s3_status == "partial":
+        # Soft success: CRITICAL gate passes, but the sub-step retains
+        # "partial" to surface the degraded outcome. Spec line 377 allows
+        # this; the §6 status-driving rule treats CRITICAL steps as
+        # success-or-not (binary), so we still proceed to Step 4.
+        result["steps"]["process_session_artifacts"] = {
+            "status": "partial",
+            "retries": 0,
+            "error": None,
+        }
+        completed = s3_payload.get("completed_sessions") if isinstance(s3_payload, dict) else None
+        total = s3_payload.get("total_sessions") if isinstance(s3_payload, dict) else None
+        notes.append(
+            f"Step 3 (process_session_artifacts) partial: "
+            f"{completed}/{total} load generators completed"
+        )
+    else:
+        # status="error" or unknown -> all sessions failed -> CRITICAL fail.
+        err = (
+            s3_payload.get("error")
+            if isinstance(s3_payload, dict) and s3_payload.get("error")
+            else f"process_session_artifacts returned status={s3_status!r}"
+        )
+        result["steps"]["process_session_artifacts"] = {
+            "status": "failed",
+            "retries": 0,
+            "error": err,
+        }
+        notes.append(f"Step 3 (process_session_artifacts) failed: {err}")
+        return _finalize_critical_failure(result, notes, after_step="process_session_artifacts")
+
+    # ---- Step 4 (IMPORTANT): get_public_report --------------------------
+    important_failures = 0
+
+    step4 = await _call_blazemeter_with_retries(
+        client,
+        "blazemeter_get_public_report",
+        {"run_id": test_run_id},
+        retry_delay_seconds=_retry_delay_seconds,
+    )
+    if step4["ok"] and isinstance(step4["raw"], dict):
+        payload = step4["raw"]
+        public_url = payload.get("public_url")
+        err_field = payload.get("error")
+        if public_url and not err_field:
+            result["steps"]["get_public_report"] = {
+                "status": "success",
+                "public_url": public_url,
+                "error": None,
+            }
+        else:
+            err = err_field or "public_url missing from response"
+            result["steps"]["get_public_report"] = {
+                "status": "failed",
+                "public_url": None,
+                "error": _truncate(err, 240),
+            }
+            notes.append(f"Step 4 (get_public_report) failed: {err}")
+            important_failures += 1
+    else:
+        err = step4["error"] if not step4["ok"] else "non-dict response from get_public_report"
+        result["steps"]["get_public_report"] = {
+            "status": "failed",
+            "public_url": None,
+            "error": _truncate(err, 240),
+        }
+        notes.append(f"Step 4 (get_public_report) failed: {err}")
+        important_failures += 1
+
+    # ---- Step 5 (IMPORTANT): get_aggregate_report -----------------------
+    step5 = await _call_blazemeter_with_retries(
+        client,
+        "blazemeter_get_aggregate_report",
+        {"run_id": test_run_id},
+        retry_delay_seconds=_retry_delay_seconds,
+    )
+    if step5["ok"] and isinstance(step5["raw"], dict):
+        payload = step5["raw"]
+        s5_status = payload.get("status")
+        if s5_status == "success":
+            result["steps"]["get_aggregate_report"] = {"status": "success", "error": None}
+        else:
+            err = payload.get("error") or f"unexpected status={s5_status!r}"
+            result["steps"]["get_aggregate_report"] = {
+                "status": "failed",
+                "error": _truncate(err, 240),
+            }
+            notes.append(f"Step 5 (get_aggregate_report) failed: {err}")
+            important_failures += 1
+    else:
+        err = step5["error"] if not step5["ok"] else "non-dict response from get_aggregate_report"
+        result["steps"]["get_aggregate_report"] = {
+            "status": "failed",
+            "error": _truncate(err, 240),
+        }
+        notes.append(f"Step 5 (get_aggregate_report) failed: {err}")
+        important_failures += 1
+
+    # ---- Step 6 (IMPORTANT, NO RETRY): analyze_jmeter_log ---------------
+    # Code-based MCP tool. Per project `mcp-error-handling` rule: do NOT
+    # retry on failure; a retry will not change a deterministic outcome.
+    step6 = await _call_mcp_once(
+        client,
+        "jmeter_analyze_jmeter_log",
+        {"test_run_id": test_run_id, "log_source": "blazemeter"},
+    )
+    if step6["ok"] and isinstance(step6["raw"], dict):
+        payload = step6["raw"]
+        s6_status = payload.get("status")
+        total_issues = payload.get("total_issues") or 0
+        if s6_status == "OK":
+            result["steps"]["analyze_jmeter_log"] = {
+                "status": "success",
+                "log_analysis_status": "OK",
+                "total_issues": total_issues,
+                "error": None,
+            }
+        else:
+            err_msg = (
+                payload.get("message")
+                or payload.get("error")
+                or f"log_analysis_status={s6_status!r}"
+            )
+            result["steps"]["analyze_jmeter_log"] = {
+                "status": "failed",
+                "log_analysis_status": s6_status,
+                "total_issues": total_issues,
+                "error": _truncate(err_msg, 240),
+            }
+            notes.append(f"Step 6 (analyze_jmeter_log) failed: {err_msg}")
+            important_failures += 1
+    else:
+        err = step6["error"] if not step6["ok"] else "non-dict response from analyze_jmeter_log"
+        result["steps"]["analyze_jmeter_log"] = {
+            "status": "failed",
+            "log_analysis_status": None,
+            "total_issues": 0,
+            "error": _truncate(err, 240),
+        }
+        notes.append(f"Step 6 (analyze_jmeter_log) failed: {err}")
+        important_failures += 1
+
+    # ---- Step 7: Validate (response-derived) ----------------------------
+    result["validation"] = _build_validation_block(result["steps"], sessions_id)
+
+    # ---- Step 8: Assemble final status ----------------------------------
+    result["status"] = "partial" if important_failures > 0 else "success"
+    result["notes"] = "; ".join(notes)
+    return result
+
+
+# =============================================================================
+# Tool 3 helpers
+# =============================================================================
+
+def _new_extraction_result(test_run_id: str) -> dict:
+    """Build the canonical Return Format JSON skeleton (INSTRUCTIONS.md §6).
+
+    Every field present from the start so consumers don't have to defend
+    against missing keys; concrete values overwrite the defaults as each
+    step lands.
+    """
+    return {
+        "subagent": "execution-agent",
+        "status": "failed",  # default; overridden on success/partial
+        "test_run_id": test_run_id,
+        "start_time": None,
+        "end_time": None,
+        "mcp_artifacts_base_path": None,
+        "artifacts_path": None,
+        "steps": {
+            "get_run_results":           {"status": "pending", "error": None},
+            "get_artifacts_path":        {"status": "pending", "error": None},
+            "process_session_artifacts": {"status": "pending", "retries": 0, "error": None},
+            "get_public_report":        {"status": "pending", "public_url": None, "error": None},
+            "get_aggregate_report":     {"status": "pending", "error": None},
+            "analyze_jmeter_log":       {
+                "status": "pending",
+                "log_analysis_status": None,
+                "total_issues": 0,
+                "error": None,
+            },
+        },
+        "validation": {
+            "test_results_csv": False,
+            "aggregate_performance_report_csv": False,
+            "jmeter_log": False,
+            "session_manifest_json": False,
+            "public_report_json": False,
+            "blazemeter_log_analysis_json": False,
+        },
+        "notes": "",
+    }
+
+
+def _finalize_critical_failure(
+    result: dict, notes: list[str], *, after_step: str
+) -> dict:
+    """Mark all steps after `after_step` as skipped and return status='failed'.
+
+    Called when a CRITICAL step (1, 2, or 3) fails. Per the §7.1 severity
+    model, the recipe aborts immediately and downstream steps are
+    explicitly marked `"skipped"` (not `"failed"`) to distinguish "we
+    didn't try" from "we tried and it failed".
+    """
+    idx = _RECIPE_STEPS.index(after_step)
+    for step_name in _RECIPE_STEPS[idx + 1 :]:
+        result["steps"][step_name]["status"] = "skipped"
+    result["validation"] = _build_validation_block(result["steps"], sessions_id=[])
+    result["status"] = "failed"
+    result["notes"] = "; ".join(notes)
+    return result
+
+
+def _build_validation_block(steps: dict, sessions_id: list) -> dict:
+    """Derive expected-file-presence from MCP-reported step statuses.
+
+    NEVER inspects the filesystem (INSTRUCTIONS.md §9.6 prohibits it).
+    A file is marked `true` iff the responsible step's status indicates
+    the MCP wrote it -- "success" or "partial" both count for Step 3
+    (whose `partial` means SOME load-generator artifacts exist).
+
+    `sessions_id` is unused here -- threaded through for future use if
+    the validation block ever needs per-generator-log accounting.
+    """
+    s = steps
+    sa = s.get("process_session_artifacts", {}).get("status")
+    return {
+        "test_results_csv":                  sa in ("success", "partial"),
+        "aggregate_performance_report_csv":  s.get("get_aggregate_report", {}).get("status") == "success",
+        "jmeter_log":                        sa in ("success", "partial"),
+        "session_manifest_json":             sa in ("success", "partial"),
+        "public_report_json":                s.get("get_public_report", {}).get("status") == "success",
+        "blazemeter_log_analysis_json":      s.get("analyze_jmeter_log", {}).get("status") == "success",
+    }
+
+
+async def _call_blazemeter_with_retries(
+    client: Any,
+    tool_name: str,
+    args: dict,
+    *,
+    max_attempts: int = _BLAZEMETER_STEP_MAX_ATTEMPTS,
+    retry_delay_seconds: float = _BLAZEMETER_STEP_RETRY_DELAY_SECONDS,
+) -> dict:
+    """Call an API-based MCP tool with the project's retry policy applied.
+
+    Per `mcp-error-handling`: retry up to 3 times on transient failures
+    with 5-10s back-off. Note this retries the TRANSPORT call only --
+    if the MCP returns a structured response (even with `status: "failed"`
+    inside), we accept that at face value rather than re-trying.
+
+    Returns:
+        Success: `{"ok": True, "raw": <payload>, "attempts": <int>}`
+        Failure: `{"ok": False, "error": "<truncated>", "attempts": <int>}`
+
+    Never raises.
+    """
+    last_error: Optional[BaseException] = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = await client.call_tool(tool_name, args)
+            payload = _extract_text_or_data(result)
+            return {"ok": True, "raw": payload, "attempts": attempt}
+        except PermissionError:
+            raise  # programmer error (namespace config); never retry
+        except Exception as e:
+            last_error = e
+            if attempt < max_attempts:
+                await asyncio.sleep(retry_delay_seconds)
+    return {
+        "ok": False,
+        "error": f"{type(last_error).__name__}: {_truncate(last_error, 240)}",
+        "attempts": max_attempts,
+    }
+
+
+async def _call_mcp_once(client: Any, tool_name: str, args: dict) -> dict:
+    """Single-attempt MCP call (for code-based tools that must not retry).
+
+    Used for Step 6 (`jmeter_analyze_jmeter_log`) per `mcp-error-handling`'s
+    "Do NOT retry on failure" rule for code-based MCPs.
+
+    Returns the same `{ok, raw|error, attempts}` shape as
+    `_call_blazemeter_with_retries`. Never raises.
+    """
+    try:
+        result = await client.call_tool(tool_name, args)
+        return {"ok": True, "raw": _extract_text_or_data(result), "attempts": 1}
+    except PermissionError:
+        raise
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": f"{type(e).__name__}: {_truncate(e, 240)}",
+            "attempts": 1,
+        }
+
+
+def _parse_get_run_results(raw: Any) -> dict:
+    """Extract `start_time`, `end_time`, `sessions_id` from a get_run_results response.
+
+    The MCP tool `blazemeter_get_run_results` returns a formatted multi-line
+    STRING (see `blazemeter-mcp/services/blazemeter_api.py::get_results_summary`
+    line 349). This helper:
+
+      1. If the raw value is already a dict (future MCP refactor), pull
+         fields directly.
+      2. Otherwise treat it as a string and regex-extract the labeled
+         lines. The Python-repr session list (`Session ID: ['1','2']`)
+         is parsed via `ast.literal_eval` for safety.
+      3. Returns a `warnings` list when fields are present but unparseable
+         (e.g. `Start Time: N/A`); §4 of INSTRUCTIONS.md says these go
+         into the return JSON's `notes`.
+    """
+    out: dict = {
+        "start_time": None,
+        "end_time": None,
+        "sessions_id": [],
+        "warnings": [],
+    }
+    if isinstance(raw, dict):
+        out["start_time"] = _normalize_timestamp(raw.get("start_time"))
+        out["end_time"] = _normalize_timestamp(raw.get("end_time"))
+        sid = raw.get("sessionsId") or raw.get("sessions_id") or []
+        if isinstance(sid, (list, tuple)):
+            out["sessions_id"] = [str(x) for x in sid]
+        return out
+
+    if not isinstance(raw, str):
+        out["warnings"].append(
+            f"get_run_results returned unexpected type {type(raw).__name__}; "
+            "could not parse start_time / end_time / sessions_id"
+        )
+        return out
+
+    # Defensive: detect known error markers from blazemeter_api.py
+    text = raw
+    if text.startswith("\u2757") or text.startswith("\u26a0"):
+        out["warnings"].append(
+            f"get_run_results returned an error/warning string: {text[:140]!r}"
+        )
+        return out
+
+    m_start = _START_TIME_PATTERN.search(text)
+    if m_start:
+        out["start_time"] = _normalize_timestamp(m_start.group(1).strip())
+
+    m_end = _END_TIME_PATTERN.search(text)
+    if m_end:
+        out["end_time"] = _normalize_timestamp(m_end.group(1).strip())
+
+    m_sess = _SESSION_ID_PATTERN.search(text)
+    if m_sess:
+        raw_list = m_sess.group(1)
+        try:
+            import ast
+
+            parsed_list = ast.literal_eval(raw_list)
+            if isinstance(parsed_list, (list, tuple)):
+                out["sessions_id"] = [str(x) for x in parsed_list]
+        except (ValueError, SyntaxError):
+            inner = raw_list.strip("[]")
+            if inner:
+                out["sessions_id"] = [
+                    item.strip().strip("'\"") for item in inner.split(",")
+                ]
+
+    if out["start_time"] is None or out["end_time"] is None:
+        out["warnings"].append(
+            "get_run_results: could not parse one of start_time / end_time; "
+            "Step 5 (aggregate report) may contain fallback timing data"
+        )
+
+    return out
+
+
+def _normalize_timestamp(value: Any) -> Optional[str]:
+    """Strip whitespace; map BlazeMeter's 'N/A' marker to None."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s or s.upper() in {"N/A", "NONE", "NULL"}:
+        return None
+    return s
+
+
+def _normalize_artifacts_base(raw: Any) -> Optional[str]:
+    """Pull the base path from a `blazemeter_get_artifacts_path` response.
+
+    The MCP returns either the path string directly or the sentinel
+    "No artifacts_path found in config." -- the latter must be treated
+    as a failure.
+    """
+    text = str(raw or "").strip()
+    if not text or "No artifacts_path found" in text:
+        return None
+    return text
