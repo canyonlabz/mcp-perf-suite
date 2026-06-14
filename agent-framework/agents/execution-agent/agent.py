@@ -38,7 +38,10 @@ PBI 3.8.6, the orchestrator's `delegate_to_specialist` tool) import
   narrate failures to the user instead of the agent loop crashing.
 - `extract_test_run_artifacts` will implement the 6-step extractor
   recipe (see INSTRUCTIONS.md §4) over six MCP calls in sequence,
-  honoring the critical-vs-non-critical step semantics.
+  honoring the CRITICAL-vs-IMPORTANT step severity model (§7.1):
+  a failure in Steps 1-3 returns `status: "failed"` immediately; a
+  failure in Steps 4-6 records the error and continues, ultimately
+  returning `status: "partial"` if any IMPORTANT step failed.
 
 **What this module still does NOT do (deferred):**
 

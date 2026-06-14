@@ -127,9 +127,10 @@ Use when:
   artifact bundle staged on disk for downstream agents (analysis,
   reporting) to consume.
 
-Returns the canonical Return Format JSON (see §6). On critical-step
-failure the JSON's `status` is `"failed"`; on non-critical failure it is
-`"partial"`; on full success it is `"success"`.
+Returns the canonical Return Format JSON (see §6). Per the §7.1 severity
+model: on **CRITICAL-step** failure the JSON's `status` is `"failed"`;
+on **IMPORTANT-step** failure (with every critical step succeeding) it
+is `"partial"`; on full success it is `"success"`.
 
 ---
 
@@ -153,44 +154,71 @@ If `start_time` or `end_time` cannot be parsed, record that fact in the
 return JSON's `notes` field and continue. Step 5 (aggregate report) may
 contain fallback timing data.
 
-### Step 2 — Get the absolute artifacts base path (CRITICAL)
+### Step 2 — Get the artifacts base path (CRITICAL)
 
 ```
 MCP tool: blazemeter_get_artifacts_path()
 ```
 
-**Capture:** the absolute base directory string. This is the
-**MCP-side** artifacts root (where the BlazeMeter MCP container's
-`artifacts/` folder actually lives on disk). All downstream artifact
-paths resolve as `{artifacts_base}/{test_run_id}/blazemeter/...`.
+**Capture:** the absolute base directory string returned by the MCP.
+Record it verbatim in the return JSON's `mcp_artifacts_base_path` field
+for operator-level diagnostics and audit — that is the **only** thing
+the agent does with this value.
 
-In a containerized deployment the MCP-side path is independent of any
-git worktree or IDE workspace path. Record `mcp_artifacts_base_path` in
-the return JSON exactly as returned so operators know where the real
-files landed.
+**The agent does not interact with the filesystem.** The path returned
+here is a **volume-mount endpoint** managed entirely by the BlazeMeter
+MCP server:
 
-### Step 3 — Process session artifacts (CRITICAL)
+- In a local container deployment, the path the MCP reports (`/app/artifacts`
+  on the container side) is a Docker bind mount onto the host filesystem
+  (`docker/docker-compose-full-windows.yaml` → `../artifacts:/app/artifacts`).
+  Files written by the MCP inside the container appear immediately on
+  the host because they are the same files; the container is not
+  persisting them.
+- In a future cloud deployment (e.g. Azure Container Apps), the same
+  mount point will surface a dedicated cloud-storage resource (Azure
+  Files, blob storage, etc.) — same path string, different backing
+  storage.
+
+In either case, **all downstream MCP tools take `test_run_id` as input
+and resolve the full path internally**. The agent never reads, writes,
+or stats files on its own. Step 7 (Validation) likewise derives file
+existence from MCP tool response payloads rather than direct filesystem
+inspection.
+
+### Step 3 — Process load-generator artifacts (CRITICAL)
 
 ```
 MCP tool: blazemeter_process_session_artifacts(run_id=test_run_id, sessions_id=<sessionsId from Step 1>)
 ```
 
 This single MCP tool handles **downloading, extracting, and processing**
-all session artifacts in one atomic call:
+all per-load-generator artifacts in one atomic call:
 
-- Single-session run → produces `test-results.csv` and `jmeter.log`
-- Multi-session run → produces a combined `test-results.csv` and
-  per-session `jmeter-1.log` through `jmeter-N.log`
-- **Built-in retry:** each session is retried up to 3 times automatically
-  inside the MCP
+- **Single load-generator run** → produces `test-results.csv` and `jmeter.log`
+- **Multiple load-generators run** → produces a combined `test-results.csv`
+  and per-generator `jmeter-1.log` through `jmeter-N.log` (one log per
+  load generator that participated)
+- **Built-in retry:** each load generator's download is retried up to 3
+  times automatically inside the MCP
 - **Idempotent:** if the response status is `"partial"` or `"error"`,
-  re-run the same call; the MCP skips already-completed sessions and
-  retries only failed ones
+  re-run the same call; the MCP skips already-completed load generators
+  and retries only failed ones
+
+**About `sessionsId`:** the list returned by Step 1 contains BlazeMeter-
+**internal session IDs** — one per load generator that participated in
+the test run. These are implementation-detail identifiers used by
+BlazeMeter to address each generator's artifact bundle on its side; they
+are **not** PerfPilot test runs and they are not meaningful to humans.
+Treat them as **opaque pass-through values**: hand them to the MCP
+unchanged, never parse them, never surface them to the user. The MCP
+tool's `sessions_id` parameter exists solely so the MCP can pull the
+right per-generator artifacts.
 
 This is the heart of the recipe. If Step 3 fails, downstream analysis is
 impossible and the return JSON's `status` must be `"failed"`.
 
-### Step 4 — Get the public report URL (NON-CRITICAL)
+### Step 4 — Get the public report URL (IMPORTANT)
 
 ```
 MCP tool: blazemeter_get_public_report(run_id=test_run_id)
@@ -200,23 +228,39 @@ MCP tool: blazemeter_get_public_report(run_id=test_run_id)
 `public_report.json` under `{artifacts_base}/{test_run_id}/blazemeter/`
 automatically — do not attempt to duplicate that file.
 
-If Step 4 fails (e.g., the test workspace forbids public-link generation),
-record the error in the return JSON and continue. The downstream pipeline
-does not require the public link to function.
+**Downstream consumer.** The `public_url` is consumed by the
+`reporting-agent` as a hyperlink in the final Confluence performance
+report, letting reviewers click through to the underlying BlazeMeter
+dashboard. A test run with no public URL is still publishable, but the
+Confluence report loses the dashboard backlink.
 
-### Step 5 — Get the aggregate performance report CSV (NON-CRITICAL)
+If Step 4 fails (e.g., the workspace policy disallows public links, or
+the BlazeMeter API rejects the request), record the error in the return
+JSON, set the step's `status` to `"failed"`, and continue. Do **not**
+abort the recipe — Steps 5 and 6 still run.
+
+### Step 5 — Get the aggregate performance report CSV (IMPORTANT)
 
 ```
 MCP tool: blazemeter_get_aggregate_report(run_id=test_run_id)
 ```
 
 Persists `aggregate_performance_report.csv` under
-`{artifacts_base}/{test_run_id}/blazemeter/`. Required input for analysis
-and reporting agents. If Step 5 fails, record the error in the return
-JSON and continue — downstream agents may fall back to computing
-aggregates from the raw `test-results.csv`.
+`{artifacts_base}/{test_run_id}/blazemeter/`.
 
-### Step 6 — Analyze the JMeter log (NON-CRITICAL)
+**Downstream consumer.** This CSV is the **direct input to the
+`analysis-agent`'s automated SLA-verdict pass**: per-transaction P90
+response times are read straight from this file and compared against the
+thresholds declared in `perfanalysis-mcp/slas.yaml`. The aggregate CSV is
+also one of the primary tables embedded in the final Confluence report
+by the `reporting-agent`. A test run missing this CSV forces the
+analysis-agent to fall back to computing aggregates from the raw
+`test-results.csv` — possible but slower and less reliable.
+
+If Step 5 fails, record the error in the return JSON, set the step's
+`status` to `"failed"`, and continue. The recipe does not abort.
+
+### Step 6 — Analyze the JMeter log (IMPORTANT)
 
 ```
 MCP tool: jmeter_analyze_jmeter_log(test_run_id=test_run_id, log_source="blazemeter")
@@ -230,29 +274,52 @@ groups errors by type / API / root-cause, and writes three output files to
 - `blazemeter_log_analysis.json`
 - `blazemeter_log_analysis.md`
 
+**Downstream consumer.** The structured log-analysis output is required
+input for the **`analysis-agent`'s error-attribution pass** (mapping
+failed transactions back to root-cause buckets like timeouts, 5xx
+clusters, auth failures, etc.) and is embedded by the `reporting-agent`
+in the final Confluence report's "Errors and Failures" section. A test
+run missing this output ships an incomplete error narrative downstream.
+
 **This is a code-based MCP tool (Python execution), not an API call.**
 Per the project's `mcp-error-handling` rule: do NOT retry on failure.
-Record the full error in the return JSON and continue to Step 7.
+Record the full error in the return JSON, set the step's `status` to
+`"failed"`, and continue to Step 7.
 
-**Capture:** `log_analysis_status` ∈ {`"OK"`, `"NO_LOGS"`, `"ERROR"`}.
+**Capture:** `log_analysis_status` ∈ {`"OK"`, `"NO_LOGS"`, `"ERROR"`}
+and `total_issues` (when available) from the response.
 
-### Step 7 — Validate
+### Step 7 — Validate (response-derived, not filesystem-derived)
 
-Verify each of these files exists on disk under the MCP-side artifacts
-base from Step 2:
+Walk the responses from Steps 1-6 and assemble a structured manifest of
+which files the MCP tools **reported** as written. Per §2 of this doc
+and Step 2's restatement, the agent **never inspects the filesystem
+directly** — the validation block in the return JSON is derived from
+MCP tool response payloads alone. (Operators who want a real on-disk
+check can run a separate audit against the volume-mount endpoint
+outside the agent loop.)
+
+Expected logical layout (relative to the artifacts base reported in
+Step 2):
 
 - `{artifacts_base}/{test_run_id}/blazemeter/aggregate_performance_report.csv`
+  (when Step 5 reported success)
 - `{artifacts_base}/{test_run_id}/blazemeter/test-results.csv`
-- `{artifacts_base}/{test_run_id}/blazemeter/jmeter.log` (single-session) **OR**
-  `{artifacts_base}/{test_run_id}/blazemeter/jmeter-*.log` (multi-session)
+  (when Step 3 reported success)
+- `{artifacts_base}/{test_run_id}/blazemeter/jmeter.log` (single load-generator)
+  **OR** `{artifacts_base}/{test_run_id}/blazemeter/jmeter-*.log` (multiple
+  load generators) (when Step 3 reported success)
 - `{artifacts_base}/{test_run_id}/blazemeter/sessions/session_manifest.json`
-- `{artifacts_base}/{test_run_id}/blazemeter/public_report.json` (when Step 4 succeeded)
-- `{artifacts_base}/{test_run_id}/analysis/blazemeter_log_analysis.json` (when Step 6 succeeded)
+  (internal BlazeMeter manifest emitted by Step 3)
+- `{artifacts_base}/{test_run_id}/blazemeter/public_report.json` (when Step 4
+  reported success)
+- `{artifacts_base}/{test_run_id}/analysis/blazemeter_log_analysis.json`
+  (when Step 6 reported success)
 
-Record each file's existence (`true` / `false`) in the return JSON's
-`validation` block. When you cannot read a path outside the agent's
-workspace, rely on MCP tool responses and record the limitation in
-`notes`.
+Record each file's expected-existence (`true` / `false`) in the return
+JSON's `validation` block based on the corresponding step's reported
+status. Add any caveats — partial generator-list, missing fields in MCP
+responses, etc. — to `notes`.
 
 ### Step 8 — Assemble and return JSON
 
@@ -302,7 +369,7 @@ object of this exact shape (matches `.cursor/agents/blazemeter-extractor.md`):
   "test_run_id": "<test_run_id>",
   "start_time": "<ISO 8601 UTC or null if unavailable>",
   "end_time":   "<ISO 8601 UTC or null if unavailable>",
-  "mcp_artifacts_base_path": "<absolute base from get_artifacts_path()>",
+  "mcp_artifacts_base_path": "<absolute base from get_artifacts_path() - diagnostic only; the agent never reads or writes this path>",
   "artifacts_path": "<mcp_artifacts_base_path>/<test_run_id>/blazemeter/",
   "steps": {
     "get_run_results":           { "status": "success | failed | skipped", "error": null },
@@ -324,11 +391,19 @@ object of this exact shape (matches `.cursor/agents/blazemeter-extractor.md`):
 }
 ```
 
-**Status definitions:**
+**Status definitions** (driven by the §7.1 severity model):
 
-- `"success"` — All six steps completed; all critical validation checks passed.
-- `"partial"` — Non-critical steps failed (4 / 5 / 6) but core artifacts (1-3) exist.
-- `"failed"` — A critical step failed (Step 1, 2, or 3); artifacts are incomplete or missing.
+- `"success"` — All six steps completed; every CRITICAL and every IMPORTANT
+  step reported success.
+- `"partial"` — Every CRITICAL step (1, 2, 3) succeeded, but at least one
+  IMPORTANT step (4, 5, 6) failed. The core artifact bundle (test-results
+  CSV + per-load-generator logs) exists; downstream pipeline degrades but
+  still runs. Each failure has a named downstream consumer (Confluence
+  link, P90 SLA verdict, error attribution) that will be missing or
+  weaker.
+- `"failed"` — A CRITICAL step failed (Step 1, 2, or 3). The artifact
+  bundle is incomplete or missing and downstream analysis cannot
+  proceed.
 
 For `start_performance_test` and `wait_for_completion`, the return is the
 simpler tool-result dict documented in §3.1 / §3.2 — they do not produce
@@ -338,7 +413,17 @@ the extractor-recipe JSON above.
 
 ## 7. Error handling
 
-### 7.1 BlazeMeter MCP tools (Steps 1-5, plus `start_test` / `check_test_status`)
+### 7.1 Step severity model
+
+Steps in the 6-step extractor recipe carry **two severity tiers** that
+drive `status` determination in the return JSON:
+
+| Severity | Steps | On failure → return JSON `status` | Recipe behavior |
+|---|---|---|---|
+| **CRITICAL** | Step 1 (`get_run_results`), Step 2 (`get_artifacts_path`), Step 3 (`process_session_artifacts`) | `"failed"` (after retry budget exhausted) | **Abort.** Downstream pipeline cannot proceed; no point running Steps 4-6. |
+| **IMPORTANT** | Step 4 (`get_public_report`), Step 5 (`get_aggregate_report`), Step 6 (`analyze_jmeter_log`) | `"partial"` (if every CRITICAL step succeeded) | **Continue.** Record the failure on the step and run the next one. Each IMPORTANT step has a named downstream consumer (see Steps 4-6 above) — the pipeline degrades, it does not stop. |
+
+### 7.2 BlazeMeter MCP tools (Steps 1-5, plus `start_test` / `check_test_status`)
 
 API-based MCPs. Per the project's `mcp-error-handling` rule:
 
@@ -346,24 +431,23 @@ API-based MCPs. Per the project's `mcp-error-handling` rule:
   timeouts, 5xx responses, HTTP 429).
 - **Wait between retries:** 5-10 seconds to prevent rate limiting (the
   rule's "Allow 5 seconds between each MCP tool call to prevent HTTP 429").
-- **After 3 failed retries:** stop and record the failure in the return
-  JSON. **Do NOT proceed to the next step** if a critical step (1, 2, or 3)
-  fails — set `status: "failed"` and return.
-- **Non-critical failures (Steps 4, 5):** record the failure but continue
-  to the next step.
+- **After 3 failed retries:** stop retrying that step and record the failure
+  in the return JSON. Apply §7.1's severity model:
+  - **CRITICAL step failed** → return early with `status: "failed"`.
+  - **IMPORTANT step failed** → continue to the next step.
 
-### 7.2 JMeter MCP tool (Step 6 `jmeter_analyze_jmeter_log`)
+### 7.3 JMeter MCP tool (Step 6 `jmeter_analyze_jmeter_log`)
 
 Code-based MCP (Python execution). Per the same rule:
 
 - **Do NOT retry on failure.** Code-based MCP tools are deterministic; a
   retry will not change the outcome.
-- Record the full error message in
-  `steps.analyze_jmeter_log.error`.
-- Step 6 is **non-critical** — continue to Step 7 (Validation) regardless
-  of outcome.
+- Record the full error message in `steps.analyze_jmeter_log.error`.
+- Step 6 is **IMPORTANT** (not critical) — continue to Step 7 (Validation)
+  regardless of outcome and set the run's `status` to `"partial"` if this
+  is the only failure.
 
-### 7.3 General
+### 7.4 General
 
 - **Never modify MCP source code.** The MCP tools are external dependencies
   — treat them as read-only.
@@ -408,13 +492,21 @@ These are hard prohibitions. Violation breaks the system contract.
    never retries on failure. Record + continue.
 5. **Do not silently skip critical steps.** If Step 1, 2, or 3 fails
    after 3 retries, return with `status: "failed"` and stop.
-6. **Do not fabricate file existence.** Step 7 (Validation) must reflect
-   reality. If a path is unreadable, mark it `false` and record the
+6. **Do not inspect the filesystem directly.** No `os.listdir`, no `open`,
+   no `Path.exists`, no `glob`. Path resolution and file-existence
+   inquiries go through MCP tools exclusively. The `mcp_artifacts_base_path`
+   you receive in Step 2 is a volume-mount endpoint backed by host
+   storage (local Docker) or cloud storage (future ACA deployment); the
+   agent never traverses it. Step 7 (Validation) derives its block from
+   MCP tool response payloads, not from disk reads.
+7. **Do not fabricate file existence.** Step 7 (Validation) must reflect
+   what each MCP tool actually reported. If a step failed or returned
+   no manifest, mark the corresponding files `false` and record the
    limitation in `notes`.
-7. **Do not assume any specific cloud, identity provider, or hosting
+8. **Do not assume any specific cloud, identity provider, or hosting
    model.** PerfPilot is vendor-agnostic at every layer. Phrase
    everything as "the deployed instance" rather than naming a vendor.
-8. **Do not expose credentials, file paths under `.env`, or any value
+9. **Do not expose credentials, file paths under `.env`, or any value
    from `os.environ` to the caller.** Workspace ID, Project ID, API
    keys are auto-loaded by the BlazeMeter MCP from its environment;
    you never see them and you never echo them.

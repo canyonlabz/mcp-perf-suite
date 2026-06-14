@@ -97,8 +97,9 @@ retries: 3
 # Long-running operations are NOT governed by this timeout:
 #   - `wait_for_completion(run_id, *, timeout_seconds=300.0)` has its own
 #     timeout kwarg that the caller controls per-call (300s default).
-#   - `process_session_artifacts` can take several minutes for large
-#     multi-session runs; the MCP itself manages its internal timeout.
+#   - `process_session_artifacts` can take several minutes when many
+#     load generators contributed artifacts to the run; the MCP itself
+#     manages its internal timeout.
 timeout_seconds: 60
 
 # =============================================================================
