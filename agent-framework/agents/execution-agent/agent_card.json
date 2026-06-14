@@ -25,7 +25,7 @@
     "skills_contract_defined_at": "3.8.7",
     "tools_added_at": {
       "start_performance_test":        "3.8.3 (wired)",
-      "wait_for_completion":           "3.8.4",
+      "wait_for_completion":           "3.8.4 (wired)",
       "extract_test_run_artifacts":    "3.8.5"
     },
     "task_executor_wired_at": "3.8.6",

@@ -74,8 +74,10 @@ work without per-call `.rebuild()` shenanigans (same constraint that
 applies to the orchestrator's `agent.py`).
 """
 
+import asyncio
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -244,8 +246,8 @@ def _register_tools(agent: Any) -> None:
     functions; AG2 awaits the coroutine when `register_for_execution()`
     invokes it.
 
-    PBI 3.8.3 wires `start_performance_test`. PBIs 3.8.4 / 3.8.5 will
-    add `wait_for_completion` and `extract_test_run_artifacts` here.
+    PBIs 3.8.3 / 3.8.4 wire `start_performance_test` and
+    `wait_for_completion`. PBI 3.8.5 will add `extract_test_run_artifacts`.
     """
     agent.register_for_llm(
         name="start_performance_test",
@@ -263,6 +265,24 @@ def _register_tools(agent: Any) -> None:
         ),
     )(start_performance_test)
     agent.register_for_execution()(start_performance_test)
+
+    agent.register_for_llm(
+        name="wait_for_completion",
+        description=(
+            "Block until the given run_id reaches a terminal state in the "
+            "load-testing tool, polling the underlying MCP status endpoint at "
+            "`poll_interval_seconds` (default 60s) until `timeout_seconds` "
+            "(default 300s) elapses. Returns ok=True on terminal completion "
+            "(status='ENDED', timed_out=False), ok=True on test-side failure "
+            "(has_error=True with BlazeMeter's reported error string), ok=True "
+            "on wait timeout (timed_out=True with the last observed status), "
+            "and ok=False ONLY when 3 consecutive MCP polls fail (transient "
+            "single-poll failures are absorbed by the natural polling cadence). "
+            "Status polling is idempotent and safe to call repeatedly. NEVER "
+            "raises."
+        ),
+    )(wait_for_completion)
+    agent.register_for_execution()(wait_for_completion)
 
 
 # =============================================================================
@@ -476,3 +496,270 @@ def _invalid_input_error(test_id: str, message: str) -> dict:
         },
         "test_id": test_id,
     }
+
+
+# =============================================================================
+# Tool 2 (PBI 3.8.4): wait_for_completion
+# =============================================================================
+
+# Status-vocabulary constants. Single source of truth so the parser, the
+# terminal-state classifier, and the smoke tests all agree on what
+# "terminal" means. BlazeMeter's API documents `ENDED` as the natural
+# completion state and `FAILED` / `ERROR` / `ABORTED` as the terminal
+# failure states (see blazemeter-mcp/services/blazemeter_api.py
+# `get_test_status` for the `has_error` bool's exact criteria).
+TERMINAL_SUCCESS_STATUS = "ENDED"
+TERMINAL_FAILURE_STATUSES = frozenset({"FAILED", "ERROR", "ABORTED"})
+
+# Safety floor for poll interval. The user-facing default is 60s (see
+# `wait_for_completion` signature) but smoke tests need to drive the
+# loop at sub-second intervals; this floor prevents foot-gun zeros.
+_MIN_POLL_INTERVAL_SECONDS = 0.05
+
+# Hard error threshold: three consecutive polls failing with an exception
+# (network, auth, etc.) is treated as a wait-side failure and aborts the
+# loop. Transient single-poll failures are absorbed because the natural
+# 60-second polling cadence provides better back-off than blind retries.
+_MAX_CONSECUTIVE_POLL_FAILURES = 3
+
+
+async def wait_for_completion(
+    run_id: Annotated[
+        str,
+        "BlazeMeter run_id minted by `start_performance_test` (also called "
+        "`master_id` in some BlazeMeter API endpoints). Same value carried "
+        "through the rest of the F3.8 pipeline as `test_run_id`.",
+    ],
+    *,
+    poll_interval_seconds: Annotated[
+        float,
+        "Seconds between status polls. Default 60.0 to stay well under "
+        "BlazeMeter's API rate limits; status updates are not granular "
+        "enough to benefit from tighter polling.",
+    ] = 60.0,
+    timeout_seconds: Annotated[
+        float,
+        "Maximum seconds to wait for terminal state. Default 300.0 (5 "
+        "minutes) -- appropriate for short smoke tests; production "
+        "callers should raise this for longer real workloads.",
+    ] = 300.0,
+) -> dict:
+    """Block until `run_id` reaches a terminal state, polling at intervals.
+
+    In F3.8 wraps the BlazeMeter MCP tool `blazemeter_check_test_status(run_id)`
+    in an `asyncio.sleep` loop. The status polling is idempotent, so transient
+    per-poll MCP failures are absorbed silently (counted, but not raised) and
+    only escalate to a hard error after 3 consecutive failures -- the natural
+    60-second polling cadence acts as the back-off.
+
+    **Return-shape contract** (matches `INSTRUCTIONS.md` §3.2):
+
+    Terminal success (BlazeMeter reported `status: 'ENDED'`)::
+
+        {"ok": True, "run_id": ..., "status": "ENDED", "has_error": False,
+         "error": None, "timed_out": False, "polls": <int>, "elapsed_seconds": <float>,
+         "last_response": "<truncated>"}
+
+    Terminal failure (BlazeMeter reported `has_error: True` or one of
+    FAILED / ERROR / ABORTED). The wait OPERATION succeeded (we got a
+    deterministic verdict), but the test itself failed -- `ok: True`
+    reflects the wait's success; `has_error: True` reflects the test's
+    failure. The orchestrator decides whether to still attempt extraction::
+
+        {"ok": True, "run_id": ..., "status": "FAILED" | "ERROR" | "ABORTED" | ...,
+         "has_error": True, "error": "<BlazeMeter's error string or object>",
+         "timed_out": False, "polls": <int>, "elapsed_seconds": <float>,
+         "last_response": "<truncated>"}
+
+    Timeout (deadline reached before BlazeMeter reached terminal)::
+
+        {"ok": True, "run_id": ..., "status": "<last observed, e.g. RUNNING>",
+         "has_error": False, "error": None, "timed_out": True, "polls": <int>,
+         "elapsed_seconds": <float>, "last_response": "<truncated>",
+         "notes": "Reached timeout_seconds=... before terminal state."}
+
+    Hard error (3 consecutive MCP polls raised; or invalid input). Only
+    case where `ok: False`::
+
+        {"ok": False, "run_id": ..., "error": {"type": ..., "message": ...,
+         "phase": "mcp-call" | "client-setup" | "invalid-input",
+         "consecutive_failures": <int, when applicable>}, "polls": <int>}
+
+    **Never raises** for tool-side failures.
+
+    Args:
+        run_id: BlazeMeter run identifier. Stripped of surrounding
+            whitespace; empty string returns an `InvalidInput` error.
+        poll_interval_seconds: Seconds between status polls (default 60).
+            Clamped to a floor of 0.05s for smoke-test ergonomics.
+        timeout_seconds: Maximum total wait window (default 300). Clamped
+            to non-negative values; zero means "single-shot status check".
+
+    Returns:
+        A dict as documented above. The shape varies by branch; callers
+        should switch on `ok` first, then `timed_out` / `has_error`.
+    """
+    run_id = (run_id or "").strip()
+    if not run_id:
+        return {
+            "ok": False,
+            "run_id": "",
+            "error": {
+                "type": "InvalidInput",
+                "message": "run_id must be a non-empty string",
+                "phase": "invalid-input",
+            },
+            "polls": 0,
+        }
+
+    poll = max(_MIN_POLL_INTERVAL_SECONDS, float(poll_interval_seconds))
+    timeout = max(0.0, float(timeout_seconds))
+
+    from utils.mcp_client import MCPClient, build_client_config
+
+    config = build_client_config(["blazemeter", "jmeter"])
+    try:
+        async with MCPClient(config) as client:
+            return await _wait_for_completion_with_client(
+                run_id,
+                client,
+                poll_interval_seconds=poll,
+                timeout_seconds=timeout,
+            )
+    except Exception as e:
+        return {
+            "ok": False,
+            "run_id": run_id,
+            "error": {
+                "type": type(e).__name__,
+                "message": _truncate(e),
+                "phase": "client-setup",
+            },
+            "polls": 0,
+        }
+
+
+async def _wait_for_completion_with_client(
+    run_id: str,
+    client: Any,
+    *,
+    poll_interval_seconds: float = 60.0,
+    timeout_seconds: float = 300.0,
+) -> dict:
+    """Inner implementation: status polling loop over a caller-provided client.
+
+    Exposed (underscored) so smoke tests can inject a `_FakeMCPClient`
+    or pre-connected real `MCPClient` and exercise the loop without
+    re-opening the FastMCP transport per call.
+
+    Args:
+        run_id: Pre-validated (non-empty, stripped) run identifier.
+        client: An object exposing the async `call_tool(name, args)`
+            method -- either `utils.mcp_client.MCPClient` in production
+            or a test fake. The caller owns the lifecycle.
+        poll_interval_seconds: Already clamped to >= 0.05s.
+        timeout_seconds: Already clamped to >= 0.0s.
+
+    Returns:
+        The same `{ok, ...}` dict shape documented on `wait_for_completion`.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    start = time.monotonic()
+
+    polls = 0
+    consecutive_failures = 0
+    last_status: Optional[str] = None
+    last_response: Any = None
+
+    while True:
+        polls += 1
+        try:
+            result = await client.call_tool(
+                "blazemeter_check_test_status", {"run_id": run_id}
+            )
+            payload = _extract_text_or_data(result)
+            consecutive_failures = 0
+            last_response = payload
+        except Exception as e:
+            consecutive_failures += 1
+            if consecutive_failures >= _MAX_CONSECUTIVE_POLL_FAILURES:
+                return {
+                    "ok": False,
+                    "run_id": run_id,
+                    "error": {
+                        "type": type(e).__name__,
+                        "message": _truncate(e),
+                        "phase": "mcp-call",
+                        "consecutive_failures": consecutive_failures,
+                    },
+                    "polls": polls,
+                    "elapsed_seconds": round(time.monotonic() - start, 2),
+                    "last_response": _truncate(last_response) if last_response is not None else None,
+                }
+            payload = None  # absorbed transient failure; fall through to sleep
+
+        # Classify a successful poll's payload as terminal-success,
+        # terminal-failure, or still-running.
+        if isinstance(payload, dict):
+            status_raw = payload.get("status")
+            status_str = str(status_raw) if status_raw is not None else None
+            status_upper = status_str.upper() if status_str else None
+            if status_str:
+                last_status = status_str
+            has_error = bool(payload.get("has_error"))
+            err_field = payload.get("error")
+
+            if (
+                status_upper == TERMINAL_SUCCESS_STATUS
+                and not has_error
+            ):
+                return {
+                    "ok": True,
+                    "run_id": run_id,
+                    "status": last_status,
+                    "has_error": False,
+                    "error": None,
+                    "timed_out": False,
+                    "polls": polls,
+                    "elapsed_seconds": round(time.monotonic() - start, 2),
+                    "last_response": _truncate(payload),
+                }
+
+            if has_error or (
+                status_upper is not None
+                and status_upper in TERMINAL_FAILURE_STATUSES
+            ):
+                return {
+                    "ok": True,
+                    "run_id": run_id,
+                    "status": last_status,
+                    "has_error": True,
+                    "error": err_field,
+                    "timed_out": False,
+                    "polls": polls,
+                    "elapsed_seconds": round(time.monotonic() - start, 2),
+                    "last_response": _truncate(payload),
+                }
+
+        # Not terminal yet. Check timeout before sleeping so we never
+        # over-sleep the deadline. A single-shot mode (timeout_seconds=0)
+        # falls through here on the first iteration and returns timed_out.
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {
+                "ok": True,
+                "run_id": run_id,
+                "status": last_status,
+                "has_error": False,
+                "error": None,
+                "timed_out": True,
+                "polls": polls,
+                "elapsed_seconds": round(time.monotonic() - start, 2),
+                "last_response": _truncate(last_response) if last_response is not None else None,
+                "notes": (
+                    f"Reached timeout_seconds={timeout_seconds} before "
+                    f"terminal state. Last status: {last_status!r}."
+                ),
+            }
+
+        await asyncio.sleep(min(poll_interval_seconds, remaining))
