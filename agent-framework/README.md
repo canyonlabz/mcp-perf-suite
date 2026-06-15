@@ -6,9 +6,20 @@
 
 > ⚠️ **This module is in active development on the `ag2-agent-framework`
 > branch.** APIs, file layouts, configuration schemas, and database DDL
-> may change without notice until the branch merges to `main`. Several
-> agents currently respond with a documented `not_available` message
-> while their specialist behavior is being wired in. See the
+> may change without notice until the branch merges to `main`.
+>
+> **Operational today:** the orchestrator agent runs the real AG2
+> `ConversableAgent` with all four delegation tools wired, and the
+> **execution-agent** (BlazeMeter) is the first real specialist —
+> end-to-end proven against a live BlazeMeter test run on 2026-06-14
+> (start → wait → extract through the real MCP stack; all six artifact-
+> extraction steps succeeded; the orchestrator can delegate to it via
+> A2A with zero extra wiring on its end).
+>
+> **Next up:** the remaining five specialist scaffolds (script,
+> monitoring, analysis, reporting, notifications) currently respond
+> with a documented `not_available` message while their specialist
+> behavior is being wired in. See the
 > [Current status](#-current-status) table at the bottom of this README
 > for what works today versus what is coming.
 
@@ -169,8 +180,8 @@ to keep in sync — there is one tier with two doors.
 |---|---|
 | `a2a_server.py` | FastAPI entrypoint for the A2A surface on port 8001. Path-routes `/agents/{name}/...` to every enabled agent. |
 | `agui_server.py` | FastAPI entrypoint for the AG-UI / CopilotKit bridge on port 8002. Hosts `/copilotkit/`, `/api/sessions`, `/api/runs`, `/api/events` SSE, `/api/hitl/*`, and (coming) `/api/threads`. Multi-user owner-filtered. |
-| `agents/` | One subfolder per agent following a strict **four-file pattern** (`agent.py`, `agent_card.json`, `INSTRUCTIONS.md`, plus one of `config.yaml` / `config.example.yaml`). One orchestrator + six specialists. |
-| `utils/` | Shared agent-layer infrastructure: LLM provider abstraction (OpenAI / Azure OpenAI / Ollama), per-agent loader, async PostgreSQL pool, session + thread + task + checkpoint + HITL stores, identity resolver, ownership guard. |
+| `agents/` | One subfolder per agent following a strict **four-file pattern** (`agent.py`, `agent_card.json`, `INSTRUCTIONS.md`, plus one of `config.yaml` / `config.example.yaml`). One orchestrator (`status: available`) + one specialist live today (`execution-agent` for BlazeMeter, `status: available`); five specialist scaffolds (`script-agent`, `monitoring-agent`, `analysis-agent`, `reporting-agent`, `notifications-agent`) coming next. |
+| `utils/` | Shared agent-layer infrastructure: LLM provider abstraction (OpenAI / Azure OpenAI / Ollama), per-agent loader, async PostgreSQL pool, session + thread + task + checkpoint + HITL stores, identity resolver, ownership guard, **FastMCP `StreamableHttpTransport` client** for routing every agent's tool calls through PerfPilot Hub with per-agent namespace allowlist filtering. |
 | `workflows/` | Agent-to-agent Python pipelines (e2e, extraction, analysis-report, comparison). |
 | `frontend/` | CopilotKit React skeleton (`ui-react/`) plus the AG-UI bridge adapter. |
 | `config/` | Runtime YAML: global LLM defaults, per-agent enable/disable, session-cookie tunables. |
@@ -319,14 +330,31 @@ docker compose -f docker/docker-compose-windows.yaml up -d perfmemory-db   # or 
 # Provision the new perfagent_state database additively
 python agent-framework/sql/provision.py
 
-# Run the smoke tests
-python scripts/smoke_test_perfagent_state.py    # 25 checks: schema + CRUD + isolation
-python scripts/smoke_test_a2a_server.py         # 26 checks: A2A surface + agent discovery
-python scripts/smoke_test_agui_server.py        # 49 checks: AG-UI bridge + multi-user isolation
-python scripts/smoke_test_llm_providers.py      # LLM provider abstraction
+# --- Foundation smokes (no MCP containers needed) ---
+python scripts/smoke_test_perfagent_state.py         # 25 checks: schema + CRUD + thread isolation
+python scripts/smoke_test_a2a_server.py              # ~73 checks: A2A surface + orchestrator + execution-agent cards + agent discovery
+python scripts/smoke_test_agui_server.py             # 77 checks: AG-UI bridge + multi-user isolation + thread CRUD + real orchestrator round-trip
+python scripts/smoke_test_orchestrator.py            # ~55 checks: full-stack orchestrator + orchestrator → execution-agent E2E (gated on real OPENAI_API_KEY)
+python scripts/smoke_test_llm_providers.py           # LLM provider abstraction
+
+# --- Specialist smokes (require the full docker compose stack with gateway-mcp up) ---
+python scripts/smoke_test_mcp_client.py              # FastMCP StreamableHttpTransport + namespace allowlist (gated on gateway-mcp /health)
+python scripts/smoke_test_execution_agent_tools.py   # 142 checks: mock-driven unit smoke for the 3 execution-agent tools + dispatcher (~5s)
+
+# --- Optional live smoke (real BlazeMeter run; ~5 min wall-clock) ---
+# python scripts/smoke_test_execution_agent.py       # 29 checks: live start → wait → extract against a real BlazeMeter test
 ```
 
-A green run on all four confirms the foundation works on your machine.
+A green run on the foundation smokes confirms the platform layer works
+on your machine. A green run on the specialist smokes confirms the
+real MCP wiring + the execution-agent end-to-end.
+
+> **Timing note for the live smoke:** BlazeMeter spins up its load
+> generators on-demand (spun up at test start, spun down when done).
+> A 1-minute test typically reports ~3–5 minutes wall-clock during the
+> load-generator initialization phase. This is expected vendor
+> behavior; the smoke's 300-second `wait_for_completion` timeout is
+> sized for it.
 
 ### How to follow along
 
@@ -350,23 +378,24 @@ as each milestone group stabilizes.
 |---|---|---|
 | `perfagent_state` PostgreSQL database (7 JSONB tables) | ✅ Working | Sessions, threads, tasks, checkpoints, conversation messages, tool-call traces, HITL approvals — all CRUD with smoke coverage |
 | Multi-LLM provider abstraction (OpenAI / Azure OpenAI / Ollama) | ✅ Working | Per-agent override + global fallback + TLS via standard env vars |
-| **A2A server** (port 8001) — discovery, `tasks/send`, SSE, polling, webhooks, cancel | ✅ Working | All three callback patterns operational |
-| **AG-UI / CopilotKit bridge** (port 8002) — `/copilotkit/`, sessions, runs, events, HITL | ✅ Working | Backend complete; Next.js + CopilotKit React frontend in progress |
-| Multi-user isolation (Alice cannot see Bob's data) | ✅ Working | Owner-filtering on every read endpoint; 9 dedicated isolation smoke checks |
-| Persistent threads (ChatGPT-style multi-day resumption) | ✅ Schema + CRUD live | Wire-up of DB-loaded conversation history is the next milestone |
+| **A2A server** (port 8001) — discovery, `tasks/send`, SSE, polling, webhooks, cancel | ✅ Working | All three callback patterns operational; orchestrator + execution-agent dispatched as real AG2; remaining specialists return `stub` responses until promoted |
+| **AG-UI / CopilotKit bridge** (port 8002) — `/copilotkit/`, sessions, runs, events, HITL, thread CRUD | ✅ Working | Backend complete with real orchestrator at `/copilotkit/` and DB-loaded conversation history; Next.js + CopilotKit React frontend in progress |
+| Multi-user isolation (Alice cannot see Bob's data) | ✅ Working | Owner-filtering on every read endpoint; Bob-vs-Alice isolation blocks across all sessions / runs / events / HITL / thread endpoints |
+| Persistent threads (ChatGPT-style multi-day resumption) | ✅ Working | DB-loaded conversation history wired on BOTH the AG-UI `/copilotkit/` surface AND the A2A `tasks/send` surface; close your browser, come back tomorrow, the conversation continues |
 | Identity resolver (vendor-neutral, Epic 4-ready) | ✅ Working | Four-step chain: upstream-auth → `X-User-Id` → server cookie → freshly minted token |
-| 🎯 Orchestrator agent | 🟡 Scaffolded | `build_orchestrator()` factory live; delegation tools (list / delegate / status / approve) in progress |
-| 🚀 Execution agent (BlazeMeter) — first vertical slice | ⏭ Next | Proves the platform end-to-end: A2A, DB, LLM, MCP namespace filtering, HITL |
-| 📝 Script agent (Playwright / HAR / Swagger / existing-JMX input) | ⏭ Planned | Gated on external Microsoft Playwright MCP container integration |
-| 📊 Monitoring agent (Datadog) | ⏭ Planned | Runs concurrently with execution to pull metrics during the test window |
-| 🔍 Analysis agent | ⏭ Planned | Multi-source correlation (BlazeMeter + Datadog), bottleneck identification, SLA verdict |
-| 📄 Reporting agent (with multi-round HITL revision) | ⏭ Planned | Drafts → human reviews → revises → publishes to Confluence |
-| 📣 Notifications agent (vendor-neutral events) | ⏭ Planned | Emits `TestRunCompleted` events; Teams / SharePoint / Slack adapters wired in Epic 4 |
-| CopilotKit React frontend (Next.js 14 + AG-UI) | ⏭ Planned | Talks to the real orchestrator once it lands |
-| Docker compose for the agent stack (`docker-compose-a2a-local-*.yaml`) | ⏭ Planned | Four services: gateway, agents, db, Playwright MCP |
+| 🎯 Orchestrator agent | ✅ Working | Real AG2 `ConversableAgent` with all four delegation tools wired (`list_available_specialists`, `delegate_to_specialist`, `check_task_status`, `request_human_approval`); `agent_card.json status: available` (v0.2.0); HITL approval round-trip end-to-end proven |
+| **FastMCP `StreamableHttpTransport` client** (`utils/mcp_client.py`) | ✅ Working | Routes every agent's tool calls through PerfPilot Hub with per-agent namespace allowlist filtering (`PermissionError` raised before network round-trip for out-of-allowlist calls); `<ns>_` prefix matching defends against prefix-collision edge cases |
+| 🚀 Execution agent (BlazeMeter) — first vertical slice | ✅ Working | Three vendor-agnostic tools live (`start_performance_test` / `wait_for_completion` / `extract_test_run_artifacts`); `agent_card.json status: available` (v0.2.0); **first live BlazeMeter end-to-end run proven on 2026-06-14** (all 6 artifact-extraction steps succeeded); orchestrator-to-execution-agent A2A contract proven with **zero orchestrator code changes** |
+| 📝 Script agent (Playwright / HAR / Swagger / existing-JMX input) | ⏭ Next (F3.9 scaffold) | Stub scaffold lands in the next milestone; tool wiring follows once the external Microsoft Playwright MCP container ships |
+| 📊 Monitoring agent (Datadog) | ⏭ Next (F3.9 scaffold) | Stub scaffold lands in the next milestone; runs concurrently with execution to pull metrics during the test window |
+| 🔍 Analysis agent | ⏭ Next (F3.9 scaffold) | Stub scaffold lands in the next milestone; multi-source correlation (BlazeMeter + Datadog), bottleneck identification, SLA verdict |
+| 📄 Reporting agent (with multi-round HITL revision) | ⏭ Next (F3.9 scaffold) | Stub scaffold lands in the next milestone; drafts → human reviews → revises → publishes to Confluence |
+| 📣 Notifications agent (vendor-neutral events) | ⏭ Next (F3.9 scaffold) | Stub scaffold lands in the next milestone; emits `TestRunCompleted` events; Teams / SharePoint / Slack adapters wired in Epic 4 |
+| CopilotKit React frontend (Next.js 14 + AG-UI) | ⏭ Planned | Talks to the real orchestrator that already runs on `/copilotkit/` today |
+| Docker compose for the agent stack (`docker-compose-a2a-local-*.yaml`) | ⏭ Planned | Four services: gateway, agents, db, Playwright MCP. Today the agent runtime is exercised via Python smokes that boot servers in-process |
 | Auth + OpenTelemetry hooks (default-off, Epic 4-ready) | 🟡 Hooks reserved | Placeholders in place; activation deferred to cloud deployment |
 | Azure Container Apps / EntraID / Key Vault deployment | 🔮 Epic 4 | Vendor-agnostic by design — other clouds and auth providers are first-class targets |
-| End-to-end workflows (`workflows/e2e_perf_pipeline.py` etc.) | 🔮 Later epic | Once the specialists are real |
+| End-to-end workflows (`workflows/e2e_perf_pipeline.py` etc.) | 🔮 Later epic | Once the remaining specialists are real |
 | `Dockerfile.agents` + production-grade container | 🔮 Later epic | Local dev today; container hardening with the cloud-deploy milestone |
 
 **Legend:** ✅ working today · 🟡 in progress · ⏭ next up · 🔮 later
