@@ -1,0 +1,55 @@
+# Analysis Agent - Per-Agent Configuration (PBI 3.9.3)
+# ----------------------------------------------------
+# See `agent-framework/AGENTS.md` -> "Per-agent `config.yaml` schema"
+# for the full schema reference and the candidate-resolution convention.
+
+# =============================================================================
+# 1. LLM provider override
+# =============================================================================
+# The analysis-agent produces structured verdicts, not creative text.
+# Low temperature (0.1) keeps output deterministic and reproducible.
+#
+# llm_provider:
+#   provider: openai
+#   openai_model: gpt-4o-mini
+#   temperature: 0.1
+
+# =============================================================================
+# 2. MCP namespace allowlist (gateway-mcp tools)
+# =============================================================================
+# The analysis-agent accesses one namespace through the gateway-mcp:
+#
+# - `perfanalysis` — SLA validation (P90 vs slas.yaml thresholds),
+#   bottleneck detection (BlazeMeter + Datadog correlation), log-error
+#   analysis (root-cause bucketing), comparative analysis. Full tool
+#   list includes: perfanalysis_analyze_performance,
+#   perfanalysis_analyze_logs, perfanalysis_analyze_bottlenecks, etc.
+mcp_tools:
+  allowed_namespaces:
+    - perfanalysis
+
+# =============================================================================
+# 3. Retries
+# =============================================================================
+# PerfAnalysis MCP is code-based. Per `mcp-error-handling`: do NOT
+# retry on failure.
+retries: 0
+
+# =============================================================================
+# 4. Timeouts
+# =============================================================================
+# Analysis operations (especially bottleneck correlation across large
+# datasets) can take time. 120 seconds is generous.
+timeout_seconds: 120
+
+# =============================================================================
+# 5. A2A discovery metadata
+# =============================================================================
+a2a:
+  display_name: "PerfPilot Analysis Agent"
+  description: "Post-test SLA validation, bottleneck attribution, and log-error analysis. Currently in development."
+  tags:
+    - analysis
+    - sla
+    - bottleneck
+    - correlation

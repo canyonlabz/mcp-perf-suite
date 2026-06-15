@@ -1,0 +1,127 @@
+# Script Agent - Per-Agent Configuration (PBI 3.9.1)
+# ---------------------------------------------------
+# **This is the committed, public-facing reference file.** Mirrors the
+# same `config.yaml` / `config.example.yaml` split that the MCP servers
+# under this repo already use (and that `agent-framework/config/agents.yaml`
+# uses for the global-fallback LLM block). The agent factory in
+# `agents/script-agent/agent.py` (and the framework-level loader in
+# `utils/base_agent.py`) walk the candidates in priority order:
+#
+#   1. `agents/script-agent/config.yaml`         (gitignored, operator override)
+#   2. `agents/script-agent/config.example.yaml` (this file - committed default)
+#
+# Operators / engineers copy this file to `config.yaml` and customize
+# without polluting git. The example stays unmodified in the branch so
+# smoke tests and fresh clones always have a working default.
+#
+# Consumed by `agents/script-agent/agent.py::build_script_agent()` at
+# startup. See `agent-framework/AGENTS.md` -> "Per-agent `config.yaml`
+# schema" for the full schema reference and the candidate-resolution
+# convention.
+#
+# Sections:
+#   1. llm_provider     - per-agent LLM override
+#   2. mcp_tools        - gateway namespace allowlist (jmeter, perfmemory)
+#   3. playwright_mcp   - direct Playwright MCP connection (outside gateway)
+#   4. retries          - call-level retry budget for transient MCP failures
+#   5. timeout_seconds  - per-tool soft timeout for short MCP calls
+#   6. a2a              - A2A discovery metadata override
+
+# =============================================================================
+# 1. LLM provider override
+# =============================================================================
+# Leaving this block commented out means the script-agent uses
+# `agents.yaml -> default_llm_provider` (in `agents.example.yaml` today
+# that is `openai / gpt-4o-mini / temperature 0.2`). Operators can
+# uncomment + customize without code changes.
+#
+# For script-agent, a balance of analytical (debugging) and creative
+# (script generation) is appropriate. Temperature 0.2-0.3 is reasonable.
+#
+# llm_provider:
+#   provider: openai
+#   openai_model: gpt-4o-mini
+#   temperature: 0.2
+
+# =============================================================================
+# 2. MCP namespace allowlist (gateway-mcp tools)
+# =============================================================================
+# The script-agent accesses two namespaces through the gateway-mcp:
+#
+# - `jmeter` — JMX creation, editing, component manipulation, smoke
+#   testing, HAR/Swagger conversion, correlation, script validation.
+#   Full tool list includes: jmeter_create_jmx_from_har,
+#   jmeter_create_jmx_from_swagger, jmeter_add_component,
+#   jmeter_edit_component, jmeter_run_smoke_test,
+#   jmeter_analyze_jmeter_log, jmeter_get_correlations, etc.
+#
+# - `perfmemory` — Lessons-learned database (PostgreSQL + pgvector +
+#   Apache AGE). Tools for similar-issue lookup, cross-project pattern
+#   discovery via graph RAG, debug session storage, and automatic
+#   solution application. Full tool list includes:
+#   perfmemory_get_related_issues, perfmemory_find_similar_attempts,
+#   perfmemory_find_cross_project_patterns,
+#   perfmemory_store_debug_session, perfmemory_store_debug_attempt,
+#   perfmemory_verify_attempt, etc.
+#
+# `utils/mcp_client.py` filters the gateway-mcp tool catalog through
+# this allowlist before exposing tools to the agent.
+mcp_tools:
+  allowed_namespaces:
+    - jmeter
+    - perfmemory
+
+# =============================================================================
+# 3. Playwright MCP (direct connection, outside gateway)
+# =============================================================================
+# The Playwright MCP (Microsoft's `playwright-mcp` image) runs as a
+# separate service, NOT through the gateway-mcp. The script-agent
+# connects to it directly for browser automation tasks.
+#
+# Per AGENTS.md Convention 5: "the script-agent's call to the Microsoft
+# Playwright MCP is also mediated, just to a different MCP server."
+#
+# Tools available (browser_* namespace, 23 tools):
+#   browser_navigate, browser_click, browser_type, browser_fill_form,
+#   browser_network_requests, browser_network_request, browser_snapshot,
+#   browser_take_screenshot, browser_hover, browser_select_option,
+#   browser_press_key, browser_tabs, browser_close, etc.
+#
+# The Playwright MCP must be active and running before browser automation
+# tools can be used. If unreachable, the agent returns a structured
+# error (see INSTRUCTIONS.md §6.3).
+playwright_mcp:
+  enabled: true
+  # Default endpoint for containerized Playwright MCP (F3.12 will
+  # configure the actual endpoint in docker-compose):
+  # endpoint: "http://playwright-mcp:8003/mcp"
+
+# =============================================================================
+# 4. Retries
+# =============================================================================
+# Retry budget for transient MCP failures. Per the project's
+# `mcp-error-handling` rule:
+# - API-based MCP tools (Playwright): retry up to 3 times
+# - Code-based MCP tools (JMeter, PerfMemory): NEVER retry
+retries: 3
+
+# =============================================================================
+# 5. Timeouts
+# =============================================================================
+# Soft timeout for short MCP calls. JMeter smoke tests and Playwright
+# browser automation can take longer than simple API calls.
+timeout_seconds: 120
+
+# =============================================================================
+# 6. A2A discovery metadata
+# =============================================================================
+a2a:
+  display_name: "PerfPilot Script Agent"
+  description: "JMeter script creation, debugging, and iterative refinement via 3-way MCP collaboration (JMeter + PerfMemory + Playwright). Currently in development."
+  tags:
+    - script
+    - jmeter
+    - playwright
+    - perfmemory
+    - har
+    - swagger
