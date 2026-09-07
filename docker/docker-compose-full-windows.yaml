@@ -20,7 +20,7 @@ services:
   perf-gateway:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.gateway
+      dockerfile: docker/Dockerfile.gateway.example
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
     image: perfpilot-hub-full:latest
@@ -89,7 +89,7 @@ services:
   perfmemory-db:
     build:
       context: .
-      dockerfile: Dockerfile.pgvector-age
+      dockerfile: postgresql/Dockerfile
     image: perfmem-pgvector-age:latest
     container_name: perfmem-pgvector-age
     env_file:
@@ -114,7 +114,7 @@ services:
   playwright-mcp:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.playwright-mcp
+      dockerfile: docker/playwright-mcp/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
     image: playwright-mcp:latest
@@ -133,7 +133,7 @@ services:
   agent-a2a:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.agent-backend
+      dockerfile: docker/agent-backend/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
     image: perf-agent-backend:latest
@@ -170,7 +170,7 @@ services:
   agent-agui:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.agent-backend
+      dockerfile: docker/agent-backend/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
     image: perf-agent-backend:latest
@@ -208,7 +208,7 @@ services:
   frontend:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.agent-frontend
+      dockerfile: docker/agent-frontend/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
     image: perf-agent-frontend:latest
