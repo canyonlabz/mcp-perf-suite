@@ -1393,12 +1393,10 @@ def _resolve_port() -> int:
 
 def main() -> None:
     """`python agui_server.py` entrypoint. Loads .env and runs uvicorn."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
-    # Temporary: enable DEBUG on identity-related loggers for token tracing.
-    # Remove after BUG-11 investigation is complete.
+    from utils.logging_config import configure_logging
+
+    configure_logging()
+    # Enable DEBUG on identity-related loggers for token tracing.
     logging.getLogger("agui_server").setLevel(logging.DEBUG)
     logging.getLogger("utils.session_middleware").setLevel(logging.DEBUG)
     logging.getLogger("agents.orchestrator.agent").setLevel(logging.DEBUG)

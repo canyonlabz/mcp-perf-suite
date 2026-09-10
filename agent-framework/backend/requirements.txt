@@ -38,5 +38,8 @@ openai>=2.30.0
 pyyaml>=6.0.2
 python-dotenv>=1.2.1
 
+# Structured logging (DEPLOYMENT_MODE local/cloud)
+structlog>=24.0.0
+
 # Token counting (context window tracking in multi-turn tool loop)
 tiktoken>=0.12.0

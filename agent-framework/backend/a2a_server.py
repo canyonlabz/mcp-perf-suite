@@ -548,10 +548,9 @@ def _resolve_port() -> int:
 
 def main() -> None:
     """`python a2a_server.py` entrypoint. Loads .env and runs uvicorn."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    from utils.logging_config import configure_logging
+
+    configure_logging()
     try:
         from dotenv import load_dotenv
         load_dotenv(FRAMEWORK_DIR / ".env", override=False)
