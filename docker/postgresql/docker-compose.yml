@@ -1,0 +1,41 @@
+# =============================================================================
+# perfmem-pgvector-age — standalone spin-up
+#
+# Usage (from this folder):
+#   cp .env.example .env    # then edit POSTGRES_PASSWORD
+#   docker compose up --build -d
+#
+# This file is for spinning up the database in isolation. The full-stack
+# compose files (docker/docker-compose-full-{mac,windows}.yaml) are
+# handled in Phase 1e.
+# =============================================================================
+
+services:
+  perfmem-pgvector-age:
+    build:
+      context: ../..
+      dockerfile: docker/postgresql/Dockerfile
+    image: perfmem-pgvector-age:local
+    container_name: perfmem-pgvector-age
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-perfadmin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-perfmemory}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - perfmem-data:/var/lib/postgresql/18/docker
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-perfadmin} -d ${POSTGRES_DB:-perfmemory}
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  perfmem-data:
