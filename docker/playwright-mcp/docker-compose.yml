@@ -1,0 +1,53 @@
+# =============================================================================
+# perfpilot-mcp-playwright — standalone spin-up
+#
+# Usage (from this folder):
+#   cp .env.example .env    # optional — only needed for client cert env vars
+#   docker compose up --build -d
+#
+# Notes:
+#   • Vendor image (Microsoft playwright-mcp). Endpoint is `/mcp`, not
+#     `/perfpilot-mcp-playwright/mcp` — the vendor image does not accept
+#     a path prefix, so MCP_TRANSPORT / MCP_HTTP_PREFIX are NOT set here.
+#   • Browser settings (browser, headless, save-trace, output-dir) are
+#     passed via CLI flags rather than a mounted config.json so this
+#     compose file has no config bind mounts.
+#   • Traces / HAR files are written under `/home/node/output` inside
+#     the container, which is bind-mounted onto `../../.playwright-mcp`
+#     at the repo root so JMeter can consume them.
+# =============================================================================
+
+services:
+  perfpilot-mcp-playwright:
+    build:
+      context: ../..
+      dockerfile: docker/playwright-mcp/Dockerfile
+      args:
+        ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
+    image: perfpilot-mcp-playwright:local
+    container_name: perfpilot-mcp-playwright
+    user: "0:0"
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8117:8117"
+    command:
+      - "--port"
+      - "8117"
+      - "--host"
+      - "0.0.0.0"
+      - "--allowed-hosts"
+      - "*"
+      - "--caps"
+      - "devtools"
+      - "--ignore-https-errors"
+      - "--headless"
+      - "--browser"
+      - "chromium"
+      - "--save-trace"
+      - "--output-dir"
+      - "/home/node/output"
+    volumes:
+      - ../../.playwright-mcp:/home/node/output
+    restart: unless-stopped

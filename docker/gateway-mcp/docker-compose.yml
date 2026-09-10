@@ -1,0 +1,29 @@
+# =============================================================================
+# perfpilot-mcp-gateway — standalone spin-up
+#
+# Usage (from this folder):
+#   cp .env.example .env    # then set MCP_URL_* to reachable endpoints
+#   docker compose up --build -d
+#
+# Standalone note: this file does NOT bring up the 8 upstream MCPs. In
+# the full-stack compose the gateway resolves them via docker network
+# DNS (baked-in config.yaml). Running standalone requires overriding
+# each `MCP_URL_*` with a URL the gateway container can reach — either
+# the host (via host.docker.internal) or a shared external network.
+# =============================================================================
+
+services:
+  perfpilot-mcp-gateway:
+    build:
+      context: ../..
+      dockerfile: docker/gateway-mcp/Dockerfile
+      args:
+        ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
+    image: perfpilot-mcp-gateway:local
+    container_name: perfpilot-mcp-gateway
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8125:8125"
+    restart: unless-stopped
