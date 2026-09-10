@@ -57,7 +57,6 @@ node_modules/
 
 # Docker data volumes and local compose state
 docker/data/
-docker/certs/jmeter/
 docker/.env.gateway
 
 # OS-specific files

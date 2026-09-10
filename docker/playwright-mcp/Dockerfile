@@ -75,6 +75,10 @@ RUN mkdir -p /home/node/.pki/nssdb && \
     chown -R node:node /home/node/.pki && \
     rm -rf /tmp/corporate-certs
 
+# Bake Playwright test-user client certs (.p12 / .pem). Empty dir is fine.
+COPY docker/certs/playwright/ /home/node/certs/
+RUN chown -R node:node /home/node/certs
+
 # Point Node.js at the combined CA bundle (OS store + corporate cert if present)
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 

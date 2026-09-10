@@ -1,6 +1,7 @@
 # datadog.py
 from typing import Optional, Dict, Any, List
 import json
+import os
 from fastmcp import FastMCP, Context    # ✅ FastMCP 3.x import
 from services.datadog_api import (
     load_environment_json, 
@@ -161,7 +162,20 @@ async def get_apm_traces(env_name: str, start_time: str, end_time: str, query_ty
 
 
 if __name__ == "__main__":
+    from utils.logging_config import configure_logging
+
+    configure_logging()
     try:
-        mcp.run(transport="stdio")
+        if os.environ.get("MCP_TRANSPORT", "stdio") == "http":
+            prefix = os.environ.get("MCP_HTTP_PREFIX", "/perfpilot-mcp-datadog")
+            port = int(os.environ.get("HTTP_PORT", "8111"))
+            mcp.run(
+                transport="http",
+                host="0.0.0.0",
+                port=port,
+                path=prefix + "/mcp",
+            )
+        else:
+            mcp.run(transport="stdio")
     except KeyboardInterrupt:
         print("Shutting down Datadog MCP…")

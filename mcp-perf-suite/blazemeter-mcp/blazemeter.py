@@ -1,4 +1,5 @@
 # blazemeter.py
+import os
 from fastmcp import FastMCP, Context        # ✅ FastMCP 3.x import
 from typing import Optional, Dict, Any
 from utils.config import load_config
@@ -466,7 +467,20 @@ mcp.disable(tags={"deprecated"})
 # BlazeMeter MCP entry point
 # -----------------------------
 if __name__ == "__main__":
+    from utils.logging_config import configure_logging
+
+    configure_logging()
     try:
-        mcp.run(transport="stdio")
+        if os.environ.get("MCP_TRANSPORT", "stdio") == "http":
+            prefix = os.environ.get("MCP_HTTP_PREFIX", "/perfpilot-mcp-blazemeter")
+            port = int(os.environ.get("HTTP_PORT", "8110"))
+            mcp.run(
+                transport="http",
+                host="0.0.0.0",
+                port=port,
+                path=prefix + "/mcp",
+            )
+        else:
+            mcp.run(transport="stdio")
     except KeyboardInterrupt:
         print("Shutting down BlazeMeter MCP…")
