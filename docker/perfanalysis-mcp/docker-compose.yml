@@ -13,7 +13,7 @@ services:
       dockerfile: docker/perfanalysis-mcp/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
-    image: perfpilot-mcp-perfanalysis:local
+    image: perfpilot-mcp-perfanalysis:latest
     container_name: perfpilot-mcp-perfanalysis
     env_file:
       - path: .env

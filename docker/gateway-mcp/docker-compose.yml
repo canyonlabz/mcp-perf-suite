@@ -19,7 +19,7 @@ services:
       dockerfile: docker/gateway-mcp/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
-    image: perfpilot-mcp-gateway:local
+    image: perfpilot-mcp-gateway:latest
     container_name: perfpilot-mcp-gateway
     env_file:
       - path: .env

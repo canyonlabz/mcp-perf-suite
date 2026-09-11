@@ -24,7 +24,7 @@ services:
       dockerfile: docker/playwright-mcp/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
-    image: perfpilot-mcp-playwright:local
+    image: perfpilot-mcp-playwright:latest
     container_name: perfpilot-mcp-playwright
     user: "0:0"
     env_file:

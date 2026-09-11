@@ -13,7 +13,7 @@ services:
       dockerfile: docker/blazemeter-mcp/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
-    image: perfpilot-mcp-blazemeter:local
+    image: perfpilot-mcp-blazemeter:latest
     container_name: perfpilot-mcp-blazemeter
     env_file:
       - path: .env

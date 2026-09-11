@@ -18,7 +18,7 @@ services:
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
         JMETER_PLUGINS: ${JMETER_PLUGINS:-jpgc-casutg,bzm-parallel,bzm-http2,jpgc-functions,jpgc-json,jpgc-tst,websocket-samplers}
-    image: perfpilot-mcp-jmeter:local
+    image: perfpilot-mcp-jmeter:latest
     container_name: perfpilot-mcp-jmeter
     env_file:
       - path: .env

@@ -13,7 +13,7 @@ services:
       dockerfile: docker/github-mcp/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
-    image: perfpilot-mcp-github:local
+    image: perfpilot-mcp-github:latest
     container_name: perfpilot-mcp-github
     env_file:
       - path: .env

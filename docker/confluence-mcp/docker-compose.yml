@@ -14,7 +14,7 @@ services:
       dockerfile: docker/confluence-mcp/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
-    image: perfpilot-mcp-confluence:local
+    image: perfpilot-mcp-confluence:latest
     container_name: perfpilot-mcp-confluence
     env_file:
       - path: .env

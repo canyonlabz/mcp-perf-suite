@@ -13,7 +13,7 @@ services:
       dockerfile: docker/perfreport-mcp/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
-    image: perfpilot-mcp-perfreport:local
+    image: perfpilot-mcp-perfreport:latest
     container_name: perfpilot-mcp-perfreport
     env_file:
       - path: .env

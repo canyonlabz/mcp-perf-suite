@@ -17,7 +17,7 @@ services:
       dockerfile: docker/agent-frontend/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
-    image: perfpilot-ui:local
+    image: perfpilot-ui:latest
     container_name: perfpilot-ui
     env_file:
       - path: .env

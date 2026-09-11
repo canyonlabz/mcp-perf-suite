@@ -13,7 +13,7 @@ services:
       dockerfile: docker/datadog-mcp/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
-    image: perfpilot-mcp-datadog:local
+    image: perfpilot-mcp-datadog:latest
     container_name: perfpilot-mcp-datadog
     env_file:
       - path: .env

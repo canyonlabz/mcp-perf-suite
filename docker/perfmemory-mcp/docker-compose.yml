@@ -18,7 +18,7 @@ services:
       dockerfile: docker/perfmemory-mcp/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
-    image: perfpilot-mcp-perfmemory:local
+    image: perfpilot-mcp-perfmemory:latest
     container_name: perfpilot-mcp-perfmemory
     env_file:
       - path: .env

@@ -21,7 +21,7 @@ services:
       dockerfile: docker/agent-backend/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
-    image: perfpilot-a2a:local
+    image: perfpilot-a2a:latest
     container_name: perfpilot-a2a
     command: ["python", "a2a_server.py"]
     env_file:
@@ -40,7 +40,7 @@ services:
       dockerfile: docker/agent-backend/Dockerfile
       args:
         ENABLE_CORP_CA: ${ENABLE_CORP_CA:-false}
-    image: perfpilot-agui:local
+    image: perfpilot-agui:latest
     container_name: perfpilot-agui
     command: ["python", "agui_server.py"]
     env_file:

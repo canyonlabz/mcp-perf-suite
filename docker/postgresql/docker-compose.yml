@@ -15,8 +15,16 @@ services:
     build:
       context: ../..
       dockerfile: docker/postgresql/Dockerfile
-    image: perfmem-pgvector-age:local
+    image: perfmem-pgvector-age:latest
     container_name: perfmem-pgvector-age
+    # ---------------------------------------------------------------------
+    # macOS ONLY — uncomment the line below when running on Docker Desktop
+    # for Mac. Docker Desktop's VirtioFS ships the mounted volume with
+    # ownership that doesn't match the postgres UID inside the image;
+    # forcing the container process to run as UID 999 (the image's
+    # postgres user) is the working combination.
+    # ---------------------------------------------------------------------
+    # user: "999:999"
     env_file:
       - path: .env
         required: false
@@ -24,10 +32,23 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-perfadmin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-perfmemory}
+      # -------------------------------------------------------------------
+      # macOS ONLY — uncomment the line below when running on Docker
+      # Desktop for Mac. initdb cannot chown the bind-mount root under
+      # VirtioFS; pointing PGDATA at a sub-directory lets it create and
+      # own its own folder instead. Windows / WSL2 does not need this.
+      # The full-stack docker-compose-full-mac.yaml sets both this and
+      # `user: "999:999"` above unconditionally.
+      # -------------------------------------------------------------------
+      # PGDATA: /var/lib/postgresql/18/docker/pgdata
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - perfmem-data:/var/lib/postgresql/18/docker
+      # Bind mount is required — named volumes fail on this image because
+      # PG 18's initdb cannot chown the docker-managed volume root.
+      # Path resolves to docker/data/pgvectordb, shared with the
+      # full-stack compose so standalone and full-stack see the same data.
+      - ../data/pgvectordb:/var/lib/postgresql/18/docker
     healthcheck:
       test:
         - CMD-SHELL
@@ -36,6 +57,3 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-
-volumes:
-  perfmem-data:
